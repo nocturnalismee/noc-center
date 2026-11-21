@@ -1,0 +1,4 @@
+*.tmp
+*.swp
+agent/config/agent.conf
+agent/config/token
