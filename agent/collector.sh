@@ -38,6 +38,7 @@ OPT_VERSION=0                             # --version
 PANEL_NAME=""     # resolved panel name reported in the payload (Task 4)
 PANEL_FILE=""     # path to the selected panel plugin (Task 4)
 PANEL_TMP=""      # temp file holding collected panel metric lines (Task 4)
+EXT_TMP=""        # temp file holding collected module metric lines (Task 5)
 TMP_STATE_DIR=""  # temporary state dir created for non-root --dry-run
 
 usage() {
@@ -356,10 +357,210 @@ run_panel() {
   return 0
 }
 
-# cleanup_temps -> remove throwaway state/panel temp paths on exit.
+# --- Module loader (Task 5) ------------------------------------------------
+#
+# A system module is an executable Bash script in the module directory. Unlike
+# panels (exactly one per run), the core runs every applicable inline module
+# and reads the cache of every applicable external module. See
+# agent/modules/README.md for the full contract.
+
+# _module_dir -> the system module directory (CLI override or default).
+_module_dir() {
+  if [[ -n ${OPT_MODULE_DIR:-} ]]; then
+    printf '%s' "$OPT_MODULE_DIR"
+  else
+    printf '%s' "$SELF_DIR/modules"
+  fi
+}
+
+# _cache_dir -> the module cache directory (derived from STATE_DIR).
+_cache_dir() {
+  printf '%s' "${STATE_DIR}/cache"
+}
+
+# _run_dir -> the runtime directory (CLI override or default).
+_run_dir() {
+  if [[ -n ${OPT_RUN_DIR:-} ]]; then
+    printf '%s' "$OPT_RUN_DIR"
+  else
+    printf '%s' "${RUN_DIR:-/run/noc-agent}"
+  fi
+}
+
+# module_enabled NAME -> 0 (true) unless ENABLE_<UPPER> is exactly 0.
+module_enabled() {
+  local name=${1-} upper var val
+  upper=$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]')
+  var="ENABLE_$upper"
+  val=${!var-}
+  [[ $val == 0 ]] && return 1
+  return 0
+}
+
+# module_mode FILE -> print "inline" or "external". Missing/unknown output is
+# treated as inline.
+module_mode() {
+  local file=${1-} out
+  out=$(timeout "$MODULE_DETECT_TIMEOUT" "$file" mode 2>/dev/null) || out=""
+  case ${out:-} in
+    external) printf 'external' ;;
+    *) printf 'inline' ;;
+  esac
+}
+
+# _route_lines SRC PREFIX DEST -> append SRC lines whose key starts with PREFIX
+# (blank/comment lines skipped). This is the per-module prefix check: a module
+# may only emit keys beginning "<name>.".
+_route_lines() {
+  local src=${1-} prefix=${2-} dest=${3-}
+  local line
+  while IFS= read -r line || [[ -n $line ]]; do
+    line=${line%$'\r'}
+    [[ -z $line ]] && continue
+    [[ $line == '#'* ]] && continue
+    [[ $line == "$prefix"* ]] || continue
+    printf '%s\n' "$line" >> "$dest"
+  done < "$src"
+}
+
+# _has_key FILE KEY -> 0 when a metric line's key equals KEY exactly.
+_has_key() {
+  local file=${1-} want=${2-} line key
+  while IFS=$'\t' read -r key _ || [[ -n ${key-} ]]; do
+    [[ ${key-} == "$want" ]] && return 0
+  done < "$file"
+  return 1
+}
+
+# _run_inline FILE NAME DEST -> run an inline module's collect under
+# MODULE_TIMEOUT, routing its (prefix-filtered) lines into DEST. Failure is a
+# warning only and never aborts the payload.
+_run_inline() {
+  local file=${1-} name=${2-} dest=${3-}
+  local out rc
+  out=$(mktemp "${TMPDIR:-/tmp}/noc-agent.mod.XXXXXX") 2>/dev/null || return 0
+  rc=0
+  timeout "$MODULE_TIMEOUT" "$file" collect >"$out" 2>/dev/null
+  rc=$?
+  if (( rc != 0 )); then
+    _err "module '$name': collect failed (rc=$rc); metrics omitted"
+    rm -f "$out"
+    return 0
+  fi
+  _route_lines "$out" "$name." "$dest"
+  rm -f "$out"
+  return 0
+}
+
+# run_modules EXT_TMP -> run inline modules and read external module caches,
+# writing validated metric lines to EXT_TMP. A missing/insecure module is
+# skipped; an inline failure is a warning only. External caches contribute only
+# when they are a regular non-symlink file; a cache_age_seconds metric is
+# appended from the file's mtime.
+run_modules() {
+  local ext_tmp=${1:-/dev/null}
+  local dir f base name mode cache now mtime age
+  : > "$ext_tmp"
+  dir=$(_module_dir)
+  [[ -d $dir ]] || return 0
+  for f in "$dir"/*.sh; do
+    [[ -e $f ]] || continue
+    base=${f##*/}
+    [[ $base == _* ]] && continue
+    name=${base%.sh}
+    module_enabled "$name" || continue
+    require_secure_file "$f" 2>/dev/null || continue
+    if ! timeout "$MODULE_DETECT_TIMEOUT" "$f" detect >/dev/null 2>&1; then
+      continue
+    fi
+    case $(module_mode "$f") in
+      external)
+        cache=$(_cache_dir)/$name.metrics
+        if [[ -f $cache && ! -L $cache ]]; then
+          now=$(date +%s)
+          mtime=$(stat -c %Y "$cache" 2>/dev/null) || mtime=""
+          if [[ -n $mtime && $mtime =~ ^[0-9]+$ ]]; then
+            age=$((now - mtime))
+            (( age < 0 )) && age=0
+          else
+            age=0
+          fi
+          _route_lines "$cache" "$name." "$ext_tmp"
+          printf '%s.cache_age_seconds\tn\t%s\n' "$name" "$age" >> "$ext_tmp"
+        fi
+        ;;
+      *)
+        _run_inline "$f" "$name" "$ext_tmp"
+        ;;
+    esac
+  done
+  return 0
+}
+
+# run_module_mode NAME -> validate and run exactly one module, writing its cache
+# atomically (temp 600 + mv) or, with --dry-run, printing normalized metric
+# lines and writing nothing. It never reads the token and never sends HTTP.
+# Returns 4 on any failure (invalid name, missing/insecure module, disabled,
+# detect failure, collect failure, or an external module missing updated_at),
+# preserving any previous cache.
+run_module_mode() {
+  local name=${1-} dir f out route cache tmp rc mode
+  [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || { _err "module: invalid name '$name'"; return 4; }
+  dir=$(_module_dir)
+  f=$dir/$name.sh
+  [[ -e $f && ! -L $f ]] || { _err "module: '$name' not found in $dir"; return 4; }
+  require_secure_file "$f" || return 4
+  module_enabled "$name" || { _err "module: '$name' is disabled"; return 4; }
+
+  if ! timeout "$MODULE_DETECT_TIMEOUT" "$f" detect >/dev/null 2>&1; then
+    _err "module: '$name' not applicable (detect failed)"
+    return 4
+  fi
+  mode=$(module_mode "$f")
+
+  out=$(mktemp "${TMPDIR:-/tmp}/noc-agent.modmode.XXXXXX") 2>/dev/null || return 4
+  rc=0
+  timeout "$HEAVY_MODULE_TIMEOUT" "$f" collect >"$out" 2>/dev/null
+  rc=$?
+  if (( rc != 0 )); then
+    _err "module: '$name' collect failed (rc=$rc)"
+    rm -f "$out"
+    return 4
+  fi
+
+  route=$(mktemp "${TMPDIR:-/tmp}/noc-agent.modroute.XXXXXX") 2>/dev/null \
+    || { rm -f "$out"; return 4; }
+  _route_lines "$out" "$name." "$route"
+  rm -f "$out"
+
+  if [[ $mode == external ]] && ! _has_key "$route" "$name.updated_at"; then
+    _err "module: '$name' did not emit $name.updated_at"
+    rm -f "$route"
+    return 4
+  fi
+
+  if (( OPT_DRY_RUN )); then
+    cat "$route"
+    rm -f "$route"
+    return 0
+  fi
+
+  cache=$(_cache_dir)/$name.metrics
+  mkdir -p "$(_cache_dir)" 2>/dev/null || { rm -f "$route"; return 4; }
+  tmp=$(mktemp "$(_cache_dir)/.${name}.metrics.XXXXXX") 2>/dev/null \
+    || { rm -f "$route"; return 4; }
+  ( umask 077; cat "$route" > "$tmp" ) 2>/dev/null
+  chmod 600 "$tmp" 2>/dev/null
+  mv -f "$tmp" "$cache" 2>/dev/null || { rm -f "$tmp" "$route"; return 4; }
+  rm -f "$route"
+  return 0
+}
+
+# cleanup_temps -> remove throwaway state/panel/module temp paths on exit.
 cleanup_temps() {
   [[ -n ${TMP_STATE_DIR:-} ]] && rm -rf "$TMP_STATE_DIR"
   [[ -n ${PANEL_TMP:-} ]] && rm -f "$PANEL_TMP"
+  [[ -n ${EXT_TMP:-} ]] && rm -f "$EXT_TMP"
 }
 
 main() {
@@ -390,21 +591,37 @@ main() {
   [[ -n $OPT_STATE_DIR ]] && STATE_DIR=$OPT_STATE_DIR
   [[ -n $OPT_PANEL ]] && PANEL=$OPT_PANEL
 
+  # Module mode: run exactly one module and write/refresh its cache. It never
+  # reads the token and never sends HTTP. Non-root runs require state and run
+  # dirs owned by the effective UID; production defaults require root.
+  if [[ -n $OPT_MODULE ]]; then
+    if (( OPT_DRY_RUN == 0 )); then
+      require_secure_dir "$STATE_DIR" || return 1
+      require_secure_dir "$(_run_dir)" || return 1
+    fi
+    run_module_mode "$OPT_MODULE" || return $?
+    return 0
+  fi
+
   # Resolve the panel (detect/auto/explicit) before building any payload so a
   # missing explicitly requested plugin is a config error, and agent.panel is
   # the selected panel name (never "auto").
   select_panel || return 1
 
   if (( OPT_DRY_RUN )); then
-    # No token, no lock, no cache write, no HTTP. A non-root run without an
-    # explicit state dir gets a throwaway state dir for a stable agent id.
-    if [[ -z $OPT_STATE_DIR && $(id -u) -ne 0 ]]; then
+    # No token, no lock, no HTTP. A non-root run whose state dir is not owned
+    # by the effective UID (e.g. the production /var/lib/noc-agent default)
+    # gets a throwaway state dir for a stable agent id; otherwise the
+    # configured state dir is used directly so module caches are readable.
+    if (( $(id -u) != 0 )) && ! _owned_by_me "$STATE_DIR"; then
       TMP_STATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/noc-agent.XXXXXX") 2>/dev/null || TMP_STATE_DIR=""
       [[ -n $TMP_STATE_DIR ]] && STATE_DIR=$TMP_STATE_DIR
     fi
     collect_core
     run_panel
-    build_payload "${PANEL_TMP:-/dev/null}" /dev/null
+    EXT_TMP=$(mktemp "${TMPDIR:-/tmp}/noc-agent.ext.XXXXXX") 2>/dev/null || EXT_TMP=/dev/null
+    run_modules "$EXT_TMP"
+    build_payload "${PANEL_TMP:-/dev/null}" "$EXT_TMP"
     return 0
   fi
 

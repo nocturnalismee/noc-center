@@ -5,4 +5,5 @@ bash tools/tests/json_test.sh
 bash tools/tests/common_test.sh
 bash tools/tests/core_test.sh
 bash tools/tests/panel_test.sh
+bash tools/tests/module_test.sh
 echo "test-agent: PASS"
