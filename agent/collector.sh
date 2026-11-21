@@ -36,6 +36,8 @@ OPT_VERSION=0                             # --version
 
 # --- Runtime state ----------------------------------------------------------
 PANEL_NAME=""     # resolved panel name reported in the payload (Task 4)
+PANEL_FILE=""     # path to the selected panel plugin (Task 4)
+PANEL_TMP=""      # temp file holding collected panel metric lines (Task 4)
 TMP_STATE_DIR=""  # temporary state dir created for non-root --dry-run
 
 usage() {
@@ -268,8 +270,102 @@ build_payload() {
   printf '}\n'
 }
 
+# _panel_dir -> the panel plugin directory (CLI override or default).
+_panel_dir() {
+  if [[ -n ${OPT_PANEL_DIR:-} ]]; then
+    printf '%s' "$OPT_PANEL_DIR"
+  else
+    printf '%s' "$SELF_DIR/panels"
+  fi
+}
+
+# select_panel -> resolve PANEL into PANEL_NAME and PANEL_FILE.
+#   PANEL=none    -> no panel (PANEL_NAME=none, PANEL_FILE empty).
+#   PANEL=<name>  -> use panels/<name>.sh; it must exist and be secure, and a
+#                    missing/insecure plugin is a config error (return 1).
+#   PANEL=auto    -> scan panels/*.sh in sorted order (skipping _*), picking
+#                    the first plugin whose `detect` exits 0 within
+#                    PANEL_DETECT_TIMEOUT; none found -> PANEL_NAME=none.
+select_panel() {
+  local dir f base plugin
+  dir=$(_panel_dir)
+  PANEL_FILE=""
+  case ${PANEL:-none} in
+    none)
+      PANEL_NAME="none"
+      ;;
+    auto)
+      PANEL_NAME="none"
+      if [[ -d $dir ]]; then
+        for f in "$dir"/*.sh; do
+          [[ -e $f ]] || continue
+          base=${f##*/}
+          [[ $base == _* ]] && continue
+          require_secure_file "$f" 2>/dev/null || continue
+          if timeout "$PANEL_DETECT_TIMEOUT" "$f" detect >/dev/null 2>&1; then
+            PANEL_NAME=${base%.sh}
+            PANEL_FILE=$f
+            break
+          fi
+        done
+      fi
+      ;;
+    *)
+      plugin=$dir/$PANEL.sh
+      if [[ ! -e $plugin || -L $plugin ]]; then
+        _err "config error: PANEL plugin '$PANEL' not found in $dir"
+        return 1
+      fi
+      if ! require_secure_file "$plugin"; then
+        _err "config error: PANEL plugin '$plugin' is not a secure regular file"
+        return 1
+      fi
+      PANEL_NAME=$PANEL
+      PANEL_FILE=$plugin
+      ;;
+  esac
+  return 0
+}
+
+# run_panel -> run the selected plugin's `collect` under timeout, writing its
+# raw metric lines to PANEL_TMP. A nonzero exit or timeout logs a warning and
+# leaves PANEL_TMP empty (core metrics are still sent). Plugin stderr is logged
+# only when DEBUG=1.
+run_panel() {
+  PANEL_TMP=""
+  [[ -n $PANEL_FILE ]] || return 0
+  local out err rc
+  out=$(mktemp "${TMPDIR:-/tmp}/noc-agent.panel.XXXXXX") 2>/dev/null || return 0
+  err=$(mktemp "${TMPDIR:-/tmp}/noc-agent.panel-err.XXXXXX") 2>/dev/null || err=""
+  rc=0
+  timeout "$PANEL_TIMEOUT" "$PANEL_FILE" collect >"$out" 2>"${err:-/dev/null}"
+  rc=$?
+  if (( rc != 0 )); then
+    _err "panel '$PANEL_NAME': collect failed (rc=$rc); panel metrics omitted"
+    if (( ${DEBUG:-0} )) && [[ -n $err && -s $err ]]; then
+      while IFS= read -r line; do
+        _err "panel '$PANEL_NAME': $line"
+      done < "$err"
+    fi
+    rm -f "$out" "${err:-}"
+    PANEL_TMP=""
+    return 0
+  fi
+  rm -f "${err:-}"
+  PANEL_TMP=$out
+  return 0
+}
+
+# cleanup_temps -> remove throwaway state/panel temp paths on exit.
+cleanup_temps() {
+  [[ -n ${TMP_STATE_DIR:-} ]] && rm -rf "$TMP_STATE_DIR"
+  [[ -n ${PANEL_TMP:-} ]] && rm -f "$PANEL_TMP"
+}
+
 main() {
   parse_args "$@" || return 1
+
+  trap cleanup_temps EXIT
 
   umask 077
   # Extend PATH with cPanel paths (append only, never prepend) so panel CLIs
@@ -293,20 +389,22 @@ main() {
   # CLI overrides (run/module/panel dirs are consumed by later tasks).
   [[ -n $OPT_STATE_DIR ]] && STATE_DIR=$OPT_STATE_DIR
   [[ -n $OPT_PANEL ]] && PANEL=$OPT_PANEL
-  PANEL_NAME=$PANEL
+
+  # Resolve the panel (detect/auto/explicit) before building any payload so a
+  # missing explicitly requested plugin is a config error, and agent.panel is
+  # the selected panel name (never "auto").
+  select_panel || return 1
 
   if (( OPT_DRY_RUN )); then
     # No token, no lock, no cache write, no HTTP. A non-root run without an
     # explicit state dir gets a throwaway state dir for a stable agent id.
     if [[ -z $OPT_STATE_DIR && $(id -u) -ne 0 ]]; then
       TMP_STATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/noc-agent.XXXXXX") 2>/dev/null || TMP_STATE_DIR=""
-      if [[ -n $TMP_STATE_DIR ]]; then
-        STATE_DIR=$TMP_STATE_DIR
-        trap 'rm -rf "$TMP_STATE_DIR"' EXIT
-      fi
+      [[ -n $TMP_STATE_DIR ]] && STATE_DIR=$TMP_STATE_DIR
     fi
     collect_core
-    build_payload /dev/null /dev/null
+    run_panel
+    build_payload "${PANEL_TMP:-/dev/null}" /dev/null
     return 0
   fi
 
