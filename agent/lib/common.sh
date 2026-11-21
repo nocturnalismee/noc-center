@@ -101,12 +101,17 @@ require_secure_dir() {
 # Config loading and validation
 # ---------------------------------------------------------------------------
 
-# load_config FILE -> source a securely-owned config file into the shell.
+# load_config FILE -> source a securely-owned config file into the shell and
+# export the non-secret module tuning settings, so external modules run as
+# subprocesses see the configured values (not just their built-in defaults).
 load_config() {
   local path=${1-}
   require_secure_file "$path" || return 1
   # shellcheck disable=SC1090
-  source "$path"
+  source "$path" || return 1
+  # Exact whitelist: never export API_URL, the token, or path settings.
+  export QUOTA_TOP_N MYSQL_MAX_QUERIES MYSQL_MIN_SECONDS \
+    MYSQL_INCLUDE_QUERY_TEXT SMART_MAX_DISKS
 }
 
 # _check_range NAME MIN MAX -> 0 when $NAME is an integer within [MIN, MAX].
