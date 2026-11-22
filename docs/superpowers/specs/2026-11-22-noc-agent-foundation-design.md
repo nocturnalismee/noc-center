@@ -287,7 +287,7 @@ Jadwal berada di unit `.timer`, bukan di config agent. Timer `smart` dan `diskqu
 Modul yang disediakan di fondasi:
 
 - `mysql.sh` — `Threads_running`, jumlah query panjang, dan maksimal `MYSQL_MAX_QUERIES` query dari PROCESSLIST (user, db, time, state, info terpotong).
-- `smart.sh` — jumlah disk, status keseluruhan, disk bermasalah, dan health/reallocated/pending per disk.
+- `smart.sh` — jumlah disk, status keseluruhan, disk bermasalah, health/reallocated/pending, power-on hours, dan total data tertulis per disk.
 - `diskquota.sh` — top `QUOTA_TOP_N` akun berdasarkan pemakaian, jumlah akun, jumlah yang over quota, timestamp. Memakai daftar user cPanel bila ada; jika tidak, memakai user dari `repquota`.
 - `imunify.sh` — status scan berjalan, age, jumlah file, target, timestamp.
 
@@ -467,7 +467,7 @@ SMART (`smart.sh`):
 - `smart.disks` (number), `smart.bad_count` (number)
 - `smart.status` (string: `ok`, `warning`, `failed`, `unknown`)
 - `smart.detail` (string, maksimum 512 byte)
-- `smart.disk.<dev>.health`, `.realloc`, `.pending` untuk tiap disk (maksimum `SMART_MAX_DISKS`); nama device disanitasi.
+- `smart.disk.<dev>.health`, `.realloc`, `.pending`, `.power_on_hours`, `.written_gb` untuk tiap disk (maksimum `SMART_MAX_DISKS`); nama device disanitasi. `power_on_hours` dan `written_gb` bernilai 0 jika disk tidak melaporkannya; `written_gb` adalah total byte tertulis (NVMe `Data Units Written` × 512000 byte; ATA `Total_LBAs_Written` × 512 byte, estimasi best-effort), bukan rating endurance TBW pabrikan.
 
 Disk quota (`diskquota.sh`):
 

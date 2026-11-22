@@ -413,9 +413,14 @@ Module fields:
 | Module | Fields |
 | --- | --- |
 | MySQL | `mysql.available`, `mysql.threads_running`, `mysql.long_queries`, `mysql.updated_at`, `mysql.query.<i>.{user,db,state,info,time}` |
-| SMART | `smart.updated_at`, `smart.disks`, `smart.bad_count`, `smart.status` (`ok`/`warning`/`failed`/`unknown`), `smart.detail`, `smart.disk.<dev>.{health,realloc,pending}`, `smart.cache_age_seconds` |
+| SMART | `smart.updated_at`, `smart.disks`, `smart.bad_count`, `smart.status` (`ok`/`warning`/`failed`/`unknown`), `smart.detail`, `smart.disk.<dev>.{health,realloc,pending,power_on_hours,written_gb}`, `smart.cache_age_seconds` |
 | Disk quota | `diskquota.updated_at`, `diskquota.accounts`, `diskquota.over`, `diskquota.top.<user>.used_gb`, `diskquota.cache_age_seconds` |
 | Imunify | `imunify.updated_at`, `imunify.scanning`, `imunify.age_s`, `imunify.files`, `imunify.target`, `imunify.cache_age_seconds` |
+
+For SMART, `power_on_hours` and `written_gb` are `0` when the drive does not
+report them. `written_gb` is lifetime bytes written (NVMe `Data Units Written`
+× 512000 bytes; ATA `Total_LBAs_Written` × 512 bytes as a best-effort
+estimate), not the manufacturer's TBW endurance rating.
 
 ### Exit codes
 

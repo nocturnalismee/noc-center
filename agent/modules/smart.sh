@@ -62,25 +62,49 @@ _emit() {
   printf '%s\t%s\t%s\n' "$key" "$type" "$value"
 }
 
-# _parse_smart OUTPUT -> print "HEALTH REALLOC PENDING".
-# Overall health comes from the self-assessment line; Reallocated_Sector_Ct and
-# Current_Pending_Sector are read from the 10th whitespace field (the raw
-# value) of their attribute rows.
+# _parse_smart OUTPUT -> print "HEALTH REALLOC PENDING POWER_ON_HOURS WRITTEN_GB".
+# Overall health comes from the self-assessment line; Reallocated_Sector_Ct,
+# Current_Pending_Sector, Power_On_Hours and Total_LBAs_Written are read from
+# the 10th whitespace field (the raw value) of their ATA attribute rows.
+# NVMe reports Power On Hours and Data Units Written as labelled lines instead.
 _parse_smart() {
   local out=${1-}
   printf '%s\n' "$out" | awk '
     /SMART overall-health self-assessment test result:/ { h = $NF }
+    /Power On Hours:/ {
+      poh = $4
+      gsub(/,/, "", poh)
+    }
+    /Data Units Written:/ {
+      duw = $4
+      gsub(/,/, "", duw)
+    }
     {
       for (i = 1; i <= 2; i++) {
         if ($i == "Reallocated_Sector_Ct")  realloc = $(i + 8)
         if ($i == "Current_Pending_Sector") pending = $(i + 8)
+        if ($i == "Power_On_Hours")         poh = $(i + 8)
+        if ($i == "Total_LBAs_Written")     lba = $(i + 8)
       }
     }
     END {
       if (h == "") h = "UNKNOWN"
       if (realloc == "" || realloc == "-") realloc = 0
       if (pending == "" || pending == "-") pending = 0
-      printf "%s %s %s\n", h, realloc, pending
+      if (poh == "" || poh == "-") poh = 0
+      gsub(/,/, "", poh)
+
+      if (lba != "" && lba != "-") {
+        gsub(/,/, "", lba)
+        written_bytes = lba * 512
+      } else if (duw != "" && duw != "-") {
+        written_bytes = duw * 1000 * 512
+      } else {
+        written_bytes = 0
+      }
+      written_gb = written_bytes / 1000000000
+
+      printf "%s %s %s %d %.1f\n", h, realloc, pending, poh, written_gb
     }
   '
 }
@@ -139,15 +163,19 @@ case ${1:-} in
         _emit "smart.disk.$key.health" s UNKNOWN
         _emit "smart.disk.$key.realloc" n 0
         _emit "smart.disk.$key.pending" n 0
+        _emit "smart.disk.$key.power_on_hours" n 0
+        _emit "smart.disk.$key.written_gb" n 0.0
         detail="${detail}${dev}:unknown "
         continue
       fi
       checked=$((checked + 1))
 
       parsed=$(_parse_smart "$out")
-      read -r health realloc pending <<< "$parsed"
+      read -r health realloc pending power_on_hours written_gb <<< "$parsed"
       [[ $realloc =~ ^[0-9]+$ ]] || realloc=0
       [[ $pending =~ ^[0-9]+$ ]] || pending=0
+      [[ $power_on_hours =~ ^[0-9]+$ ]] || power_on_hours=0
+      [[ $written_gb =~ ^[0-9]+(\.[0-9]+)?$ ]] || written_gb=0.0
 
       case $health in
         PASSED) ;;
@@ -158,6 +186,8 @@ case ${1:-} in
       _emit "smart.disk.$key.health" s "$health"
       _emit "smart.disk.$key.realloc" n "$realloc"
       _emit "smart.disk.$key.pending" n "$pending"
+      _emit "smart.disk.$key.power_on_hours" n "$power_on_hours"
+      _emit "smart.disk.$key.written_gb" n "$written_gb"
 
       if [[ $health == FAILED || $realloc -gt 0 || $pending -gt 0 ]]; then
         bad=$((bad + 1))
