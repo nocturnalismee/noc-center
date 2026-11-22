@@ -8,4 +8,5 @@ bash tools/tests/panel_test.sh
 bash tools/tests/module_test.sh
 bash tools/tests/smart_test.sh
 bash tools/tests/diskquota_test.sh
+bash tools/tests/imunify_test.sh
 echo "test-agent: PASS"
