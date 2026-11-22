@@ -21,8 +21,10 @@
 # allows it for the Imunify parser); without it the module is skipped.
 #
 # When the CLI or the parser fails, collect exits 1 so the core preserves the
-# previous cache (exit 4). A successful "no running scan" response emits
-# imunify.scanning 0 with no age/files/target. RAID is a non-goal.
+# previous cache (exit 4). A successful "no running scan" response still emits
+# the full field set, with zero values: imunify.scanning 0, imunify.age_s 0,
+# imunify.files 0 and imunify.target "none" (an empty string would be dropped).
+# RAID is a non-goal.
 
 set -u
 export LC_ALL=C
@@ -143,6 +145,9 @@ case ${1:-} in
 
     if [[ -z $parsed ]]; then
       _emit imunify.scanning b 0
+      _emit imunify.age_s n 0
+      _emit imunify.files n 0
+      _emit imunify.target s none
       exit 0
     fi
 

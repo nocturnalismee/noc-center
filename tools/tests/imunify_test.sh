@@ -71,7 +71,8 @@ out=$(PATH="$tmp/bin:$PATH" agent/collector.sh --module imunify --dry-run --conf
 printf '%s\n' "$out" | grep -q '^imunify.target	s	incremental$' || exit 1
 printf '%s\n' "$out" | grep -q '^imunify.files	n	0$' || exit 1
 
-# Block 4: valid empty-items response -> scanning 0 and no scan detail keys.
+# Block 4: valid empty-items response -> scanning 0 with the full idle field
+# set: zero age/files and target "none".
 cat > "$tmp/bin/imunify360-agent" <<'EOF'
 #!/bin/bash
 cat <<'JSON'
@@ -81,11 +82,9 @@ EOF
 chmod +x "$tmp/bin/imunify360-agent"
 out=$(PATH="$tmp/bin:$PATH" agent/collector.sh --module imunify --dry-run --config "$tmp/agent.conf" --run-dir "$tmp/run")
 printf '%s\n' "$out" | grep -q '^imunify.scanning	b	0$' || exit 1
-for k in age_s files target; do
-  if printf '%s\n' "$out" | grep -q "^imunify\.$k	"; then
-    echo "imunify_test: unexpected imunify.$k when idle" >&2; exit 1
-  fi
-done
+printf '%s\n' "$out" | grep -q '^imunify.age_s	n	0$' || exit 1
+printf '%s\n' "$out" | grep -q '^imunify.files	n	0$' || exit 1
+printf '%s\n' "$out" | grep -q '^imunify.target	s	none$' || exit 1
 
 # Block 5: successful run writes the cache; invalid JSON -> exit 4 and the
 # previous cache is preserved byte for byte.
