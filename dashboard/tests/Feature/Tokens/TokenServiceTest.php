@@ -174,6 +174,9 @@ class TokenServiceTest extends TestCase
 
         $this->assertNotNull($resolved);
         $this->assertTrue($resolved->is($issued->token));
+        $this->assertNotNull($resolved->server);
+        $this->assertTrue($resolved->server->trashed());
+        $this->assertNull($this->tokens->authenticate($issued->plain));
     }
 
     public function test_resolve_ignores_server_state_but_honours_token_state(): void
@@ -202,6 +205,8 @@ class TokenServiceTest extends TestCase
             'noc_'.Str::repeat('a', 42).'+',
             'noc_'.Str::repeat('a', 42).'/',
             ' noc_'.Str::repeat('a', 43),
+            'noc_'.Str::repeat('a', 43)."\n",
+            'noc_'.Str::repeat('a', 43)."\r\n",
         ];
 
         DB::flushQueryLog();
@@ -275,6 +280,50 @@ class TokenServiceTest extends TestCase
         );
     }
 
+    public function test_rotation_rejects_a_negative_grace_window(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        $this->tokens->rotate($this->server(), -1);
+    }
+
+    public function test_rotation_with_a_zero_grace_window_expires_the_previous_token_immediately(): void
+    {
+        Carbon::setTestNow('2026-11-22 12:00:00');
+
+        $server = $this->server();
+        $old = $this->tokens->issue($server);
+
+        $this->tokens->rotate($server, 0);
+
+        $this->assertSame(
+            now()->toDateTimeString(),
+            $old->token->fresh()->expires_at?->toDateTimeString(),
+        );
+        $this->assertNull($this->tokens->resolve($old->plain));
+    }
+
+    public function test_rotation_without_a_usable_current_token_breaks_lineage_and_still_audits(): void
+    {
+        $server = $this->server();
+
+        $rotated = $this->tokens->rotate($server, 60);
+
+        $this->assertNull($rotated->token->rotated_from_id);
+        $this->assertSame(1, AuditEvent::query()->where('action', 'token.rotated')->count());
+    }
+
+    public function test_revoke_is_idempotent_and_writes_a_single_audit_event(): void
+    {
+        $server = $this->server();
+        $issued = $this->tokens->issue($server);
+
+        $this->tokens->revoke($issued->token);
+        $this->tokens->revoke($issued->token->fresh());
+
+        $this->assertSame(1, AuditEvent::query()->where('action', 'token.revoked')->count());
+    }
+
     public function test_revoke_is_immediate(): void
     {
         Carbon::setTestNow('2026-11-22 12:00:00');
@@ -309,10 +358,12 @@ class TokenServiceTest extends TestCase
             array_keys($event->meta_json),
         );
         $this->assertSame($server->getKey(), $event->meta_json['server_id']);
-        // AuditLogger redacts any metadata key containing "token"; only the
-        // whitelisted identifiers are passed, never the plaintext.
-        $this->assertSame('[redacted]', $event->meta_json['token_id']);
-        $this->assertSame('[redacted]', $event->meta_json['token_prefix']);
+        // Identifier keys survive redaction so the operator can see the
+        // 8-character prefix (spec §8.1); the plaintext never reaches the log.
+        $this->assertSame((string) $issued->token->getKey(), $event->meta_json['token_id']);
+        $this->assertSame(26, strlen($event->meta_json['token_id']));
+        $this->assertSame($issued->token->token_prefix, $event->meta_json['token_prefix']);
+        $this->assertSame(8, strlen($event->meta_json['token_prefix']));
     }
 
     public function test_rotate_writes_a_token_rotated_audit_event(): void
@@ -332,8 +383,10 @@ class TokenServiceTest extends TestCase
             array_keys($event->meta_json),
         );
         $this->assertSame($server->getKey(), $event->meta_json['server_id']);
-        $this->assertSame('[redacted]', $event->meta_json['token_id']);
-        $this->assertSame('[redacted]', $event->meta_json['token_prefix']);
+        $this->assertSame((string) $rotated->token->getKey(), $event->meta_json['token_id']);
+        $this->assertSame(26, strlen($event->meta_json['token_id']));
+        $this->assertSame($rotated->token->token_prefix, $event->meta_json['token_prefix']);
+        $this->assertSame(8, strlen($event->meta_json['token_prefix']));
     }
 
     public function test_revoke_writes_a_token_revoked_audit_event(): void
@@ -353,8 +406,21 @@ class TokenServiceTest extends TestCase
             array_keys($event->meta_json),
         );
         $this->assertSame($server->getKey(), $event->meta_json['server_id']);
-        $this->assertSame('[redacted]', $event->meta_json['token_id']);
-        $this->assertSame('[redacted]', $event->meta_json['token_prefix']);
+        $this->assertSame((string) $issued->token->getKey(), $event->meta_json['token_id']);
+        $this->assertSame(26, strlen($event->meta_json['token_id']));
+        $this->assertSame($issued->token->token_prefix, $event->meta_json['token_prefix']);
+        $this->assertSame(8, strlen($event->meta_json['token_prefix']));
+    }
+
+    public function test_issued_token_debug_info_redacts_the_plaintext(): void
+    {
+        $issued = $this->tokens->issue($this->server());
+
+        $debug = $issued->__debugInfo();
+
+        $this->assertSame('[redacted]', $debug['plaintext']);
+        $this->assertSame(substr($issued->plain, 0, 8), $debug['prefix']);
+        $this->assertStringNotContainsString($issued->plain, print_r($debug, true));
     }
 
     private function server(array $attributes = []): Server

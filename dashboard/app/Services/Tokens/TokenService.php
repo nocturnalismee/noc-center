@@ -8,13 +8,17 @@ use App\Models\User;
 use App\Services\AuditLogger;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
+use InvalidArgumentException;
 
 class TokenService
 {
     /**
      * `noc_` plus 43 base64url characters (32 random bytes, unpadded).
+     *
+     * Anchored with `\A`/`\z` so a trailing newline cannot slip past the
+     * check and reach the database.
      */
-    private const PATTERN = '/^noc_[A-Za-z0-9_-]{43}$/';
+    private const PATTERN = '/\Anoc_[A-Za-z0-9_-]{43}\z/';
 
     public function __construct(private readonly AuditLogger $audit)
     {
@@ -47,10 +51,22 @@ class TokenService
      *
      * Rotation never extends an existing earlier expiry: when the previous
      * token already expires before the grace window elapses, its own
-     * `expires_at` is preserved.
+     * `expires_at` is preserved. A `graceMinutes` of `0` expires the previous
+     * token immediately; a negative window is rejected with
+     * {@see InvalidArgumentException}.
+     *
+     * When the server has no usable current token (never issued, revoked or
+     * expired), rotation still mints a new token with `rotated_from_id = null`
+     * and audits `token.rotated`: an explicit, recorded lineage break.
+     *
+     * @throws InvalidArgumentException
      */
     public function rotate(Server $server, int $graceMinutes = 1440, ?User $actor = null): IssuedToken
     {
+        if ($graceMinutes < 0) {
+            throw new InvalidArgumentException('Rotation grace minutes must be zero or greater.');
+        }
+
         $previous = $this->currentToken($server);
 
         $issued = $this->createToken(
@@ -84,12 +100,17 @@ class TokenService
 
     /**
      * Revoke a token immediately.
+     *
+     * Revocation is idempotent: an already-revoked token keeps its original
+     * `revoked_at` and appends no second `token.revoked` audit row.
      */
     public function revoke(ServerToken $token, ?User $actor = null): void
     {
-        if ($token->revoked_at === null) {
-            $token->forceFill(['revoked_at' => now()])->save();
+        if ($token->revoked_at !== null) {
+            return;
         }
+
+        $token->forceFill(['revoked_at' => now()])->save();
 
         $this->audit->log(
             'token.revoked',
@@ -103,8 +124,10 @@ class TokenService
      * Resolve a plaintext token without considering the server's state.
      *
      * A valid token may belong to an inactive or soft-deleted server so the
-     * ingest middleware can answer 403 instead of 401 (R20). Malformed input
-     * is rejected before any database query.
+     * ingest middleware can answer 403 instead of 401 (R20). The `server`
+     * relation is eager-loaded with the trashed scope so a soft-deleted
+     * server stays inspectable instead of becoming `null`. Malformed input is
+     * rejected before any database query.
      */
     public function resolve(string $plain): ?ServerToken
     {
@@ -113,7 +136,7 @@ class TokenService
         }
 
         return ServerToken::query()
-            ->with('server')
+            ->with(['server' => fn ($query) => $query->withTrashed()])
             ->where('token_hash', $this->hash($plain))
             ->whereNull('revoked_at')
             ->where(fn (Builder $query) => $query

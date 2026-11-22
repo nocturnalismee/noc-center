@@ -94,7 +94,7 @@ class ServerServiceTest extends TestCase
         ];
     }
 
-    public function test_name_is_required_and_unique(): void
+    public function test_name_must_be_unique(): void
     {
         $this->servers->create([
             'name' => 'web-01',
@@ -107,6 +107,99 @@ class ServerServiceTest extends TestCase
             'name' => 'web-01',
             'hostname' => 'web-02.example.test',
         ]);
+    }
+
+    public function test_name_is_required(): void
+    {
+        $this->expectException(ValidationException::class);
+
+        $this->servers->create([
+            'hostname' => 'web-01.example.test',
+        ]);
+    }
+
+    #[DataProvider('blankNameProvider')]
+    public function test_name_cannot_be_blank(string $name): void
+    {
+        $this->expectException(ValidationException::class);
+
+        $this->servers->create([
+            'name' => $name,
+            'hostname' => 'web-01.example.test',
+        ]);
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function blankNameProvider(): array
+    {
+        return [
+            'empty' => [''],
+            'whitespace' => ['   '],
+        ];
+    }
+
+    public function test_create_trims_name_and_hostname(): void
+    {
+        $server = $this->servers->create([
+            'name' => '  web-01  ',
+            'hostname' => '  web-01.example.test  ',
+        ]);
+
+        $this->assertSame('web-01', $server->name);
+        $this->assertSame('web-01.example.test', $server->hostname);
+    }
+
+    public function test_an_empty_panel_defaults_to_none(): void
+    {
+        $server = $this->servers->create([
+            'name' => 'web-01',
+            'hostname' => 'web-01.example.test',
+            'panel' => '',
+        ]);
+
+        $this->assertSame('none', $server->panel);
+    }
+
+    #[DataProvider('overlongAttributeProvider')]
+    public function test_optional_text_attributes_are_length_limited(string $attribute, string $value): void
+    {
+        $this->expectException(ValidationException::class);
+
+        $this->servers->create([
+            'name' => 'web-01',
+            'hostname' => 'web-01.example.test',
+            $attribute => $value,
+        ]);
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function overlongAttributeProvider(): array
+    {
+        return [
+            'hostname' => ['hostname', Str::repeat('a', 256)],
+            'panel' => ['panel', Str::repeat('a', 33)],
+            'group_name' => ['group_name', Str::repeat('a', 101)],
+            'notes' => ['notes', Str::repeat('a', 2001)],
+        ];
+    }
+
+    public function test_create_forces_active_state_and_ignores_mass_assignment(): void
+    {
+        $server = $this->servers->create([
+            'name' => 'web-01',
+            'hostname' => 'web-01.example.test',
+            'is_active' => false,
+            'health' => ServerHealth::Critical,
+            'issue_codes' => ['disk'],
+        ]);
+
+        $this->assertTrue($server->is_active);
+        $this->assertSame(ServerHealth::Unknown, $server->health);
+        $this->assertSame([], $server->issue_codes);
     }
 
     public function test_a_soft_deleted_server_still_reserves_its_name(): void

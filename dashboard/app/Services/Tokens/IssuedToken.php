@@ -17,4 +17,18 @@ final readonly class IssuedToken
     ) {
         //
     }
+
+    /**
+     * Never expose the plaintext through debug output (`dd`, `var_dump`).
+     *
+     * @return array{prefix: string, plaintext: string, token: ServerToken}
+     */
+    public function __debugInfo(): array
+    {
+        return [
+            'prefix' => substr($this->plain, 0, 8),
+            'plaintext' => '[redacted]',
+            'token' => $this->token,
+        ];
+    }
 }

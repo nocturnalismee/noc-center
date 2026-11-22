@@ -134,6 +134,46 @@ class AuditLogTest extends TestCase
         $this->assertStringNotContainsString('abc123-secret', $stored);
     }
 
+    public function test_whitelisted_identifiers_survive_redaction_while_secrets_do_not(): void
+    {
+        $event = $this->app->make(AuditLogger::class)->log('token.rotated', null, [
+            'server_id' => '01HX0000000000000000000001',
+            'token_id' => '01HX0000000000000000000002',
+            'token_prefix' => 'noc_abcd',
+            'target_id' => '01HX0000000000000000000003',
+            'actor_id' => '01HX0000000000000000000004',
+            'user_id' => 7,
+            'password' => 'hunter2',
+            'secret' => 'super-secret',
+            'query' => 'select * from users',
+            'is_secret' => true,
+            'value' => 'plaintext-value',
+            'old_value' => 'old-plaintext-value',
+            'new_value' => 'new-plaintext-value',
+        ]);
+
+        $this->assertSame('01HX0000000000000000000001', $event->meta_json['server_id']);
+        $this->assertSame('01HX0000000000000000000002', $event->meta_json['token_id']);
+        $this->assertSame('noc_abcd', $event->meta_json['token_prefix']);
+        $this->assertSame('01HX0000000000000000000003', $event->meta_json['target_id']);
+        $this->assertSame('01HX0000000000000000000004', $event->meta_json['actor_id']);
+        $this->assertSame(7, $event->meta_json['user_id']);
+
+        $this->assertSame('[redacted]', $event->meta_json['password']);
+        $this->assertSame('[redacted]', $event->meta_json['secret']);
+        $this->assertSame('[redacted]', $event->meta_json['query']);
+        $this->assertSame('[redacted]', $event->meta_json['value']);
+        $this->assertSame('[redacted]', $event->meta_json['old_value']);
+        $this->assertSame('[redacted]', $event->meta_json['new_value']);
+        $this->assertTrue($event->meta_json['is_secret']);
+
+        $stored = (string) DB::table('audit_events')->where('id', $event->id)->value('meta_json');
+        $this->assertStringNotContainsString('hunter2', $stored);
+        $this->assertStringNotContainsString('super-secret', $stored);
+        $this->assertStringNotContainsString('select * from users', $stored);
+        $this->assertStringNotContainsString('plaintext-value', $stored);
+    }
+
     public function test_audit_events_cannot_be_updated(): void
     {
         $event = $this->app->make(AuditLogger::class)->log('server.created');
