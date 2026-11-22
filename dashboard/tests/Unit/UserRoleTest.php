@@ -27,16 +27,36 @@ class UserRoleTest extends TestCase
         $this->assertSame(UserRole::Viewer, $user->role());
     }
 
-    public function test_role_is_not_mass_assignable(): void
+    public function test_sensitive_user_fields_are_not_mass_assignable(): void
     {
         $user = User::create([
             'name' => 'Mass Assigned',
             'email' => 'mass-assigned@example.com',
             'password' => 'a-secure-password',
             'role' => UserRole::Admin->value,
+            'is_active' => false,
+            'must_change_password' => true,
+            'last_login_at' => now(),
         ]);
 
-        $this->assertSame(UserRole::Viewer, $user->fresh()->role());
+        $user->refresh();
+
+        $this->assertSame(UserRole::Viewer, $user->role());
+        $this->assertTrue($user->is_active);
+        $this->assertFalse($user->must_change_password);
+        $this->assertNull($user->last_login_at);
+    }
+
+    public function test_notify_email_is_mass_assignable(): void
+    {
+        $user = User::create([
+            'name' => 'Notify Opt Out',
+            'email' => 'notify-opt-out@example.com',
+            'password' => 'a-secure-password',
+            'notify_email' => false,
+        ]);
+
+        $this->assertFalse($user->fresh()->notify_email);
     }
 
     public function test_is_admin_and_can_operate_follow_the_role(): void

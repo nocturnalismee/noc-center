@@ -67,15 +67,19 @@ class LoginTest extends TestCase
         $this->assertGuest();
     }
 
-    public function test_a_sixth_login_attempt_within_a_minute_is_throttled(): void
+    public function test_the_login_limiter_allows_five_attempts_and_rejects_the_sixth_for_the_same_email_and_ip(): void
     {
         User::factory()->create(['email' => 'throttled@example.com']);
 
-        for ($attempt = 0; $attempt < 5; $attempt++) {
+        for ($attempt = 1; $attempt <= 5; $attempt++) {
             $this->post('/login', [
                 'email' => 'throttled@example.com',
                 'password' => 'wrong-password',
-            ])->assertSessionHasErrors('email');
+            ])
+                ->assertStatus(302)
+                ->assertSessionHasErrors(['email' => trans('auth.failed')]);
+
+            $this->assertGuest();
         }
 
         $this->post('/login', [
