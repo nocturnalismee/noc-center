@@ -14,6 +14,11 @@ use App\Policies\ServerPolicy;
 use App\Policies\ServerTokenPolicy;
 use App\Policies\SettingPolicy;
 use App\Policies\UserPolicy;
+use App\Services\AuditLogger;
+use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\Logout;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
@@ -38,5 +43,23 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(User::class, UserPolicy::class);
         Gate::policy(Setting::class, SettingPolicy::class);
         Gate::policy(AuditEvent::class, AuditPolicy::class);
+
+        Event::listen(Login::class, function (Login $event): void {
+            if ($event->user instanceof User) {
+                $event->user->forceFill(['last_login_at' => now()])->saveQuietly();
+            }
+
+            app(AuditLogger::class)->log(
+                'auth.login',
+                $event->user instanceof Model ? $event->user : null,
+            );
+        });
+
+        Event::listen(Logout::class, function (Logout $event): void {
+            app(AuditLogger::class)->log(
+                'auth.logout',
+                $event->user instanceof Model ? $event->user : null,
+            );
+        });
     }
 }
