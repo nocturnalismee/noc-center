@@ -11,6 +11,7 @@ return new class extends Migration
         Schema::create('server_tokens', function (Blueprint $table) {
             $table->ulid('id')->primary();
             $table->foreignUlid('server_id')->constrained()->cascadeOnDelete();
+            $table->index('server_id');
             $table->char('token_hash', 64)->unique();
             $table->char('token_prefix', 8);
             $table->string('label')->nullable();

@@ -56,7 +56,10 @@ class SqlitePragmaTest extends TestCase
         $connection = DB::connection('wal_test');
 
         $this->assertSame('wal', strtolower((string) $connection->selectOne('PRAGMA journal_mode')->journal_mode));
-        $this->assertSame(5000, (int) $connection->selectOne('PRAGMA busy_timeout')->timeout);
+        $this->assertSame(
+            (int) config('database.connections.sqlite.busy_timeout'),
+            (int) $connection->selectOne('PRAGMA busy_timeout')->timeout,
+        );
         $this->assertSame(1, (int) $connection->selectOne('PRAGMA foreign_keys')->foreign_keys);
         $this->assertTrue($connection->getSchemaBuilder()->hasTable('servers'));
     }

@@ -116,11 +116,15 @@ class Server extends Model
 
         $now = now();
 
-        if ($this->stale_after !== null && $now->lessThanOrEqualTo($this->stale_after)) {
+        if ($this->stale_after === null || $this->offline_after === null) {
+            return ServerStatus::Offline;
+        }
+
+        if ($now->lessThanOrEqualTo($this->stale_after)) {
             return ServerStatus::Online;
         }
 
-        if ($this->offline_after !== null && $now->lessThanOrEqualTo($this->offline_after)) {
+        if ($now->lessThanOrEqualTo($this->offline_after)) {
             return ServerStatus::Stale;
         }
 

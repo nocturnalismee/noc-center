@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Database;
 
+use App\Enums\AlertRule;
 use App\Enums\AlertSeverity;
 use App\Enums\AlertStatus;
 use App\Enums\ServerStatus;
@@ -18,6 +19,8 @@ use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use LogicException;
 use Tests\TestCase;
 
@@ -30,6 +33,44 @@ class SchemaTest extends TestCase
         Carbon::setTestNow();
 
         parent::tearDown();
+    }
+
+    public function test_required_indexes_exist_in_the_database(): void
+    {
+        $this->assertTrue(
+            $this->indexExists('server_tokens', ['server_id'], false),
+            'server_tokens.server_id must have a non-unique index.',
+        );
+
+        $this->assertTrue(
+            $this->indexExists('metric_samples', ['server_id', 'collected_at'], true),
+            'metric_samples must keep its unique sample idempotency index.',
+        );
+
+        $this->assertTrue(
+            $this->indexExists('metric_samples', ['server_id', 'collected_at'], false),
+            'metric_samples must keep its non-unique lookup index.',
+        );
+
+        $this->assertTrue(
+            $this->indexExists('metric_rollups', ['server_id', 'resolution_seconds', 'bucket_start'], true),
+            'metric_rollups must keep its unique rollup-bucket index.',
+        );
+
+        $this->assertTrue(
+            $this->indexExists('metric_rollups', ['server_id', 'resolution_seconds', 'bucket_start'], false),
+            'metric_rollups must keep its non-unique lookup index.',
+        );
+
+        $this->assertTrue(
+            $this->indexExists('alert_deliveries', ['alert_id', 'channel', 'event'], true),
+            'alert_deliveries must keep its unique delivery index.',
+        );
+
+        $this->assertTrue(
+            $this->indexExists('alerts', ['active_key'], true),
+            'alerts.active_key must be unique.',
+        );
     }
 
     public function test_server_ids_are_ulids(): void
@@ -51,6 +92,21 @@ class SchemaTest extends TestCase
         $this->createToken($server, str_repeat('a', 64), 'noc_bbbb');
     }
 
+    public function test_server_names_are_unique_but_agent_uuids_may_repeat(): void
+    {
+        $agentUuid = (string) Str::uuid();
+
+        $first = $this->createServer(['name' => 'web-1', 'agent_uuid' => $agentUuid]);
+        $second = $this->createServer(['name' => 'web-2', 'agent_uuid' => $agentUuid]);
+
+        $this->assertSame($agentUuid, $first->agent_uuid);
+        $this->assertSame($agentUuid, $second->agent_uuid);
+
+        $this->expectException(QueryException::class);
+
+        $this->createServer(['name' => 'web-1', 'agent_uuid' => (string) Str::uuid()]);
+    }
+
     public function test_duplicate_server_and_collected_at_is_rejected(): void
     {
         $server = $this->createServer();
@@ -63,12 +119,23 @@ class SchemaTest extends TestCase
         $this->createSample($server, $collectedAt);
     }
 
+    public function test_duplicate_rollup_bucket_is_rejected(): void
+    {
+        $server = $this->createServer();
+
+        $this->createRollup($server);
+
+        $this->expectException(QueryException::class);
+
+        $this->createRollup($server);
+    }
+
     public function test_multiple_resolved_alerts_may_have_a_null_active_key(): void
     {
         $server = $this->createServer();
 
-        $first = $this->createAlert($server, AlertStatus::Resolved, null, 'cpu_high');
-        $second = $this->createAlert($server, AlertStatus::Resolved, null, 'cpu_high');
+        $first = $this->createAlert($server, AlertStatus::Resolved, null, AlertRule::CpuHigh);
+        $second = $this->createAlert($server, AlertStatus::Resolved, null, AlertRule::CpuHigh);
 
         $this->assertNull($first->active_key);
         $this->assertNull($second->active_key);
@@ -80,11 +147,11 @@ class SchemaTest extends TestCase
         $server = $this->createServer();
         $activeKey = $server->id.':cpu_high';
 
-        $this->createAlert($server, AlertStatus::Open, $activeKey, 'cpu_high');
+        $this->createAlert($server, AlertStatus::Open, $activeKey, AlertRule::CpuHigh);
 
         $this->expectException(QueryException::class);
 
-        $this->createAlert($server, AlertStatus::Open, $activeKey, 'cpu_high');
+        $this->createAlert($server, AlertStatus::Open, $activeKey, AlertRule::CpuHigh);
     }
 
     public function test_deleting_a_server_cascades_all_owned_rows(): void
@@ -94,11 +161,43 @@ class SchemaTest extends TestCase
         $sample = $this->createSample($server, now()->subMinute());
         $this->createDetail($sample);
         $this->createRollup($server);
-        $alert = $this->createAlert($server, AlertStatus::Open, $server->id.':cpu_high', 'cpu_high');
+        $alert = $this->createAlert($server, AlertStatus::Open, $server->id.':cpu_high', AlertRule::CpuHigh);
         $this->createDelivery($alert);
 
         $server->forceDelete();
 
+        $this->assertSame(0, ServerToken::query()->count());
+        $this->assertSame(0, MetricSample::query()->count());
+        $this->assertSame(0, MetricDetail::query()->count());
+        $this->assertSame(0, MetricRollup::query()->count());
+        $this->assertSame(0, Alert::query()->count());
+        $this->assertSame(0, AlertDelivery::query()->count());
+    }
+
+    public function test_soft_deleting_a_server_keeps_rows_until_force_delete(): void
+    {
+        $server = $this->createServer();
+        $this->createToken($server);
+        $sample = $this->createSample($server, now()->subMinute());
+        $this->createDetail($sample);
+        $this->createRollup($server);
+        $alert = $this->createAlert($server, AlertStatus::Open, $server->id.':cpu_high', AlertRule::CpuHigh);
+        $this->createDelivery($alert);
+
+        $server->delete();
+
+        $this->assertSoftDeleted('servers', ['id' => $server->id]);
+        $this->assertNotNull(DB::table('servers')->where('id', $server->id)->value('deleted_at'));
+        $this->assertSame(1, ServerToken::query()->count());
+        $this->assertSame(1, MetricSample::query()->count());
+        $this->assertSame(1, MetricDetail::query()->count());
+        $this->assertSame(1, MetricRollup::query()->count());
+        $this->assertSame(1, Alert::query()->count());
+        $this->assertSame(1, AlertDelivery::query()->count());
+
+        $server->forceDelete();
+
+        $this->assertDatabaseMissing('servers', ['id' => $server->id]);
         $this->assertSame(0, ServerToken::query()->count());
         $this->assertSame(0, MetricSample::query()->count());
         $this->assertSame(0, MetricDetail::query()->count());
@@ -121,7 +220,7 @@ class SchemaTest extends TestCase
     public function test_deleting_an_alert_cascades_its_deliveries(): void
     {
         $server = $this->createServer();
-        $alert = $this->createAlert($server, AlertStatus::Open, $server->id.':cpu_high', 'cpu_high');
+        $alert = $this->createAlert($server, AlertStatus::Open, $server->id.':cpu_high', AlertRule::CpuHigh);
         $this->createDelivery($alert);
 
         $alert->delete();
@@ -132,7 +231,7 @@ class SchemaTest extends TestCase
     public function test_delivery_channel_event_combination_is_unique(): void
     {
         $server = $this->createServer();
-        $alert = $this->createAlert($server, AlertStatus::Open, $server->id.':cpu_high', 'cpu_high');
+        $alert = $this->createAlert($server, AlertStatus::Open, $server->id.':cpu_high', AlertRule::CpuHigh);
 
         $this->createDelivery($alert);
 
@@ -157,12 +256,12 @@ class SchemaTest extends TestCase
         $server->refresh();
         $sample->refresh();
 
-        $this->assertSame(12.34, $server->cpu_usage_pct);
-        $this->assertSame(56.78, $server->mem_used_pct);
-        $this->assertSame(1.234, $server->load1);
-        $this->assertSame(98.76, $sample->cpu_usage_pct);
-        $this->assertSame(54.32, $sample->mem_used_pct);
-        $this->assertSame(2.345, $sample->load1);
+        $this->assertEqualsWithDelta(12.34, $server->cpu_usage_pct, 0.0001);
+        $this->assertEqualsWithDelta(56.78, $server->mem_used_pct, 0.0001);
+        $this->assertEqualsWithDelta(1.234, $server->load1, 0.0001);
+        $this->assertEqualsWithDelta(98.76, $sample->cpu_usage_pct, 0.0001);
+        $this->assertEqualsWithDelta(54.32, $sample->mem_used_pct, 0.0001);
+        $this->assertEqualsWithDelta(2.345, $sample->load1, 0.0001);
     }
 
     public function test_server_status_uses_absolute_thresholds(): void
@@ -201,17 +300,43 @@ class SchemaTest extends TestCase
         $this->assertSame(ServerStatus::NeverSeen, $server->status());
     }
 
+    public function test_server_status_is_offline_when_either_threshold_is_missing(): void
+    {
+        Carbon::setTestNow('2026-11-22 12:00:00');
+
+        $missingStaleAfter = $this->createServer([
+            'name' => 'web-stale-null',
+            'last_seen_at' => now(),
+            'stale_after' => null,
+            'offline_after' => now()->addMinutes(5),
+        ]);
+
+        $missingOfflineAfter = $this->createServer([
+            'name' => 'web-offline-null',
+            'last_seen_at' => now(),
+            'stale_after' => now()->addMinutes(2),
+            'offline_after' => null,
+        ]);
+
+        $this->assertSame(ServerStatus::Offline, $missingStaleAfter->status());
+        $this->assertSame(ServerStatus::Offline, $missingOfflineAfter->status());
+    }
+
     public function test_server_relations_return_owned_rows(): void
     {
         $server = $this->createServer();
         $token = $this->createToken($server);
-        $older = $this->createSample($server, now()->subMinutes(2));
         $newer = $this->createSample($server, now()->subMinute());
+        $older = $this->createSample($server, now()->subMinutes(2));
         $rollup = $this->createRollup($server);
-        $alert = $this->createAlert($server, AlertStatus::Open, $server->id.':cpu_high', 'cpu_high');
+        $alert = $this->createAlert($server, AlertStatus::Open, $server->id.':cpu_high', AlertRule::CpuHigh);
+
+        // Insertion order and collected_at order deliberately disagree.
+        $this->assertLessThan($older->id, $newer->id);
+        $this->assertTrue($newer->collected_at->greaterThan($older->collected_at));
 
         $this->assertTrue($server->tokens()->first()->is($token));
-        $this->assertTrue($server->samples()->first()->is($older));
+        $this->assertTrue($server->samples()->orderBy('collected_at')->first()->is($older));
         $this->assertTrue($server->rollups()->first()->is($rollup));
         $this->assertTrue($server->alerts()->first()->is($alert));
         $this->assertTrue($server->latestSample()->first()->is($newer));
@@ -261,14 +386,97 @@ class SchemaTest extends TestCase
         $this->assertSame(1, AuditEvent::query()->count());
     }
 
+    public function test_json_casts_round_trip(): void
+    {
+        $server = $this->createServer([
+            'issue_codes' => ['cpu_high', 'disk_high'],
+        ]);
+        $sample = $this->createSample($server, now()->subMinute());
+        $detail = $this->createDetail($sample);
+        $alert = $this->createAlert($server, AlertStatus::Open, $server->id.':cpu_high', AlertRule::CpuHigh);
+        $event = AuditEvent::create([
+            'action' => 'server.created',
+            'target_type' => Server::class,
+            'target_id' => $server->id,
+            'meta_json' => ['name' => 'web-1'],
+        ]);
+
+        $server = Server::findOrFail($server->id);
+        $detail = MetricDetail::findOrFail($detail->getKey());
+        $alert = Alert::findOrFail($alert->id);
+        $event = AuditEvent::findOrFail($event->id);
+
+        $this->assertSame(['cpu_high', 'disk_high'], $server->issue_codes);
+        $this->assertSame(['mysql' => ['available' => 1]], $detail->panel_metrics);
+        $this->assertSame(['smart' => ['status' => 'ok']], $detail->extensions);
+        $this->assertSame(['value' => 91.5, 'threshold' => 90], $alert->context_json);
+        $this->assertSame(['name' => 'web-1'], $event->meta_json);
+    }
+
+    public function test_sensitive_attributes_are_hidden_from_serialization(): void
+    {
+        $server = $this->createServer();
+        $token = $this->createToken($server);
+        $setting = Setting::create([
+            'key' => 'mail.password',
+            'value' => 'super-secret',
+            'type' => 'secret',
+            'is_secret' => true,
+        ]);
+
+        $this->assertArrayNotHasKey('token_hash', $token->toArray());
+        $this->assertArrayNotHasKey('value', $setting->toArray());
+    }
+
+    public function test_alert_rule_enum_matches_the_specification(): void
+    {
+        $this->assertCount(14, AlertRule::cases());
+        $this->assertSame([
+            'server_offline',
+            'server_stale',
+            'cpu_high',
+            'memory_high',
+            'disk_high',
+            'inode_high',
+            'load_high',
+            'smart_failed',
+            'smart_warning',
+            'service_down',
+            'mysql_unreachable',
+            'quota_over',
+            'module_cache_stale',
+            'security_disabled',
+        ], array_map(static fn (AlertRule $rule): string => $rule->value, AlertRule::cases()));
+    }
+
+    public function test_alert_rule_casts_round_trip(): void
+    {
+        $server = $this->createServer();
+        $alert = $this->createAlert($server, AlertStatus::Open, $server->id.':disk_high', AlertRule::DiskHigh);
+
+        $this->assertSame(AlertRule::DiskHigh, $alert->rule_key);
+        $this->assertSame('disk_high', DB::table('alerts')->where('id', $alert->id)->value('rule_key'));
+        $this->assertSame(AlertRule::DiskHigh, Alert::findOrFail($alert->id)->rule_key);
+    }
+
     public function test_alert_enum_casts_round_trip(): void
     {
         $server = $this->createServer();
-        $alert = $this->createAlert($server, AlertStatus::Acknowledged, $server->id.':cpu_high', 'cpu_high');
+        $alert = $this->createAlert($server, AlertStatus::Acknowledged, $server->id.':cpu_high', AlertRule::CpuHigh);
 
         $this->assertSame(AlertSeverity::Warning, $alert->severity);
         $this->assertSame(AlertStatus::Acknowledged, $alert->status);
         $this->assertSame('acknowledged', DB::table('alerts')->where('id', $alert->id)->value('status'));
+    }
+
+    /**
+     * @param  list<string>  $columns
+     */
+    private function indexExists(string $table, array $columns, bool $unique): bool
+    {
+        return collect(Schema::getIndexes($table))->contains(
+            static fn (array $index): bool => $index['columns'] === $columns && $index['unique'] === $unique,
+        );
     }
 
     /**
@@ -364,7 +572,7 @@ class SchemaTest extends TestCase
         ]);
     }
 
-    private function createAlert(Server $server, AlertStatus $status, ?string $activeKey, string $ruleKey): Alert
+    private function createAlert(Server $server, AlertStatus $status, ?string $activeKey, AlertRule $ruleKey): Alert
     {
         return Alert::create([
             'server_id' => $server->id,

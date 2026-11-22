@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\AlertRule;
 use App\Enums\AlertSeverity;
 use App\Enums\AlertStatus;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
@@ -42,6 +43,7 @@ class Alert extends Model
     protected function casts(): array
     {
         return [
+            'rule_key' => AlertRule::class,
             'severity' => AlertSeverity::class,
             'status' => AlertStatus::class,
             'context_json' => 'array',

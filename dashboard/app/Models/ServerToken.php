@@ -13,6 +13,13 @@ class ServerToken extends Model
     /**
      * @var list<string>
      */
+    protected $hidden = [
+        'token_hash',
+    ];
+
+    /**
+     * @var list<string>
+     */
     protected $fillable = [
         'server_id',
         'token_hash',

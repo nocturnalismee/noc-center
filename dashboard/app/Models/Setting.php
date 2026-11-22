@@ -15,6 +15,13 @@ class Setting extends Model
     /**
      * @var list<string>
      */
+    protected $hidden = [
+        'value',
+    ];
+
+    /**
+     * @var list<string>
+     */
     protected $fillable = [
         'key',
         'value',
