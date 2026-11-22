@@ -860,7 +860,7 @@ Opsi installer:
   - `1` config/token/state tidak valid.
   - `2` pengumpulan metrik core gagal.
   - `3` pengiriman gagal setelah retry.
-  - `4` modul external gagal dikumpulkan (hanya mode `--module`; cache lama dipertahankan).
+  - `4` modul external gagal dideteksi (exit > 1), gagal dikumpulkan, atau output-nya tidak valid (hanya mode `--module`; cache lama dipertahankan). Modul yang disabled atau `detect`-nya tidak applicable (exit 1) adalah skip bersih: exit `0`, tanpa output, dan tanpa menulis cache.
 - Plugin error tidak mengubah exit code core; dicatat sebagai warning.
 - Modul `inline` yang gagal/timeout tidak mengubah exit code core; metrik modul tersebut dihilangkan dan warning dicatat.
 - Modul `external` yang gagal tidak menghapus cache lama. Run utama tetap membaca cache lama dan mengirim `cache_age_seconds` yang bertambah.
@@ -898,7 +898,7 @@ Opsi installer:
    - key tanpa prefix modul ditolak;
    - modul disabled tidak dijalankan dan cache-nya tidak dimasukkan.
 16. `collector.sh --module smart --dry-run` mencetak baris metrik tanpa membaca token dan tanpa HTTP.
-17. `--module` menulis cache atomik mode 600; collect gagal mempertahankan cache lama dan exit 4.
+17. `--module` menulis cache atomik mode 600; collect gagal mempertahankan cache lama dan exit 4. Modul disabled atau tidak applicable exit 0 tanpa menulis cache.
 18. Cache age: mtime cache lama menghasilkan `*.cache_age_seconds` yang benar; cache hilang membuat field modul tidak ada, bukan nilai 0.
 19. Payload >64 KiB: `panel_metrics` dibuang lebih dulu, lalu `extensions`; core saja yang terlalu besar memicu exit 2.
 20. `systemd-analyze verify` untuk keempat timer dan template service.

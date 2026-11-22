@@ -67,6 +67,10 @@ lines are rejected by the JSON validation path without aborting the payload.
   successful cache simply contributes no metrics (not zero values).
 - The cache is only read when the module's `detect` still succeeds and the
   module is enabled.
+- In `--module` mode, a disabled module or one whose `detect` exits 1 is a
+  clean skip: exit 0, no output, and no cache write. A missing/insecure module,
+  a `detect` error (exit >1), a failed `collect`, or an external module missing
+  `updated_at` returns 4.
 
 ## Enable / disable
 

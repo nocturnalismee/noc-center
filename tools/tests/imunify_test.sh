@@ -126,4 +126,18 @@ bash agent/modules/imunify.sh detect || rc=$?
 [ "$rc" -eq 1 ] || { echo "imunify_test: detect without CLI rc=$rc (want 1)" >&2; exit 1; }
 [ "$(bash agent/modules/imunify.sh mode)" = external ] || exit 1
 
+# Block 8: without the CLI, --module imunify is a clean skip. A host that does
+# not run Imunify must not leave a failed unit every five minutes.
+mkdir -p "$tmp/state-nocli"
+rc=0
+out=$(PATH="$tmp/bin:$PATH" agent/collector.sh --module imunify \
+  --config "$tmp/agent.conf" --state-dir "$tmp/state-nocli" --run-dir "$tmp/run" \
+  2>"$tmp/nocli.err") || rc=$?
+[ "$rc" -eq 0 ] || { echo "imunify_test: no-CLI skip rc=$rc (want 0)" >&2; exit 1; }
+[ -z "$out" ] || { echo "imunify_test: no-CLI skip emitted metrics" >&2; exit 1; }
+[ ! -e "$tmp/state-nocli/cache/imunify.metrics" ] || {
+  echo "imunify_test: no-CLI skip wrote a cache" >&2; exit 1
+}
+grep -q 'not applicable' "$tmp/nocli.err" || { cat "$tmp/nocli.err" >&2; exit 1; }
+
 echo "imunify_test: PASS"

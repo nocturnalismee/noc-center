@@ -303,7 +303,9 @@ Unknown keys are ignored; invalid values make the run exit 1 with a
 
 `ENABLE_<MODULE>=0` disables a module completely. When `python3`, `smartctl`,
 `repquota`, or `imunify360-agent` is missing, the affected module simply does
-not run; the core payload is unaffected.
+not run; the core payload is unaffected. In `--module` mode a disabled or
+not-applicable module logs `skipped` and exits `0` without touching its cache,
+so an optional module's timer does not report a failed unit on every run.
 
 ---
 
@@ -423,7 +425,7 @@ Module fields:
 | `1` | Invalid config, token, or state/run directory (local error). |
 | `2` | The core payload alone exceeds the size limit. |
 | `3` | Delivery failed (retries exhausted, network/TLS error, or a non-retryable rejection). |
-| `4` | `--module` mode: module missing, disabled, not applicable, or failed; the previous cache is preserved. |
+| `4` | `--module` mode: module missing/insecure, `detect` error (exit >1), or collection/validation failed; the previous cache is preserved. Disabled/not-applicable modules exit `0` and write no cache. |
 
 Plugin and inline-module failures never change the exit code; they only log a
 warning and omit those metrics.
@@ -556,7 +558,7 @@ they never touch real disks, quotas, or databases.
 | Exit 3, `HTTP 5xx on attempt …` | Dashboard problem; the agent retried 3 times. Nothing to fix on the server. |
 | Exit 3, network/TLS | Firewall/DNS; certificate chain (keep `TLS_VERIFY=1` and install the CA if needed). |
 | Exit 2, `core payload … too large` | Lower `MYSQL_MAX_QUERIES` (or `MYSQL_INCLUDE_QUERY_TEXT=0`); the core alone should never reach 64 KiB. |
-| Exit 4 from `--module` | Module missing/disabled/not applicable or failed; the old cache is kept. Run the module by hand to see its error. |
+| Exit 4 from `--module` | Module missing/insecure, `detect` error (exit >1), or collection/validation failed; the old cache is kept. Run the module by hand to see its error. A disabled or not-applicable module is a clean skip (`0`, no cache). |
 | `another collector run holds the lock` | A previous run is still going; nothing is sent this round (exit 0). |
 | No panel metrics | `PANEL` set to `none`/wrong name, or `detect` failed. Check with `PANEL=auto` and `journalctl -u noc-agent.service`. |
 | `smart`/`diskquota`/`imunify` fields missing | The timer has not yet succeeded: check `systemctl status noc-agent@<name>.service`, `journalctl -u noc-agent@<name>`, and `ls -l /var/lib/noc-agent/cache/`. |

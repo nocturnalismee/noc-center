@@ -501,9 +501,11 @@ run_modules() {
 # run_module_mode NAME -> validate and run exactly one module, writing its cache
 # atomically (temp 600 + mv) or, with --dry-run, printing normalized metric
 # lines and writing nothing. It never reads the token and never sends HTTP.
-# Returns 4 on any failure (invalid name, missing/insecure module, disabled,
-# detect failure, collect failure, or an external module missing updated_at),
-# preserving any previous cache.
+# A disabled or not-applicable module is a clean skip (exit 0, no cache, no
+# output): on a fleet with optional modules its timer must not fail every run.
+# Returns 4 only on a real failure (invalid name, missing/insecure module,
+# detect error with exit >1, collect failure, or an external module missing
+# updated_at), preserving any previous cache.
 run_module_mode() {
   local name=${1-} dir f out route cache tmp rc mode
   [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || { _err "module: invalid name '$name'"; return 4; }
@@ -511,10 +513,15 @@ run_module_mode() {
   f=$dir/$name.sh
   [[ -e $f && ! -L $f ]] || { _err "module: '$name' not found in $dir"; return 4; }
   require_secure_file "$f" || return 4
-  module_enabled "$name" || { _err "module: '$name' is disabled"; return 4; }
+  module_enabled "$name" || { _err "module: '$name' disabled; skipped"; return 0; }
 
-  if ! timeout "$MODULE_DETECT_TIMEOUT" "$f" detect >/dev/null 2>&1; then
-    _err "module: '$name' not applicable (detect failed)"
+  rc=0
+  timeout "$MODULE_DETECT_TIMEOUT" "$f" detect >/dev/null 2>&1 || rc=$?
+  if (( rc == 1 )); then
+    _err "module: '$name' not applicable (detect exit 1); skipped"
+    return 0
+  elif (( rc != 0 )); then
+    _err "module: '$name' detect failed (rc=$rc)"
     return 4
   fi
   mode=$(module_mode "$f")
