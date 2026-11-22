@@ -15,6 +15,7 @@ use App\Policies\ServerTokenPolicy;
 use App\Policies\SettingPolicy;
 use App\Policies\UserPolicy;
 use App\Services\AuditLogger;
+use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Database\Eloquent\Model;
@@ -52,6 +53,8 @@ class AppServiceProvider extends ServiceProvider
             app(AuditLogger::class)->log(
                 'auth.login',
                 $event->user instanceof Model ? $event->user : null,
+                [],
+                $event->user instanceof User ? (int) $event->user->getKey() : null,
             );
         });
 
@@ -59,7 +62,18 @@ class AppServiceProvider extends ServiceProvider
             app(AuditLogger::class)->log(
                 'auth.logout',
                 $event->user instanceof Model ? $event->user : null,
+                [],
+                $event->user instanceof User ? (int) $event->user->getKey() : null,
             );
+        });
+
+        Event::listen(Failed::class, function (Failed $event): void {
+            $email = $event->credentials[config('fortify.username', 'email')] ?? null;
+
+            app(AuditLogger::class)->log('auth.failed', null, array_filter(
+                ['email' => is_string($email) ? $email : null],
+                static fn (mixed $value): bool => $value !== null,
+            ));
         });
     }
 }

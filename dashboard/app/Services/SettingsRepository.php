@@ -29,7 +29,7 @@ class SettingsRepository
     {
         $row = $this->row($key);
 
-        if ($row === null) {
+        if ($row === null || $row['value'] === null) {
             return $default ?? config($key);
         }
 
@@ -56,12 +56,17 @@ class SettingsRepository
             throw new InvalidArgumentException('Setting values must be scalar.');
         }
 
+        if (in_array($type, ['bool', 'boolean'], true) && ! is_bool($value)) {
+            throw new InvalidArgumentException('Boolean settings require a boolean value.');
+        }
+
         $raw = match ($type) {
             'bool', 'boolean' => $value ? '1' : '0',
             default => (string) $value,
         };
 
-        if ($isSecret) {
+        if ($isSecret || $type === 'secret') {
+            $isSecret = true;
             $raw = Crypt::encryptString($raw);
         }
 

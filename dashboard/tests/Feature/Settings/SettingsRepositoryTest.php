@@ -65,6 +65,28 @@ class SettingsRepositoryTest extends TestCase
         $this->assertSame('1', Setting::query()->findOrFail('alerts.channels.telegram.enabled')->getRawOriginal('value'));
     }
 
+    public function test_boolean_false_is_stored_as_zero_and_read_back_as_false(): void
+    {
+        $this->settings->set('alerts.channels.telegram.enabled', false, 'bool');
+
+        $this->assertFalse($this->settings->get('alerts.channels.telegram.enabled'));
+        $this->assertSame('0', Setting::query()->findOrFail('alerts.channels.telegram.enabled')->getRawOriginal('value'));
+    }
+
+    public function test_non_boolean_values_are_rejected_for_boolean_settings(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->settings->set('alerts.channels.telegram.enabled', 'false', 'bool');
+    }
+
+    public function test_integer_values_are_rejected_for_boolean_settings(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->settings->set('alerts.channels.telegram.enabled', 1, 'boolean');
+    }
+
     public function test_non_scalar_values_are_rejected(): void
     {
         $this->expectException(InvalidArgumentException::class);
@@ -93,6 +115,35 @@ class SettingsRepositoryTest extends TestCase
 
         $this->assertSame($plaintext, $this->settings->get($key));
         $this->assertTrue($this->settings->hasSecret($key));
+    }
+
+    public function test_a_secret_type_encrypts_even_when_the_secret_flag_is_false(): void
+    {
+        $key = 'alerts.channels.telegram.bot_token';
+        $plaintext = '123456:super-secret-bot-token';
+
+        $this->settings->set($key, $plaintext, 'secret', false);
+
+        $setting = Setting::query()->findOrFail($key);
+
+        $this->assertNotSame($plaintext, $setting->getRawOriginal('value'));
+        $this->assertTrue($setting->is_secret);
+
+        $this->assertSame($plaintext, $this->settings->get($key));
+        $this->assertTrue($this->settings->hasSecret($key));
+    }
+
+    public function test_a_null_stored_value_falls_back_to_the_config_default(): void
+    {
+        Setting::query()->create([
+            'key' => 'alerts.reminder_hours',
+            'value' => null,
+            'type' => 'int',
+            'is_secret' => false,
+        ]);
+
+        $this->assertSame(6, $this->settings->get('alerts.reminder_hours'));
+        $this->assertSame(99, $this->settings->get('alerts.reminder_hours', 99));
     }
 
     public function test_the_cache_stores_only_ciphertext_for_secret_values(): void

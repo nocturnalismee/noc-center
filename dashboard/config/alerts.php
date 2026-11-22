@@ -55,7 +55,6 @@ return [
             'enabled' => true,
             'warning' => 90,
             'critical' => 95,
-            'consecutive_samples' => 3,
         ],
 
         'disk_high' => [

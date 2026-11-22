@@ -5,6 +5,7 @@ namespace Tests\Feature\Audit;
 use App\Models\AuditEvent;
 use App\Models\User;
 use App\Services\AuditLogger;
+use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -43,7 +44,7 @@ class AuditLogTest extends TestCase
         $this->assertSame('203.0.113.9', $event->ip);
         $this->assertSame('NOC Test Agent', $event->user_agent);
         $this->assertSame(User::class, $event->target_type);
-        $this->assertSame($user->id, $event->target_id);
+        $this->assertSame((string) $user->id, $event->target_id);
         $this->assertSame([
             'field' => 'notify_email',
             'from' => false,
@@ -52,6 +53,27 @@ class AuditLogTest extends TestCase
 
         $rawMeta = DB::table('audit_events')->where('id', $event->id)->value('meta_json');
         $this->assertSame(json_encode($event->meta_json), $rawMeta);
+    }
+
+    public function test_an_unauthenticated_log_with_a_user_subject_stores_a_null_actor(): void
+    {
+        $subject = User::factory()->create();
+
+        $event = $this->app->make(AuditLogger::class)->log('user.updated', $subject);
+
+        $this->assertNull($event->user_id);
+        $this->assertSame((string) $subject->id, $event->target_id);
+    }
+
+    public function test_an_explicit_actor_is_recorded_when_no_user_is_authenticated(): void
+    {
+        $actor = User::factory()->create();
+        $subject = User::factory()->create();
+
+        $event = $this->app->make(AuditLogger::class)->log('user.updated', $subject, [], $actor->id);
+
+        $this->assertSame($actor->id, $event->user_id);
+        $this->assertSame((string) $subject->id, $event->target_id);
     }
 
     public function test_secret_metadata_is_redacted_before_it_is_stored(): void
@@ -74,6 +96,44 @@ class AuditLogTest extends TestCase
         $this->assertStringNotContainsString('hunter2', (string) DB::table('audit_events')->where('id', $event->id)->value('meta_json'));
     }
 
+    public function test_secret_metadata_redacts_value_old_value_and_new_value(): void
+    {
+        $event = $this->app->make(AuditLogger::class)->log('settings.updated', null, [
+            'key' => 'alerts.channels.telegram.bot_token',
+            'is_secret' => true,
+            'value' => 'plaintext-secret',
+            'old_value' => 'old-plaintext-secret',
+            'new_value' => 'new-plaintext-secret',
+        ]);
+
+        $this->assertSame('[redacted]', $event->meta_json['value']);
+        $this->assertSame('[redacted]', $event->meta_json['old_value']);
+        $this->assertSame('[redacted]', $event->meta_json['new_value']);
+        $this->assertSame('alerts.channels.telegram.bot_token', $event->meta_json['key']);
+        $this->assertTrue($event->meta_json['is_secret']);
+
+        $stored = (string) DB::table('audit_events')->where('id', $event->id)->value('meta_json');
+        $this->assertStringNotContainsString('plaintext-secret', $stored);
+        $this->assertStringNotContainsString('old-plaintext-secret', $stored);
+        $this->assertStringNotContainsString('new-plaintext-secret', $stored);
+    }
+
+    public function test_non_boolean_values_under_flag_prefixes_are_redacted(): void
+    {
+        $event = $this->app->make(AuditLogger::class)->log('settings.updated', null, [
+            'is_secret' => 'true',
+            'has_token' => 'abc123-secret',
+            'is_enabled' => false,
+        ]);
+
+        $this->assertSame('[redacted]', $event->meta_json['is_secret']);
+        $this->assertSame('[redacted]', $event->meta_json['has_token']);
+        $this->assertFalse($event->meta_json['is_enabled']);
+
+        $stored = (string) DB::table('audit_events')->where('id', $event->id)->value('meta_json');
+        $this->assertStringNotContainsString('abc123-secret', $stored);
+    }
+
     public function test_audit_events_cannot_be_updated(): void
     {
         $event = $this->app->make(AuditLogger::class)->log('server.created');
@@ -83,6 +143,16 @@ class AuditLogTest extends TestCase
         $event->update(['action' => 'server.deleted']);
     }
 
+    public function test_audit_events_cannot_be_saved_after_creation(): void
+    {
+        $event = $this->app->make(AuditLogger::class)->log('server.created');
+
+        $this->expectException(LogicException::class);
+
+        $event->action = 'server.deleted';
+        $event->save();
+    }
+
     public function test_audit_events_cannot_be_deleted(): void
     {
         $event = $this->app->make(AuditLogger::class)->log('server.created');
@@ -90,6 +160,36 @@ class AuditLogTest extends TestCase
         $this->expectException(LogicException::class);
 
         $event->delete();
+    }
+
+    public function test_audit_events_cannot_be_updated_through_the_query_builder(): void
+    {
+        $this->app->make(AuditLogger::class)->log('server.created');
+
+        $this->expectException(LogicException::class);
+
+        AuditEvent::query()->update(['action' => 'server.deleted']);
+    }
+
+    public function test_audit_events_cannot_be_deleted_through_the_query_builder(): void
+    {
+        $this->app->make(AuditLogger::class)->log('server.created');
+
+        $this->expectException(LogicException::class);
+
+        AuditEvent::query()->delete();
+    }
+
+    public function test_creating_audit_events_through_the_query_builder_still_works(): void
+    {
+        $event = AuditEvent::query()->create([
+            'action' => 'server.created',
+            'target_type' => User::class,
+            'target_id' => '1',
+        ]);
+
+        $this->assertTrue($event->exists);
+        $this->assertSame('server.created', $event->action);
     }
 
     public function test_a_login_event_updates_last_login_and_records_an_audit_event(): void
@@ -118,5 +218,22 @@ class AuditLogTest extends TestCase
         $this->assertSame($user->id, $audit->user_id);
         $this->assertSame(User::class, $audit->target_type);
         $this->assertSame((string) $user->id, $audit->target_id);
+    }
+
+    public function test_a_failed_login_event_records_the_attempted_email_without_the_password(): void
+    {
+        Event::dispatch(new Failed('web', null, [
+            'email' => 'attacker@example.com',
+            'password' => 'wrong-password',
+        ]));
+
+        $audit = AuditEvent::query()->where('action', 'auth.failed')->sole();
+
+        $this->assertNull($audit->user_id);
+        $this->assertNull($audit->target_id);
+        $this->assertSame(['email' => 'attacker@example.com'], $audit->meta_json);
+
+        $stored = (string) DB::table('audit_events')->where('id', $audit->id)->value('meta_json');
+        $this->assertStringNotContainsString('wrong-password', $stored);
     }
 }
