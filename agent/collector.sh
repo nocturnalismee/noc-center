@@ -30,7 +30,7 @@ OPT_DRY_RUN=0                             # --dry-run
 OPT_PANEL=""                              # --panel
 OPT_PANEL_DIR=""                          # --panel-dir
 OPT_MODULE_DIR=""                         # --module-dir
-OPT_MAX_PAYLOAD_BYTES=""                  # --max-payload-bytes
+MAX_PAYLOAD_BYTES=65536                   # --max-payload-bytes
 OPT_HELP=0                                # --help
 OPT_VERSION=0                             # --version
 
@@ -40,7 +40,7 @@ PANEL_FILE=""     # path to the selected panel plugin (Task 4)
 PANEL_TMP=""      # temp file holding collected panel metric lines (Task 4)
 EXT_TMP=""        # temp file holding collected module metric lines (Task 5)
 TMP_STATE_DIR=""  # temporary state dir created for non-root --dry-run
-PAYLOAD_TMP=""    # temp file holding the built payload before sending (Task 9)
+PAYLOAD_FILE=""   # private temp file holding the final payload (Task 10)
 
 usage() {
   cat <<'EOF'
@@ -72,7 +72,7 @@ parse_args() {
       --panel) OPT_PANEL=${2-}; shift 2 ;;
       --panel-dir) OPT_PANEL_DIR=${2-}; shift 2 ;;
       --module-dir) OPT_MODULE_DIR=${2-}; shift 2 ;;
-      --max-payload-bytes) OPT_MAX_PAYLOAD_BYTES=${2-}; shift 2 ;;
+      --max-payload-bytes) MAX_PAYLOAD_BYTES=${2-}; shift 2 ;;
       --help) OPT_HELP=1; shift ;;
       --version) OPT_VERSION=1; shift ;;
       *) _err "collector: unknown option: ${1-}"; usage >&2; return 1 ;;
@@ -778,6 +778,77 @@ post_payload() {
   return 3
 }
 
+# --- Payload size fallback (Task 10) ---------------------------------------
+#
+# The ingest endpoint accepts at most 64 KiB per body (design §9.1). When the
+# full payload is too large, optional sections are dropped whole — never
+# partially — in this order (design §9.5):
+#   1. all panel_metrics;
+#   2. all extensions;
+#   3. if the core alone still does not fit, the run fails with exit 2.
+# Schema v1 has no "essential" marker, so this order is the only policy.
+
+# _payload_too_large FILE -> 0 when FILE is strictly larger than the limit.
+_payload_too_large() {
+  local file=${1-} size
+  size=$(wc -c < "$file" 2>/dev/null) || return 1
+  size=${size//[[:space:]]/}
+  [[ $size =~ ^[0-9]+$ ]] || return 1
+  (( size > MAX_PAYLOAD_BYTES ))
+}
+
+# send_with_fallback PANEL_FILE EXT_FILE -> build the schema-v1 payload into
+# $PAYLOAD_FILE, dropping optional sections as needed to fit MAX_PAYLOAD_BYTES.
+# On --dry-run it prints the final payload and performs no HTTP, token, or
+# lock work. Otherwise it passes only the final payload to post_payload and
+# returns post_payload's 0/3. Returns 1 on a local error and 2 when the
+# core-only payload is still too large. $PAYLOAD_FILE stays in cleanup_temps.
+send_with_fallback() {
+  local panel_file=${1:-/dev/null}
+  local ext_file=${2:-/dev/null}
+  local size
+
+  PAYLOAD_FILE=$(mktemp "${TMPDIR:-/tmp}/noc-agent.payload.XXXXXX") 2>/dev/null \
+    || { _err "payload: cannot create the payload temp file"; return 1; }
+  chmod 600 "$PAYLOAD_FILE" 2>/dev/null
+
+  # 1. Full payload (core + panel + extensions).
+  build_payload "$panel_file" "$ext_file" > "$PAYLOAD_FILE" \
+    || { _err "payload: cannot build the payload"; return 1; }
+
+  if _payload_too_large "$PAYLOAD_FILE"; then
+    # 2. Drop all panel_metrics; keep extensions and the core.
+    _err "payload: larger than MAX_PAYLOAD_BYTES (${MAX_PAYLOAD_BYTES}); dropping all panel_metrics"
+    build_payload /dev/null "$ext_file" > "$PAYLOAD_FILE" \
+      || { _err "payload: cannot build the payload"; return 1; }
+  fi
+
+  if _payload_too_large "$PAYLOAD_FILE"; then
+    # 3. Drop all extensions too; keep the core only.
+    _err "payload: still larger than MAX_PAYLOAD_BYTES (${MAX_PAYLOAD_BYTES}) without panel_metrics; dropping all extensions"
+    build_payload /dev/null /dev/null > "$PAYLOAD_FILE" \
+      || { _err "payload: cannot build the payload"; return 1; }
+  fi
+
+  if _payload_too_large "$PAYLOAD_FILE"; then
+    # 4. The core alone cannot fit: fail loudly instead of sending a partial
+    #    schema-v1 payload.
+    size=$(wc -c < "$PAYLOAD_FILE" 2>/dev/null)
+    size=${size//[[:space:]]/}
+    _err "payload: core payload (${size:-?} bytes) is too large for MAX_PAYLOAD_BYTES (${MAX_PAYLOAD_BYTES}); cannot send (exit 2)"
+    return 2
+  fi
+
+  if (( OPT_DRY_RUN )); then
+    # Dry run: no token, no lock, no HTTP — just the final payload.
+    cat "$PAYLOAD_FILE"
+    return 0
+  fi
+
+  post_payload "$PAYLOAD_FILE" || return $?
+  return 0
+}
+
 # cleanup_temps -> remove throwaway state/panel/module/HTTP temp paths on exit.
 # Note: keep every redirection argument lowercase-safe; LC_ALL=C makes Bash
 # treat an uppercase "2>/dev/null" as "2>~err" and silently break the call.
@@ -785,7 +856,7 @@ cleanup_temps() {
   _http_cleanup
   [[ -n ${PANEL_TMP:-} ]] && rm -f "$PANEL_TMP"
   [[ -n ${EXT_TMP:-} ]] && rm -f "$EXT_TMP"
-  [[ -n ${PAYLOAD_TMP:-} ]] && rm -f "$PAYLOAD_TMP"
+  [[ -n ${PAYLOAD_FILE:-} ]] && rm -f "$PAYLOAD_FILE"
   [[ -n ${TMP_STATE_DIR:-} ]] && rm -rf "$TMP_STATE_DIR"
   return 0
 }
@@ -813,6 +884,12 @@ main() {
   config_defaults
   load_config "$CONFIG_FILE" || return 1
   validate_config || return 1
+
+  # Validate the size limit before collecting anything so a bad flag fails fast.
+  if [[ ! $MAX_PAYLOAD_BYTES =~ ^[0-9]+$ ]] || (( MAX_PAYLOAD_BYTES < 1 )); then
+    _err "config error: MAX_PAYLOAD_BYTES must be a positive integer"
+    return 1
+  fi
 
   # CLI overrides (run/module/panel dirs are consumed by later tasks).
   [[ -n $OPT_STATE_DIR ]] && STATE_DIR=$OPT_STATE_DIR
@@ -848,8 +925,8 @@ main() {
     run_panel
     EXT_TMP=$(mktemp "${TMPDIR:-/tmp}/noc-agent.ext.XXXXXX") 2>/dev/null || EXT_TMP=/dev/null
     run_modules "$EXT_TMP"
-    build_payload "${PANEL_TMP:-/dev/null}" "$EXT_TMP"
-    return 0
+    send_with_fallback "${PANEL_TMP:-/dev/null}" "$EXT_TMP"
+    return $?
   fi
 
   # Real run: the state and run dirs must be owned by the effective UID and
@@ -874,13 +951,10 @@ main() {
   run_panel
   EXT_TMP=$(mktemp "${TMPDIR:-/tmp}/noc-agent.ext.XXXXXX") 2>/dev/null || EXT_TMP=/dev/null
   run_modules "$EXT_TMP"
-  # The payload deliberately goes to a private temp file rather than the run
-  # dir so it is never world-readable and never needs a filename with data.
-  PAYLOAD_TMP=$(mktemp "${TMPDIR:-/tmp}/noc-agent.payload.XXXXXX") 2>/dev/null || { _err "cannot create payload temp file"; return 1; }
-  chmod 600 "$PAYLOAD_TMP" 2>/dev/null
-  build_payload "${PANEL_TMP:-/dev/null}" "$EXT_TMP" > "$PAYLOAD_TMP"
-
-  post_payload "$PAYLOAD_TMP" || return $?
+  # send_with_fallback builds the payload into a private temp file and drops
+  # optional sections until it fits MAX_PAYLOAD_BYTES; only the final payload
+  # is sent.
+  send_with_fallback "${PANEL_TMP:-/dev/null}" "$EXT_TMP" || return $?
   return 0
 }
 
