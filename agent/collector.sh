@@ -40,6 +40,7 @@ PANEL_FILE=""     # path to the selected panel plugin (Task 4)
 PANEL_TMP=""      # temp file holding collected panel metric lines (Task 4)
 EXT_TMP=""        # temp file holding collected module metric lines (Task 5)
 TMP_STATE_DIR=""  # temporary state dir created for non-root --dry-run
+PAYLOAD_TMP=""    # temp file holding the built payload before sending (Task 9)
 
 usage() {
   cat <<'EOF'
@@ -556,11 +557,237 @@ run_module_mode() {
   return 0
 }
 
-# cleanup_temps -> remove throwaway state/panel/module temp paths on exit.
+# --- HTTP client (Task 9) ---------------------------------------------------
+#
+# post_payload sends a payload file to API_URL with a bearer token. It is
+# normally called from main(), whose exit trap (cleanup_temps) removes the
+# curl config on every path, so post_payload itself never installs a trap
+# (that would shadow main's and leak the payload temp file). The token is the
+# only secret the agent holds (design §10.2), so:
+#   * it is read from a secure token file, never from argv;
+#   * it is passed to curl only inside a mode-600 config file, never as -H;
+#   * its exact value is never logged, printed, or stored in the payload;
+#   * the config file is removed on every return path (and at exit).
+#
+# Retry policy (design §9.2): success 200/202/204; no retry for 400/401/403/
+# 413/422 (and any other non-retryable 4xx); retry 429, 5xx, and network/TLS
+# failures (curl code 000) up to 3 attempts with 1s and 3s backoff, each
+# attempt bounded by CURL_TIMEOUT and the whole loop bounded by
+# MAX_RUN_SECONDS. Result: 0 on success, 3 when the payload was not delivered
+# (including rejected 4xx), 1 on a configuration/local error.
+
+# Start of the run's wall-clock budget; set by main() and by post_payload()
+# when called directly (e.g. from a test).
+RUN_START_EPOCH=0
+
+_agent_now() { date +%s; }
+
+# _run_start_epoch -> print RUN_START_EPOCH, initializing it on first use.
+_run_start_epoch() {
+  if (( ${RUN_START_EPOCH:-0} == 0 )); then
+    RUN_START_EPOCH=$(_agent_now)
+  fi
+  printf '%s' "$RUN_START_EPOCH"
+}
+
+# _run_elapsed -> seconds since the run started.
+_run_elapsed() {
+  local start
+  start=$(_run_start_epoch)
+  printf '%s' $(( $(_agent_now) - start ))
+}
+
+# _run_budget_left -> remaining seconds of MAX_RUN_SECONDS (0 when expired).
+_run_budget_left() {
+  local used left
+  used=$(_run_elapsed)
+  left=$(( ${MAX_RUN_SECONDS:-45} - used ))
+  if (( left < 0 )); then left=0; fi
+  printf '%s' "$left"
+}
+
+# _http_status_class CODE -> success | retry | reject for an HTTP status.
+_http_status_class() {
+  local code=${1-}
+  case $code in
+    200|202|204) printf 'success' ;;
+    429) printf 'retry' ;;
+    5??) printf 'retry' ;;
+    4??) printf 'reject' ;;
+    *) printf 'retry' ;;
+  esac
+}
+
+# _curl_quote VALUE -> VALUE escaped for a quoted curl config value.
+# Only characters that would break config parsing need escaping; tokens are
+# restricted to ^[A-Za-z0-9._~-]{16,256}$ by validate_token_file.
+_curl_quote() {
+  local value=${1-}
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  printf '%s' "$value"
+}
+
+# _curl_config_file -> path of the mode-600 curl config for this run.
+_curl_config_file() {
+  printf '%s/noc-agent.curl.%s.conf' "$(_run_dir)" "$$"
+}
+
+# _http_cleanup -> remove the curl config and its response-body temps.
+# Called at the end of post_payload and from cleanup_temps on exit.
+_http_cleanup() {
+  local cfg
+  cfg=$(_curl_config_file)
+  if [[ -e $cfg || -e $cfg.body || -e $cfg.body.err ]]; then
+    rm -f "$cfg" "$cfg.body" "$cfg.body.err"
+  fi
+  return 0
+}
+
+# _write_curl_config CFG PAYLOAD_FILE -> write the mode-600 curl config.
+# The Authorization header lives only here, so it never appears in argv.
+_write_curl_config() {
+  local cfg=${1-} payload=${2-} proto
+  local old_umask
+  if [[ ${ALLOW_INSECURE_HTTP:-0} == 1 && ${API_URL-} == http://* ]]; then
+    proto='=http,https'
+  else
+    proto='=https'
+  fi
+  old_umask=$(umask)
+  umask 077
+  if ! {
+    printf 'url = "%s"\n' "$(_curl_quote "${API_URL-}")"
+    printf 'request = "POST"\n'
+    printf 'header = "Authorization: Bearer %s"\n' "$(_curl_quote "${SERVER_TOKEN-}")"
+    printf 'header = "Content-Type: application/json"\n'
+    printf 'header = "Accept: application/json"\n'
+    printf 'header = "User-Agent: noc-agent/%s"\n' "$AGENT_VERSION"
+    printf 'header = "X-Noc-Agent-Version: %s"\n' "$AGENT_VERSION"
+    printf 'proto = "%s"\n' "$proto"
+    printf 'tlsv1.2\n'
+    printf 'data-binary = "@%s"\n' "$(_curl_quote "$payload")"
+    printf 'write-out = "%%{http_code}"\n'
+    printf 'silent\n'
+    printf 'show-error\n'
+  } > "$cfg"; then
+    umask "$old_umask"
+    return 1
+  fi
+  umask "$old_umask"
+  chmod 600 "$cfg" 2>/dev/null || return 1
+  return 0
+}
+
+# _http_attempt CFG BODY_FILE -> run one curl attempt; print the HTTP status
+# code ("000" for network/TLS failure). The response body goes to BODY_FILE
+# and is never parsed or executed.
+_http_attempt() {
+  local cfg=${1-} body=${2-} budget code rc
+  local -a args
+  budget=$(_run_budget_left)
+  (( budget <= 0 )) && { printf '000'; return 0; }
+  args=(--config "$cfg" --max-time "$CURL_TIMEOUT" --connect-timeout "$CURL_TIMEOUT"
+        --output "$body" --write-out '%{http_code}')
+  # TLS verification is on by default; TLS_VERIFY=0 is a local-test escape.
+  if [[ ${TLS_VERIFY:-1} != 1 ]]; then
+    args+=(--insecure)
+  fi
+  code=$(timeout "$budget" curl "${args[@]}" 2>"$body.err") || rc=$?
+  rc=${rc:-0}
+  if (( rc != 0 )); then
+    printf '000'
+    return 0
+  fi
+  code=${code//$'\r'/}
+  code=${code//$'\n'/}
+  [[ $code =~ ^[0-9]{3}$ ]] || code=000
+  printf '%s' "$code"
+}
+
+# post_payload PAYLOAD_FILE -> 0 on 2xx, 3 when the payload was not delivered
+# (retries exhausted, network/TLS failure, or a non-retryable rejection),
+# 1 on a local/config error before any send was possible.
+post_payload() {
+  local payload=${1-}
+  local cfg body code class attempt delay budget
+  local -a backoff=(1 3)
+
+  if [[ -z $payload || ! -f $payload ]]; then
+    _err "http: payload file not found"
+    return 1
+  fi
+  if [[ -z ${API_URL:-} ]]; then
+    _err "http: API_URL is empty"
+    return 1
+  fi
+  if [[ -z ${SERVER_TOKEN:-} ]]; then
+    _err "http: server token is not loaded"
+    return 1
+  fi
+
+  cfg=$(_curl_config_file)
+  body="$cfg.body"
+  # Remove stale files from an interrupted earlier run; cleanup_temps removes
+  # them on exit.
+  _http_cleanup
+  if ! _write_curl_config "$cfg" "$payload"; then
+    _err "http: cannot write the curl config in $(_run_dir)"
+    _http_cleanup
+    return 1
+  fi
+
+  for ((attempt = 1; attempt <= 3; attempt++)); do
+    budget=$(_run_budget_left)
+    if (( budget <= 0 )); then
+      _err "http: run deadline (MAX_RUN_SECONDS=${MAX_RUN_SECONDS}) reached before attempt $attempt"
+      break
+    fi
+    code=$(_http_attempt "$cfg" "$body")
+    class=$(_http_status_class "$code")
+    rm -f "$body" "$body.err"
+    case $class in
+      success)
+        _http_cleanup
+        return 0
+        ;;
+      reject)
+        # Never include the token or the response body in the log.
+        _err "http: payload rejected (HTTP $code); not retrying"
+        _http_cleanup
+        return 3
+        ;;
+    esac
+    if (( attempt < 3 )); then
+      delay=${backoff[attempt-1]}
+      # Do not sleep past the run deadline; fail fast instead.
+      budget=$(_run_budget_left)
+      if (( budget <= delay )); then
+        _err "http: HTTP $code on attempt $attempt; run deadline (MAX_RUN_SECONDS=${MAX_RUN_SECONDS}) leaves no time to retry"
+        break
+      fi
+      _err "http: HTTP $code on attempt $attempt; retrying in ${delay}s"
+      sleep "$delay"
+    else
+      _err "http: HTTP $code on attempt $attempt; giving up"
+    fi
+  done
+
+  _http_cleanup
+  _err "http: payload was not delivered (exit 3)"
+  return 3
+}
+
+# cleanup_temps -> remove throwaway state/panel/module/HTTP temp paths on exit.
+# Note: keep every redirection argument lowercase-safe; LC_ALL=C makes Bash
+# treat an uppercase "2>/dev/null" as "2>~err" and silently break the call.
 cleanup_temps() {
-  [[ -n ${TMP_STATE_DIR:-} ]] && rm -rf "$TMP_STATE_DIR"
+  _http_cleanup
   [[ -n ${PANEL_TMP:-} ]] && rm -f "$PANEL_TMP"
   [[ -n ${EXT_TMP:-} ]] && rm -f "$EXT_TMP"
+  [[ -n ${PAYLOAD_TMP:-} ]] && rm -f "$PAYLOAD_TMP"
+  [[ -n ${TMP_STATE_DIR:-} ]] && rm -rf "$TMP_STATE_DIR"
+  return 0
 }
 
 main() {
@@ -625,8 +852,35 @@ main() {
     return 0
   fi
 
-  # TODO(later tasks): take the lock, read and validate the token, run
-  # panel/modules, build the payload, and POST it over HTTPS.
+  # Real run: the state and run dirs must be owned by the effective UID and
+  # not group/world writable. The run dir holds the lock and the token-bearing
+  # curl config, so it is validated before anything is written there.
+  require_secure_dir "$STATE_DIR" || return 1
+  require_secure_dir "$(_run_dir)" || return 1
+
+  # One run at a time: a busy lock means a previous run is still going.
+  if ! acquire_lock "$(_run_dir)/noc-agent.lock"; then
+    _err "another collector run holds the lock; skipping"
+    return 0
+  fi
+
+  RUN_START_EPOCH=$(_agent_now)
+
+  # The token is read from its secure file only for a real run, never for
+  # --dry-run, and never from argv.
+  validate_token_file "$SERVER_TOKEN_FILE" || return 1
+
+  collect_core
+  run_panel
+  EXT_TMP=$(mktemp "${TMPDIR:-/tmp}/noc-agent.ext.XXXXXX") 2>/dev/null || EXT_TMP=/dev/null
+  run_modules "$EXT_TMP"
+  # The payload deliberately goes to a private temp file rather than the run
+  # dir so it is never world-readable and never needs a filename with data.
+  PAYLOAD_TMP=$(mktemp "${TMPDIR:-/tmp}/noc-agent.payload.XXXXXX") 2>/dev/null || { _err "cannot create payload temp file"; return 1; }
+  chmod 600 "$PAYLOAD_TMP" 2>/dev/null
+  build_payload "${PANEL_TMP:-/dev/null}" "$EXT_TMP" > "$PAYLOAD_TMP"
+
+  post_payload "$PAYLOAD_TMP" || return $?
   return 0
 }
 
