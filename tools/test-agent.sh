@@ -77,7 +77,11 @@ shopt -s nullglob
 scripts=(agent/*.sh agent/*/*.sh tools/*.sh tools/tests/*.sh)
 shopt -u nullglob
 [ "${#scripts[@]}" -gt 0 ] || fail "no shell scripts found"
-bash -n "${scripts[@]}"
+# `bash -n` reads exactly one script: every further argument is that script's
+# $1, $2, … and is silently not parsed. So check each file in its own call.
+for f in "${scripts[@]}"; do
+  bash -n "$f" || fail "syntax error in $f"
+done
 echo "test-agent: syntax OK (${#scripts[@]} files)"
 
 echo "test-agent: shellcheck"
