@@ -1,0 +1,12 @@
+[Unit]
+Description=Run NOC monitoring agent every @INTERVAL@
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=@INTERVAL@
+AccuracySec=1s
+Persistent=false
+Unit=noc-agent.service
+
+[Install]
+WantedBy=timers.target

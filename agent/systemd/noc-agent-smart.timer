@@ -1,0 +1,12 @@
+[Unit]
+Description=Monthly SMART collection for NOC agent
+
+[Timer]
+OnCalendar=*-*-01 03:15:00
+RandomizedDelaySec=15m
+AccuracySec=1m
+Persistent=true
+Unit=noc-agent@smart.service
+
+[Install]
+WantedBy=timers.target

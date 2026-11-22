@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily disk quota collection for NOC agent
+
+[Timer]
+OnCalendar=*-*-* 03:45:00
+RandomizedDelaySec=10m
+AccuracySec=1m
+Persistent=true
+Unit=noc-agent@diskquota.service
+
+[Install]
+WantedBy=timers.target

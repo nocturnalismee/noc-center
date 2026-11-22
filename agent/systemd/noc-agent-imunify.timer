@@ -1,0 +1,12 @@
+[Unit]
+Description=Imunify scan status collection for NOC agent
+
+[Timer]
+OnBootSec=2m
+OnUnitActiveSec=5m
+AccuracySec=30s
+Persistent=false
+Unit=noc-agent@imunify.service
+
+[Install]
+WantedBy=timers.target

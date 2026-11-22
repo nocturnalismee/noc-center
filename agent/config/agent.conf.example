@@ -1,0 +1,71 @@
+# NOC monitoring agent configuration.
+#
+# This file is sourced by Bash (agent/collector.sh via lib/common.sh), so it
+# must be owned by the agent's effective UID (root in production) and must not
+# be readable or writable by group/others. The installer creates it as root
+# with mode 600; keep it that way. Do not use `eval` or command substitution.
+#
+# Values are the documented defaults from design §11. Unknown keys are
+# ignored by the core.
+
+# --- Required -------------------------------------------------------------
+# Ingest endpoint. Must be https://. Plain http:// is accepted only for
+# 127.0.0.1/localhost and only when ALLOW_INSECURE_HTTP=1 (local testing).
+API_URL="https://monitor.example.com/api/v1/ingest"
+
+# Token file: root-owned, mode 600, one token per file. The installer writes
+# it to /etc/noc-agent/token. Rotate by replacing the file contents; no
+# config change is needed.
+SERVER_TOKEN_FILE="/etc/noc-agent/token"
+
+# --- Optional -------------------------------------------------------------
+# Main collection interval in seconds, 10–3600. The systemd timer unit is
+# generated from this value at install time: after changing it, re-run the
+# installer (or edit /etc/systemd/system/noc-agent.timer) and daemon-reload.
+INTERVAL_SECONDS=60
+
+# Panel plugin: auto | none | cpanel | plesk | directadmin | cyberpanel |
+# aapanel. "auto" detects the panel; "none" forces non-panel mode.
+PANEL="auto"
+# Panel detection timeout, 1–5 seconds.
+PANEL_DETECT_TIMEOUT=2
+# Panel collect timeout, 3–20 seconds.
+PANEL_TIMEOUT=10
+# Per-attempt curl timeout, 3–15 seconds.
+CURL_TIMEOUT=8
+# Whole-run deadline, 20–45 seconds; must be lower than the unit's
+# TimeoutStartSec=50.
+MAX_RUN_SECONDS=45
+# State and external-module cache directory (agent id, cache/).
+STATE_DIR="/var/lib/noc-agent"
+# TLS certificate verification; keep 1 in production, 0 only for local tests.
+TLS_VERIFY=1
+# Allow http:// to 127.0.0.1/localhost for local testing; 0 in production.
+ALLOW_INSECURE_HTTP=0
+# Verbose logging to stderr (one-line summary); 0 = quiet on success.
+DEBUG=0
+
+# --- System modules -------------------------------------------------------
+# 0 disables a module: it is not run and its stale cache is not sent.
+ENABLE_MYSQL=1
+ENABLE_SMART=1
+ENABLE_DISKQUOTA=1
+ENABLE_IMUNIFY=1
+# Module detection timeout, 1–5 seconds.
+MODULE_DETECT_TIMEOUT=2
+# Inline module timeout, 1–15 seconds.
+MODULE_TIMEOUT=5
+# Timeout for `collector.sh --module NAME`, 30–600 seconds; must be lower
+# than the module unit's TimeoutStartSec=300.
+HEAVY_MODULE_TIMEOUT=240
+# Number of quota users reported, 1–50.
+QUOTA_TOP_N=15
+# Number of MySQL process-list rows reported, 0–50; 0 disables the list.
+MYSQL_MAX_QUERIES=10
+# Only MySQL queries running at least this long are reported, 1–3600 seconds.
+MYSQL_MIN_SECONDS=5
+# Include query text (truncated, single-line) in MySQL metrics; set 0 when
+# query text is considered sensitive.
+MYSQL_INCLUDE_QUERY_TEXT=1
+# Maximum number of disks reported by the SMART module, 1–64.
+SMART_MAX_DISKS=32

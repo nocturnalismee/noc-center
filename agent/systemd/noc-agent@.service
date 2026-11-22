@@ -1,0 +1,33 @@
+[Unit]
+Description=NOC monitoring agent module %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=@LIBEXEC@/collector.sh --module %i
+TimeoutStartSec=300
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+StateDirectory=noc-agent
+StateDirectoryMode=0700
+RuntimeDirectory=noc-agent
+RuntimeDirectoryMode=0700
+UMask=0077
+
+# Hardening (design §10.5). ProtectSystem=full instead of strict keeps the
+# panel/module CLIs able to write their own logs/temp under /var.
+NoNewPrivileges=yes
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
