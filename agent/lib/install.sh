@@ -56,14 +56,20 @@ parse_common_args() {
 }
 
 # resolve_paths -> normalize ROOT from OPT_PREFIX (default "/") and derive the
-# installer's paths underneath it.
+# installer's paths underneath it. ROOT is canonicalized with realpath -m so a
+# symlinked or ".."-laden prefix cannot make a derived path escape the prefix.
 resolve_paths() {
   local prefix=${OPT_PREFIX:-/}
   if [[ -z $prefix ]]; then _err "--prefix requires a non-empty directory"; return 1; fi
   # A relative prefix is taken relative to the current directory.
   if [[ $prefix != /* ]]; then prefix="$PWD/$prefix"; fi
-  ROOT=${prefix}
-  ROOT=${ROOT%/}
+  if which_cmd realpath; then
+    ROOT=$(realpath -m -- "$prefix") || return 1
+  else
+    # Fallback: resolve existing components manually is not portable; refuse.
+    _err "realpath is required to resolve --prefix safely"
+    return 1
+  fi
   [[ -z $ROOT ]] && ROOT=/
   LIBEXEC="$ROOT/usr/local/libexec/noc-agent"
   CONF_DIR="$ROOT/etc/noc-agent"
@@ -71,6 +77,22 @@ resolve_paths() {
   UNIT_DIR="$ROOT/etc/systemd/system"
   CONFIG_FILE="$CONF_DIR/agent.conf"
   TOKEN_FILE="$CONF_DIR/token"
+  return 0
+}
+
+# path_under_root PATH -> 0 when the canonical PATH is strictly inside the
+# canonical ROOT (a symlinked parent that escapes ROOT is refused). Returns 2
+# when ROOT is "/", which has no prefix to bound the path.
+path_under_root() {
+  local path=${1-} resolved root_real
+  [[ -n $path ]] || return 1
+  which_cmd realpath || return 1
+  resolved=$(realpath -m -- "$path") || return 1
+  root_real=$(realpath -m -- "$ROOT") || return 1
+  [[ $resolved == "$ROOT"/* || $resolved == "$root_real"/* ]] || return 1
+  # A real-system ROOT ("/") has no prefix to bound the path; deletion there
+  # needs the explicit confirmation handled by the caller.
+  [[ $root_real == / ]] && return 2
   return 0
 }
 

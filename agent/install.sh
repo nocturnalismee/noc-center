@@ -66,8 +66,8 @@ parse_args() {
   return 0
 }
 
-# _require_cmds -> fail early when a runtime dependency is missing (real
-# installs only; a dry run just reports).
+# _require_cmds -> fail early when a runtime dependency is missing. Skipped in
+# dry runs (see main), which only print actions.
 require_cmds() {
   local missing=() c
   for c in bash curl flock install; do
@@ -119,10 +119,14 @@ create_config() {
     _log "keeping existing config $CONFIG_FILE (use --force to replace)"
     return 0
   fi
-  tmp=$(mktemp "${TMPDIR:-/tmp}/noc-agent.conf.XXXXXX")
   # Loopback http:// (local tests) also needs ALLOW_INSECURE_HTTP=1.
   local allow=0
   case $OPT_API_URL in http://127.0.0.1*|http://localhost*) allow=1 ;; esac
+  if (( OPT_DRY_RUN )); then
+    printf '[dry-run] write %s (mode 600)\n' "$CONFIG_FILE"
+    return 0
+  fi
+  tmp=$(mktemp "${TMPDIR:-/tmp}/noc-agent.conf.XXXXXX") || { _err "cannot create a temporary config"; return 1; }
   # Rewrite the install-dependent keys; keep every other documented default
   # and comment from the example verbatim.
   while IFS= read -r line || [[ -n $line ]]; do
@@ -135,11 +139,6 @@ create_config() {
       *) printf '%s\n' "$line" ;;
     esac
   done < "$SELF_DIR/config/agent.conf.example" > "$tmp"
-  if (( OPT_DRY_RUN )); then
-    printf '[dry-run] write %s (mode 600)\n' "$CONFIG_FILE"
-    rm -f "$tmp"
-    return 0
-  fi
   chmod 600 "$tmp"
   mv -f "$tmp" "$CONFIG_FILE"
   _log "wrote config $CONFIG_FILE"
@@ -237,23 +236,28 @@ activate() {
 test_collector() {
   (( OPT_TEST )) || return 0
   if (( OPT_DRY_RUN )); then
-    printf '[dry-run] %s --dry-run --config %s --state-dir %s\n' \
-      "$LIBEXEC/collector.sh" "$CONFIG_FILE" "$STATE_DIR"
+    printf '[dry-run] %s --dry-run --config %s --state-dir %s --run-dir %s\n' \
+      "$LIBEXEC/collector.sh" "$CONFIG_FILE" "$STATE_DIR" "$STATE_DIR"
     return 0
   fi
   if [[ ! -f $CONFIG_FILE ]]; then
     _warn "--test: $CONFIG_FILE does not exist; skipping the config dry run"
     return 0
   fi
+  # The collector dry run validates the installed config against the installed
+  # state/run dirs; it reads no token and performs no HTTP. --module-dir and
+  # --panel-dir keep it exercising the installed modules/panels, not $SELF_DIR.
   if ! "$LIBEXEC/collector.sh" --dry-run --config "$CONFIG_FILE" \
-      --state-dir "$STATE_DIR" --run-dir "$STATE_DIR" >/dev/null; then
+      --state-dir "$STATE_DIR" --run-dir "$STATE_DIR" \
+      --module-dir "$LIBEXEC/modules" --panel-dir "$LIBEXEC/panels" >/dev/null; then
     _err "--test: the installed collector failed its dry run"
     return 1
   fi
+  _log "--test: collector dry run succeeded"
   if (( ! OPT_NO_SYSTEMCTL )); then
+    # Then trigger a real run through systemd (spec §13 step 10).
     systemctl_do start noc-agent.service || _warn "--test: starting noc-agent.service failed"
   fi
-  _log "--test: collector dry run succeeded"
   return 0
 }
 
@@ -267,15 +271,23 @@ main() {
   require_root_or_prefix || return 1
   # A prefixed, non-root install cannot manage the host's systemd; behave as
   # if --no-systemctl were given instead of failing on systemctl permissions.
-  if [[ $ROOT != / ]] && (( $(id -u) != 0 )); then
+  # NOC_AGENT_ALLOW_SYSTEMCTL=1 opts out (tests use it with a stubbed
+  # systemctl on PATH; it never reaches the host's real systemd).
+  if [[ $ROOT != / ]] && (( $(id -u) != 0 )) && [[ ${NOC_AGENT_ALLOW_SYSTEMCTL:-0} != 1 ]]; then
     OPT_NO_SYSTEMCTL=1
   fi
-  require_cmds || return 1
+  # A dry run only prints planned actions, so it must not depend on tools it
+  # would need to install anything (e.g. `install` in a minimal container).
+  if (( ! OPT_DRY_RUN )); then
+    require_cmds || return 1
+  fi
 
   # The config is only created when absent (or --force), so API_URL/interval
   # are required only when they would actually be written.
   local interval
   interval=$(validate_interval "${OPT_INTERVAL:-60}") || return 1
+  # A fresh, empty prefix has nothing to keep, so --api-url is required only
+  # when this run would actually write a config (absent, or --force).
   if [[ ! -e $CONFIG_FILE || -L $CONFIG_FILE ]] || (( OPT_FORCE )); then
     if [[ -z $OPT_API_URL ]]; then
       _err "--api-url is required to create $CONFIG_FILE"

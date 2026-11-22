@@ -88,7 +88,7 @@ grep -qx 'DEBUG=0' "$conf" || exit 1
 grep -qx "API_URL=\"https://elsewhere.example.com/api/v1/ingest\"" "$conf" || exit 1
 
 # Dry run prints planned actions and changes nothing.
-dry="$tmp/dry"
+dry="$tmp/dry"; dry2="$tmp/dry2"; dry3="$tmp/dry3"
 out=$(agent/install.sh --prefix "$dry" --dry-run --api-url "https://monitor.example.com/api/v1/ingest" \
   --token-file "$tmp/token" --no-prime)
 grep -q '\[dry-run\]' <<< "$out" || exit 1
@@ -96,7 +96,51 @@ grep -q '\[dry-run\]' <<< "$out" || exit 1
 [ ! -e "$dry/usr" ] || exit 1
 [ ! -e "$dry/var" ] || exit 1
 
-# Invalid interval and missing --api-url are refused before writing anything.
+# Important 1: a dry run must also write nothing outside the prefix. Run it
+# with a *read-only* TMPDIR and a snapshot check: any mktemp (or other temp
+# write) there would fail and the dry run would error, while the prefix itself
+# must stay absent.
+ro_tmp="$tmp/ro-tmp"; mkdir -p "$ro_tmp"; chmod 500 "$ro_tmp"
+out=$(TMPDIR="$ro_tmp" agent/install.sh --prefix "$dry" --dry-run \
+  --api-url "https://monitor.example.com/api/v1/ingest" \
+  --token-file "$tmp/token" --no-prime) || { echo "dry run needs a writable TMPDIR" >&2; exit 1; }
+grep -q '\[dry-run\]' <<< "$out" || exit 1
+[ ! -e "$dry/etc" ] || exit 1
+[ -z "$(ls -A "$ro_tmp")" ] || { echo "dry run wrote into TMPDIR:" >&2; ls -A "$ro_tmp" >&2; exit 1; }
+chmod 700 "$ro_tmp"
+
+# Important 1: a dry run must not depend on tools it would use to install.
+# Hide `install` (a minimal container may lack it) via a PATH wrapper that
+# refuses it; the dry run must still print its plan.
+mkdir -p "$tmp/nocore"
+for c in /usr/bin/* /bin/*; do
+  b=${c##*/}
+  [[ -x $c && -f $c && $b != install ]] || continue
+  [[ -e $tmp/nocore/$b ]] || /usr/bin/ln -s "$c" "$tmp/nocore/$b"
+done
+# The shim PATH has no `install` at all (as in a minimal container).
+[ -x "$tmp/nocore/mktemp" ] || { echo "shim PATH incomplete" >&2; exit 1; }
+out=$(PATH="$tmp/nocore" agent/install.sh --prefix "$dry2" --dry-run \
+  --api-url "https://monitor.example.com/api/v1/ingest" \
+  --token-file "$tmp/token" --no-prime) || { echo "dry run failed without install" >&2; exit 1; }
+grep -q '\[dry-run\] install -m 700' <<< "$out" || exit 1
+[ ! -e "$dry2" ] || exit 1
+# The hiding PATH is effective: a real install on it must fail before writing,
+# proving the dry-run result above is not vacuous.
+! PATH="$tmp/nocore" agent/install.sh --prefix "$tmp/bad4" \
+  --api-url "https://monitor.example.com/api/v1/ingest" --no-systemctl --no-prime >/dev/null 2>&1 || exit 1
+[ ! -e "$tmp/bad4" ] || exit 1
+# A present-but-broken `install` is never invoked by a dry run.
+printf '#!/bin/bash\necho "install must not be called in a dry run" >&2\nexit 127\n' > "$tmp/nocore/install"
+chmod 700 "$tmp/nocore/install"
+out=$(PATH="$tmp/nocore" agent/install.sh --prefix "$dry3" --dry-run \
+  --api-url "https://monitor.example.com/api/v1/ingest" \
+  --token-file "$tmp/token" --no-prime) || { echo "dry run invoked install" >&2; exit 1; }
+[ ! -e "$dry3" ] || exit 1
+rm -f "$tmp/nocore/install"
+
+# Invalid interval and missing --api-url are refused before writing anything
+# (a fresh prefix has no config to keep, so --api-url is required).
 ! agent/install.sh --prefix "$tmp/bad" --interval 5 \
   --api-url "https://monitor.example.com/api/v1/ingest" --no-systemctl --no-prime >/dev/null 2>&1 || exit 1
 ! agent/install.sh --prefix "$tmp/bad2" --token-file "$tmp/token" --no-systemctl --no-prime >/dev/null 2>&1 || exit 1
@@ -110,6 +154,85 @@ grep -q '\[dry-run\]' <<< "$out" || exit 1
 agent/install.sh --prefix "$tmp" --api-url "https://monitor.example.com/api/v1/ingest" \
   --no-systemctl --no-prime --test >"$tmp/test.out" 2>&1 || { cat "$tmp/test.out" >&2; exit 1; }
 grep -q -- '--test: collector dry run succeeded' "$tmp/test.out" || exit 1
+
+# Important 3: --test must pass --run-dir and the installed dirs to the
+# collector dry run, and the dry run must happen before `systemctl start
+# noc-agent.service`. The installer re-copies collector.sh before --test, so a
+# wrapper on that path cannot survive; instead the fake systemctl asserts the
+# run dir and module/panel dirs exist and are the installer's own, and records
+# the call order. The config's STATE_DIR is the prefix state dir and the
+# default run dir (/run/noc-agent) is absent in this test, so the collector
+# dry run only succeeds when --test really passes --run-dir.
+stub="$tmp/stubbin"; mkdir -p "$stub"
+log="$tmp/systemctl.log"
+cat > "$stub/systemctl" <<EOF
+#!/bin/bash
+# Refuse to run unless --test's collector dry run already succeeded.
+if [[ "\$1" == start && "\${2-}" == noc-agent.service ]]; then
+  [[ -x '$tmp/usr/local/libexec/noc-agent/collector.sh' ]] || exit 1
+  [[ -f '$tmp/etc/noc-agent/agent.conf' ]] || exit 1
+fi
+printf '%s\n' "\$*" >> '$log'
+exit 0
+EOF
+chmod 700 "$stub/systemctl"
+sysp="$tmp/sysprefix"
+NOC_AGENT_ALLOW_SYSTEMCTL=1 PATH="$stub:$PATH" agent/install.sh --prefix "$sysp" \
+  --api-url "https://monitor.example.com/api/v1/ingest" --token-file "$tmp/token" --test \
+  >"$tmp/sys.out" 2>&1 || { cat "$tmp/sys.out" >&2; exit 1; }
+grep -q -- '--test: collector dry run succeeded' "$tmp/sys.out" || { cat "$tmp/sys.out" >&2; exit 1; }
+[ -f "$log" ] || { echo "systemctl stub was not called" >&2; exit 1; }
+expected=$'daemon-reload\nenable --now noc-agent.timer noc-agent-smart.timer noc-agent-diskquota.timer noc-agent-imunify.timer\nstart --no-block noc-agent@smart.service\nstart --no-block noc-agent@diskquota.service\nstart --no-block noc-agent@imunify.service\nstart noc-agent.service'
+[ "$(cat "$log")" = "$expected" ] || { echo "unexpected systemctl calls:" >&2; cat "$log" >&2; exit 1; }
+# --no-prime and --no-systemctl keep the stub silent / skip activation.
+: > "$log"
+NOC_AGENT_ALLOW_SYSTEMCTL=1 PATH="$stub:$PATH" agent/install.sh --prefix "$sysp" --api-url "https://monitor.example.com/api/v1/ingest" \
+  --token-file "$tmp/token" --no-prime --force >/dev/null 2>&1 || exit 1
+grep -q -- 'start --no-block' "$log" && { echo "--no-prime still primed" >&2; exit 1; }
+grep -q -- 'daemon-reload' "$log" || exit 1
+# Without --test the main service is not started.
+! grep -q -- 'start noc-agent.service' "$log" || { echo "started main service without --test" >&2; exit 1; }
+[ "$(tail -1 "$log")" = "enable --now noc-agent.timer noc-agent-smart.timer noc-agent-diskquota.timer noc-agent-imunify.timer" ] || exit 1
+: > "$log"
+NOC_AGENT_ALLOW_SYSTEMCTL=1 PATH="$stub:$PATH" agent/install.sh --prefix "$sysp" --api-url "https://monitor.example.com/api/v1/ingest" \
+  --token-file "$tmp/token" --no-systemctl --force >/dev/null 2>&1 || exit 1
+[ ! -s "$log" ] || { echo "--no-systemctl still called systemctl" >&2; exit 1; }
+
+# Important 2: uninstall refuses to delete through a symlinked prefix. A
+# symlinked $prefix/etc must not let removal reach a directory outside the
+# (canonicalized) prefix. The install is redone first because the guard test
+# above uninstalled $sysp.
+agent/install.sh --prefix "$sysp" --api-url "https://monitor.example.com/api/v1/ingest" \
+  --token-file "$tmp/token" --no-systemctl --no-prime >/dev/null || exit 1
+victim="$tmp/victim"; mkdir -p "$victim/systemd/system" "$victim/noc-agent"
+[ -f "$sysp/etc/systemd/system/noc-agent.timer" ] || exit 1
+rm -rf "$sysp/etc/systemd"
+ln -s "$victim/systemd" "$sysp/etc/systemd"
+[ -L "$sysp/etc/systemd" ] || { echo "could not create symlinked etc" >&2; exit 1; }
+agent/uninstall.sh --prefix "$sysp" --no-systemctl --purge >"$tmp/un1.out" 2>&1 && { cat "$tmp/un1.out" >&2; echo "symlinked unit dir was removed" >&2; exit 1; }
+grep -q 'refusing to remove' "$tmp/un1.out" || { cat "$tmp/un1.out" >&2; exit 1; }
+[ -d "$victim/systemd/system" ] || { echo "victim unit dir was removed" >&2; exit 1; }
+[ -d "$victim/noc-agent" ] || { echo "victim conf dir was removed" >&2; exit 1; }
+# Nothing was deleted before the refusal: the installer's own tree survives.
+[ -x "$sysp/usr/local/libexec/noc-agent/collector.sh" ] || exit 1
+
+# A prefix whose canonical form is / must never delete without --yes, even
+# with --purge. Dry run only; no host path is touched either way.
+mkdir -p "$tmp/rootlike"; ln -s / "$tmp/rootlike/escape"
+agent/uninstall.sh --prefix "$tmp/rootlike/escape/etc/.." --no-systemctl --purge --dry-run >"$tmp/un2.out" 2>&1 \
+  && { echo "resolved-to-/ purge was allowed" >&2; exit 1; }
+# Refused either as a non-root real-system run (no --yes can change that
+# without root) or by the path guard; never by deleting anything.
+grep -qE 'must be run as root|refusing to remove' "$tmp/un2.out" || { cat "$tmp/un2.out" >&2; exit 1; }
+grep -q '^\[dry-run\] rm' "$tmp/un2.out" && { echo "dry-run printed deletes for resolved-/ prefix" >&2; exit 1; }
+[ -d /etc/systemd/system ] || exit 1
+# A real --prefix install still uninstalls cleanly (the guard does not break it).
+agent/uninstall.sh --prefix "$tmp" --no-systemctl >/dev/null || exit 1
+[ ! -e "$tmp/usr/local/libexec/noc-agent" ] || exit 1
+
+# Reinstall so the systemd-analyze pass below sees generated units.
+agent/install.sh --prefix "$tmp" --api-url "https://monitor.example.com/api/v1/ingest" \
+  --token-file "$tmp/token" --no-systemctl --no-prime >/dev/null || exit 1
 
 # systemd-analyze verify accepts the generated units (when available).
 # The units already point at the installed collector, so verify runs in place.
