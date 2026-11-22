@@ -28,6 +28,8 @@ export LC_ALL=C
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/install.sh
 source "$SELF_DIR/lib/install.sh"
+# shellcheck source=lib/url.sh
+source "$SELF_DIR/lib/url.sh"
 
 OPT_API_URL=""
 OPT_TOKEN_FILE=""
@@ -119,9 +121,10 @@ create_config() {
     _log "keeping existing config $CONFIG_FILE (use --force to replace)"
     return 0
   fi
-  # Loopback http:// (local tests) also needs ALLOW_INSECURE_HTTP=1.
+  # Loopback http:// (local tests) also needs ALLOW_INSECURE_HTTP=1. Only an
+  # exact loopback URL qualifies; the shared validator makes that decision.
   local allow=0
-  case $OPT_API_URL in http://127.0.0.1*|http://localhost*) allow=1 ;; esac
+  api_url_is_loopback_http "$OPT_API_URL" && allow=1
   if (( OPT_DRY_RUN )); then
     printf '[dry-run] write %s (mode 600)\n' "$CONFIG_FILE"
     return 0
@@ -293,11 +296,13 @@ main() {
       _err "--api-url is required to create $CONFIG_FILE"
       return 1
     fi
-    case $OPT_API_URL in
-      https://*) ;;
-      http://127.0.0.1*|http://localhost*) ;;
-      *) _err "--api-url must be https (or http://127.0.0.1|localhost for tests)"; return 1 ;;
-    esac
+    # The installer accepts exactly the runtime's forms; allow=1 only widens
+    # the check to the exact loopback http literals it then records as
+    # ALLOW_INSECURE_HTTP=1 in the config.
+    if ! validate_api_url "$OPT_API_URL" 1; then
+      _err "--api-url must be https (or http://127.0.0.1|localhost for tests)"
+      return 1
+    fi
   fi
   if [[ -n $OPT_TOKEN_FILE ]]; then
     _read_token "$OPT_TOKEN_FILE" >/dev/null || return 1

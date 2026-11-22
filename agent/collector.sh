@@ -849,15 +849,27 @@ send_with_fallback() {
   return 0
 }
 
+# _cleanup_temp_file PATH -> unlink PATH only when it is a non-empty regular
+# file that is not /dev/null. A failed mktemp leaves the variable empty; the
+# explicit /dev/null refusal keeps a fallback sentinel from ever unlinking the
+# host device node when the collector runs as root.
+_cleanup_temp_file() {
+  local path=${1-}
+  [[ -n $path ]] || return 0
+  [[ $path == /dev/null ]] && return 0
+  [[ -f $path && ! -L $path ]] || return 0
+  rm -f -- "$path"
+}
+
 # cleanup_temps -> remove throwaway state/panel/module/HTTP temp paths on exit.
 # Note: keep every redirection argument lowercase-safe; LC_ALL=C makes Bash
 # treat an uppercase "2>/dev/null" as "2>~err" and silently break the call.
 cleanup_temps() {
   _http_cleanup
-  [[ -n ${PANEL_TMP:-} ]] && rm -f "$PANEL_TMP"
-  [[ -n ${EXT_TMP:-} ]] && rm -f "$EXT_TMP"
-  [[ -n ${PAYLOAD_FILE:-} ]] && rm -f "$PAYLOAD_FILE"
-  [[ -n ${TMP_STATE_DIR:-} ]] && rm -rf "$TMP_STATE_DIR"
+  _cleanup_temp_file "${PANEL_TMP:-}"
+  _cleanup_temp_file "${EXT_TMP:-}"
+  _cleanup_temp_file "${PAYLOAD_FILE:-}"
+  [[ -n ${TMP_STATE_DIR:-} ]] && rm -rf -- "$TMP_STATE_DIR"
   return 0
 }
 
@@ -923,7 +935,10 @@ main() {
     fi
     collect_core
     run_panel
-    EXT_TMP=$(mktemp "${TMPDIR:-/tmp}/noc-agent.ext.XXXXXX") 2>/dev/null || EXT_TMP=/dev/null
+    # An empty sentinel (not /dev/null) when mktemp fails: cleanup_temps must
+    # never be handed a host device node to unlink. The read-side fallbacks
+    # below turn an empty value into /dev/null.
+    EXT_TMP=$(mktemp "${TMPDIR:-/tmp}/noc-agent.ext.XXXXXX") 2>/dev/null || EXT_TMP=""
     run_modules "$EXT_TMP"
     send_with_fallback "${PANEL_TMP:-/dev/null}" "$EXT_TMP"
     return $?
@@ -949,7 +964,9 @@ main() {
 
   collect_core
   run_panel
-  EXT_TMP=$(mktemp "${TMPDIR:-/tmp}/noc-agent.ext.XXXXXX") 2>/dev/null || EXT_TMP=/dev/null
+  # See the dry-run branch: an empty sentinel keeps /dev/null out of
+  # cleanup_temps when mktemp fails.
+  EXT_TMP=$(mktemp "${TMPDIR:-/tmp}/noc-agent.ext.XXXXXX") 2>/dev/null || EXT_TMP=""
   run_modules "$EXT_TMP"
   # send_with_fallback builds the payload into a private temp file and drops
   # optional sections until it fits MAX_PAYLOAD_BYTES; only the final payload

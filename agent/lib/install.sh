@@ -60,6 +60,7 @@ parse_common_args() {
 # symlinked or ".."-laden prefix cannot make a derived path escape the prefix.
 resolve_paths() {
   local prefix=${OPT_PREFIX:-/}
+  local base
   if [[ -z $prefix ]]; then _err "--prefix requires a non-empty directory"; return 1; fi
   # A relative prefix is taken relative to the current directory.
   if [[ $prefix != /* ]]; then prefix="$PWD/$prefix"; fi
@@ -71,10 +72,14 @@ resolve_paths() {
     return 1
   fi
   [[ -z $ROOT ]] && ROOT=/
-  LIBEXEC="$ROOT/usr/local/libexec/noc-agent"
-  CONF_DIR="$ROOT/etc/noc-agent"
-  STATE_DIR="$ROOT/var/lib/noc-agent"
-  UNIT_DIR="$ROOT/etc/systemd/system"
+  # A real-system root contributes no prefix of its own; this keeps the
+  # derived paths as /etc/... rather than //etc/....
+  base=$ROOT
+  [[ $ROOT == / ]] && base=""
+  LIBEXEC="$base/usr/local/libexec/noc-agent"
+  CONF_DIR="$base/etc/noc-agent"
+  STATE_DIR="$base/var/lib/noc-agent"
+  UNIT_DIR="$base/etc/systemd/system"
   CONFIG_FILE="$CONF_DIR/agent.conf"
   TOKEN_FILE="$CONF_DIR/token"
   return 0
@@ -82,17 +87,22 @@ resolve_paths() {
 
 # path_under_root PATH -> 0 when the canonical PATH is strictly inside the
 # canonical ROOT (a symlinked parent that escapes ROOT is refused). Returns 2
-# when ROOT is "/", which has no prefix to bound the path.
+# when canonical ROOT is "/", which has no prefix to bound the path; the
+# caller decides whether that specific path is one it owns. Returns 1
+# otherwise (including a path equal to ROOT itself).
 path_under_root() {
   local path=${1-} resolved root_real
   [[ -n $path ]] || return 1
   which_cmd realpath || return 1
   resolved=$(realpath -m -- "$path") || return 1
   root_real=$(realpath -m -- "$ROOT") || return 1
-  [[ $resolved == "$ROOT"/* || $resolved == "$root_real"/* ]] || return 1
-  # A real-system ROOT ("/") has no prefix to bound the path; deletion there
-  # needs the explicit confirmation handled by the caller.
-  [[ $root_real == / ]] && return 2
+  # Check the "/" case before any prefix pattern: with ROOT=/ the pattern
+  # would be "//*", which no real path matches, so every legitimate
+  # system path would be refused.
+  if [[ $root_real == / ]]; then
+    return 2
+  fi
+  [[ $resolved == "$root_real"/* ]] || return 1
   return 0
 }
 

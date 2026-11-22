@@ -52,16 +52,35 @@ parse_args() {
   return 0
 }
 
-# remove_path PATH -> rm -rf (or print in a dry run), tolerating absence.
-# Refuses any path that is not strictly inside ROOT (after realpath, so a
-# symlinked parent cannot escape), and refuses every deletion when ROOT is "/"
-# unless the operator passed --purge --yes; even then only the uninstaller's
-# own LIBEXEC/units/config/state paths are ever removed.
-remove_path() {
-  local path=${1-} check=0
+# _is_uninstall_owned_path PATH -> 0 only for the uninstaller's own fixed,
+# non-secret install paths: the systemd units and LIBEXEC. Those are removed
+# on a real system (ROOT=/) without --purge. CONF_DIR and STATE_DIR are
+# deliberately absent, so they always need --purge --yes.
+_is_uninstall_owned_path() {
+  local path=${1-} resolved candidate u
+  resolved=$(realpath -m -- "$path") || return 1
+  candidate=$(realpath -m -- "$LIBEXEC") || return 1
+  [[ $resolved == "$candidate" ]] && return 0
+  for u in "${UNITS[@]}"; do
+    candidate=$(realpath -m -- "$UNIT_DIR/$u") || continue
+    [[ $resolved == "$candidate" ]] && return 0
+  done
+  return 1
+}
+
+# _remove_path PATH ALLOW_OWNED -> rm -rf (or print in a dry run), tolerating
+# absence. Refuses any path that is not strictly inside ROOT (after realpath,
+# so a symlinked parent cannot escape). When ROOT is "/", only the fixed
+# owned paths are removable with ALLOW_OWNED (the call site must be one of the
+# unit/LIBEXEC removals, and _is_uninstall_owned_path re-checks the canonical
+# path); everything else needs --purge --yes.
+_remove_path() {
+  local path=${1-} allow_owned=${2-0} check=0
   path_under_root "$path" || check=$?
   if (( check == 2 )); then
-    if (( OPT_PURGE && OPT_YES )); then
+    if (( allow_owned )) && _is_uninstall_owned_path "$path"; then
+      _log "removing real-system path $path"
+    elif (( OPT_PURGE && OPT_YES )); then
       _warn "removing real-system path $path (--purge --yes)"
     else
       _err "refusing to remove $path: ROOT is / (re-run with --purge --yes to confirm)"
@@ -81,6 +100,13 @@ remove_path() {
   fi
   return 0
 }
+
+# remove_owned_path PATH -> the fixed unit/LIBEXEC removals. The call sites are
+# explicit and limited; the canonical path is checked again in _remove_path.
+remove_owned_path() { _remove_path "${1-}" 1; }
+
+# remove_path PATH -> general removal; on ROOT=/ requires --purge --yes.
+remove_path() { _remove_path "${1-}" 0; }
 
 # stop_units -> disable the timers and stop any active unit instance.
 stop_units() {
@@ -111,9 +137,9 @@ main() {
 
   local u
   for u in "${UNITS[@]}"; do
-    remove_path "$UNIT_DIR/$u" || return 1
+    remove_owned_path "$UNIT_DIR/$u" || return 1
   done
-  remove_path "$LIBEXEC" || return 1
+  remove_owned_path "$LIBEXEC" || return 1
 
   if (( ! OPT_NO_SYSTEMCTL )); then
     systemctl_do daemon-reload || _warn "daemon-reload failed"
@@ -131,4 +157,6 @@ main() {
   return 0
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

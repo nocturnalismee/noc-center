@@ -10,6 +10,8 @@ agent/install.sh --prefix "$tmp" --api-url "http://127.0.0.1:18787/api/v1/ingest
 grep -q 'OnUnitActiveSec=30s' "$tmp/etc/systemd/system/noc-agent.timer" || exit 1
 [ "$(stat -c %a "$tmp/etc/noc-agent/agent.conf")" = 600 ] || exit 1
 [ "$(stat -c %a "$tmp/etc/noc-agent/token")" = 600 ] || exit 1
+# An exact loopback http URL is the only form that auto-enables insecure http.
+grep -qx 'ALLOW_INSECURE_HTTP=1' "$tmp/etc/noc-agent/agent.conf" || exit 1
 agent/collector.sh --dry-run --config "$tmp/etc/noc-agent/agent.conf" \
   --state-dir "$tmp/var/lib/noc-agent" >/dev/null
 agent/uninstall.sh --prefix "$tmp" --no-systemctl
@@ -150,6 +152,23 @@ rm -f "$tmp/nocore/install"
 ! agent/install.sh --prefix "$tmp/bad3" --api-url "http://monitor.example.com/api/v1/ingest" \
   --no-systemctl --no-prime >/dev/null 2>&1 || exit 1
 
+# I1: userinfo and loopback-suffix forms are refused. curl would read
+# "127.0.0.1:80@" as userinfo and connect to evil.com (sending the bearer
+# token in cleartext); the suffixes are not loopback either.
+i=0
+for badurl in \
+  "http://127.0.0.1:80@evil.com/api/v1/ingest" \
+  "http://127.0.0.1.evil.com/api/v1/ingest" \
+  "http://localhost.evil.com/api/v1/ingest"; do
+  i=$((i + 1))
+  p="$tmp/badurl$i"
+  if agent/install.sh --prefix "$p" --api-url "$badurl" \
+      --no-systemctl --no-prime >/dev/null 2>&1; then
+    echo "installer accepted $badurl" >&2; exit 1
+  fi
+  [ ! -e "$p" ] || { echo "installer wrote a prefix for $badurl" >&2; exit 1; }
+done
+
 # --test dry-runs the installed collector (no token, no HTTP, no systemctl).
 agent/install.sh --prefix "$tmp" --api-url "https://monitor.example.com/api/v1/ingest" \
   --no-systemctl --no-prime --test >"$tmp/test.out" 2>&1 || { cat "$tmp/test.out" >&2; exit 1; }
@@ -215,6 +234,77 @@ grep -q 'refusing to remove' "$tmp/un1.out" || { cat "$tmp/un1.out" >&2; exit 1;
 [ -d "$victim/noc-agent" ] || { echo "victim conf dir was removed" >&2; exit 1; }
 # Nothing was deleted before the refusal: the installer's own tree survives.
 [ -x "$sysp/usr/local/libexec/noc-agent/collector.sh" ] || exit 1
+
+# C1: the real-system guard must classify "/" paths as 2 (not 1), otherwise
+# uninstall refuses every unit. These are unit-level checks in a subshell;
+# the only removals are dry-run prints, so no host path is touched.
+(
+  # shellcheck source=agent/lib/install.sh
+  source agent/lib/install.sh
+  ROOT=/
+  rc=0
+  path_under_root /etc/systemd/system/noc-agent.timer || rc=$?
+  [ "$rc" -eq 2 ] || { echo "ROOT=/ unit path classified $rc, expected 2" >&2; exit 1; }
+  # Non-/ prefix: strictly inside -> 0, outside (or the root itself) -> 1.
+  ROOT="$tmp/c1-root"
+  rc=0
+  path_under_root "$tmp/c1-root/etc/noc-agent/agent.conf" || rc=$?
+  [ "$rc" -eq 0 ] || { echo "in-prefix path classified $rc, expected 0" >&2; exit 1; }
+  rc=0
+  path_under_root "$tmp/c1-outside/agent.conf" || rc=$?
+  [ "$rc" -eq 1 ] || { echo "out-of-prefix path classified $rc, expected 1" >&2; exit 1; }
+  rc=0
+  path_under_root "$tmp/c1-root" || rc=$?
+  [ "$rc" -eq 1 ] || { echo "prefix itself classified $rc, expected 1" >&2; exit 1; }
+)
+
+# C1: default real-system uninstall removes the fixed units and LIBEXEC
+# without --purge; CONF_DIR/STATE_DIR still require --purge --yes. All calls
+# are dry runs, so nothing under / is created or removed.
+(
+  # shellcheck source=agent/uninstall.sh
+  source agent/uninstall.sh
+  OPT_PREFIX=""
+  OPT_DRY_RUN=1
+  OPT_NO_SYSTEMCTL=1
+  OPT_PURGE=0
+  OPT_YES=0
+  resolve_paths || exit 1
+  [ "$ROOT" = / ] || { echo "expected ROOT=/ got $ROOT" >&2; exit 1; }
+  out=$(remove_owned_path "$UNIT_DIR/noc-agent.timer") \
+    || { echo "unit refused on ROOT=/ without --purge" >&2; exit 1; }
+  grep -qxF "[dry-run] rm -rf /etc/systemd/system/noc-agent.timer" <<< "$out" \
+    || { echo "unexpected unit dry run: $out" >&2; exit 1; }
+  out=$(remove_owned_path "$LIBEXEC") \
+    || { echo "LIBEXEC refused on ROOT=/ without --purge" >&2; exit 1; }
+  grep -qxF "[dry-run] rm -rf /usr/local/libexec/noc-agent" <<< "$out" \
+    || { echo "unexpected LIBEXEC dry run: $out" >&2; exit 1; }
+  # Config and state are not part of the always-owned set.
+  if remove_path "$CONF_DIR" >/dev/null 2>&1; then
+    echo "CONF_DIR removable without --purge --yes" >&2; exit 1
+  fi
+  if remove_path "$STATE_DIR" >/dev/null 2>&1; then
+    echo "STATE_DIR removable without --purge --yes" >&2; exit 1
+  fi
+  OPT_PURGE=1
+  if remove_path "$CONF_DIR" >/dev/null 2>&1; then
+    echo "CONF_DIR removable without --yes" >&2; exit 1
+  fi
+  OPT_YES=1
+  out=$(remove_path "$CONF_DIR") \
+    || { echo "CONF_DIR refused with --purge --yes" >&2; exit 1; }
+  grep -qxF "[dry-run] rm -rf /etc/noc-agent" <<< "$out" \
+    || { echo "unexpected CONF_DIR dry run: $out" >&2; exit 1; }
+  out=$(remove_path "$STATE_DIR") \
+    || { echo "STATE_DIR refused with --purge --yes" >&2; exit 1; }
+  grep -qxF "[dry-run] rm -rf /var/lib/noc-agent" <<< "$out" \
+    || { echo "unexpected STATE_DIR dry run: $out" >&2; exit 1; }
+  # The owned-path entry point does not widen to arbitrary system paths.
+  OPT_PURGE=0; OPT_YES=0
+  if remove_owned_path /etc/passwd >/dev/null 2>&1; then
+    echo "owned-path removal widened to /etc/passwd" >&2; exit 1
+  fi
+)
 
 # A prefix whose canonical form is / must never delete without --yes, even
 # with --purge. Dry run only; no host path is touched either way.

@@ -18,6 +18,9 @@
 # files are additionally required to be unreadable by group/others, since the
 # token is the only authorization secret.
 
+# shellcheck source=lib/url.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/url.sh"
+
 # ---------------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------------
@@ -139,21 +142,6 @@ _validate_panel() {
   [[ $panel =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]
 }
 
-# _validate_url URL -> 0 for https, or http to localhost only when allowed.
-_validate_url() {
-  local url=${1-} host
-  [[ $url == https://* ]] && return 0
-  if [[ ${ALLOW_INSECURE_HTTP-} == 1 && $url == http://* ]]; then
-    host=${url#http://}
-    host=${host%%:*}
-    host=${host%%/*}
-    if [[ $host == 127.0.0.1 || $host == localhost ]]; then
-      return 0
-    fi
-  fi
-  return 1
-}
-
 # validate_config -> exit 1 on the first invalid value (design §11 ranges).
 validate_config() {
   _check_range INTERVAL_SECONDS 10 3600 || exit 1
@@ -183,7 +171,7 @@ validate_config() {
   _validate_panel "${PANEL-}" \
     || { _err "config error: PANEL must be auto, none, or a plugin name"; exit 1; }
 
-  _validate_url "${API_URL-}" \
+  validate_api_url "${API_URL-}" "${ALLOW_INSECURE_HTTP-0}" \
     || { _err "config error: API_URL must be https (or http://127.0.0.1|localhost with ALLOW_INSECURE_HTTP=1)"; exit 1; }
 
   return 0
