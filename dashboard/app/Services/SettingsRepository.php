@@ -22,6 +22,12 @@ class SettingsRepository
     private const CACHE_TTL = 3600;
 
     /**
+     * Sentinel cached when a key has no database row, so a repeat read of a
+     * config default (or of an unknown key) does not hit the database again.
+     */
+    private const ABSENT = 'absent';
+
+    /**
      * Read a setting, falling back to the supplied default (or the matching
      * config value when no default is supplied).
      */
@@ -107,11 +113,19 @@ class SettingsRepository
      * Load the cached row, falling back to the database. Only ciphertext is
      * ever cached; decryption happens in memory inside get().
      *
+     * Absence is cached too (as a sentinel), so a key that only has a config
+     * default is resolved from the database at most once per TTL rather than
+     * on every read (R22 is preserved: the sentinel carries no value).
+     *
      * @return array{value: string|null, type: string, is_secret: bool}|null
      */
     private function row(string $key): ?array
     {
         $cached = Cache::get(self::CACHE_PREFIX.$key);
+
+        if ($cached === self::ABSENT) {
+            return null;
+        }
 
         if (is_array($cached)) {
             return $cached;
@@ -120,6 +134,8 @@ class SettingsRepository
         $setting = Setting::query()->find($key);
 
         if ($setting === null) {
+            Cache::put(self::CACHE_PREFIX.$key, self::ABSENT, self::CACHE_TTL);
+
             return null;
         }
 

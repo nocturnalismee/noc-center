@@ -4,6 +4,7 @@ namespace Tests\Feature\Issues;
 
 use App\Enums\AlertRule;
 use App\Enums\ServerHealth;
+use App\Issues\IssueDetector;
 use App\Issues\IssueSet;
 use App\Models\Alert;
 use App\Models\MetricSample;
@@ -16,6 +17,7 @@ use App\Services\SettingsRepository;
 use App\Services\Tokens\TokenService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
@@ -108,6 +110,209 @@ class IssueIntegrationTest extends TestCase
         $this->assertSame(86.0, MetricSample::query()->sole()->disk_used_pct);
         $this->assertSame(ServerHealth::Warning, $server->health);
         $this->assertSame([AlertRule::DiskHigh->value], $server->issue_codes);
+    }
+
+    public function test_an_older_duplicate_never_rewrites_the_current_health(): void
+    {
+        $this->assertOlderDuplicateKeepsTheCurrentHealth();
+    }
+
+    /**
+     * The regression this pins: a *middle* sample replayed after a newer one
+     * was stored is a real duplicate (no new row), and re-detecting on it
+     * would resurrect a past incident. Here the stored newest sample is the
+     * healthy one, so the replay must not turn the server back to warning.
+     */
+    private function assertOlderDuplicateKeepsTheCurrentHealth(): void
+    {
+        [$server, $plain] = $this->serverWithToken();
+
+        // 12:00 unhealthy (warning) → 12:01 healthy: the newest sample is ok.
+        foreach (['2026-11-22T12:00:00Z' => 91.0, '2026-11-22T12:01:00Z' => 40.0] as $collectedAt => $disk) {
+            $body = $this->payload();
+            $body['agent']['collected_at'] = $collectedAt;
+            $body['metrics']['disk']['root']['used_pct'] = $disk;
+
+            Carbon::setTestNow(Carbon::parse($collectedAt));
+            $this->ingest($plain, $body)->assertStatus(202);
+        }
+
+        $this->assertSame(ServerHealth::Ok, $server->refresh()->health);
+        $this->assertSame([], $server->issue_codes);
+
+        // Replay the older, unhealthy sample.
+        Carbon::setTestNow('2026-11-22 12:02:00');
+        $replay = $this->payload();
+        $replay['agent']['collected_at'] = '2026-11-22T12:00:00Z';
+        $replay['metrics']['disk']['root']['used_pct'] = 91.0;
+        $replay['metrics']['memory']['used_pct'] = 99.0;
+
+        $this->ingest($plain, $replay)->assertStatus(202);
+
+        $server->refresh();
+
+        $this->assertSame(2, MetricSample::query()->count());
+        $this->assertSame(ServerHealth::Ok, $server->health);
+        $this->assertSame([], $server->issue_codes);
+        // The duplicate is still a live proof of life for the server and token.
+        // `last_sample_at` follows the *reported* collection time (Task 7
+        // semantics, unchanged): it answers "when did the agent think it
+        // sampled", not "how new is the newest row".
+        $this->assertTrue($server->last_seen_at->equalTo(Carbon::now('UTC')));
+        $this->assertSame('2026-11-22 12:00:00', $server->last_sample_at->format('Y-m-d H:i:s'));
+        $this->assertSame(0, Alert::query()->count());
+    }
+
+    public function test_an_older_duplicate_response_describes_the_newest_stored_sample(): void
+    {
+        [$server, $plain] = $this->serverWithToken();
+
+        $unhealthy = $this->payload();
+        $unhealthy['agent']['collected_at'] = '2026-11-22T12:01:00Z';
+        $unhealthy['metrics']['disk']['root']['used_pct'] = 91.0;
+
+        $this->ingest($plain, $unhealthy)->assertStatus(202);
+
+        // Same collection time as the stored sample, but a different payload:
+        // insertOrIgnore keeps the stored 91%, so the duplicate is ignored.
+        $replay = $this->payload();
+        $replay['agent']['collected_at'] = '2026-11-22T12:01:00Z';
+
+        Carbon::setTestNow('2026-11-22 12:02:00');
+
+        $json = json_encode($replay, JSON_THROW_ON_ERROR);
+        $result = $this->app->make(StoreSample::class)->store(
+            ServerToken::query()->sole(),
+            $this->app->make(PayloadValidator::class)->validate($json),
+            strlen($json),
+            hash('sha256', $json),
+        );
+
+        // The replay produced no second row and did not produce the response:
+        // the returned issue set mirrors the stored row (disk 91%).
+        $this->assertFalse($result->created);
+        $this->assertSame('2026-11-22 12:01:00', $result->sample->collected_at->format('Y-m-d H:i:s'));
+        $this->assertSame(91.0, $result->sample->disk_used_pct);
+        $this->assertSame(ServerHealth::Warning, $result->issues->health);
+        $this->assertSame([AlertRule::DiskHigh->value], $result->issues->codes);
+        $this->assertSame(ServerHealth::Warning, $server->refresh()->health);
+        $this->assertSame([AlertRule::DiskHigh->value], $server->issue_codes);
+    }
+
+    public function test_a_duplicate_of_a_middle_sample_is_judged_on_the_newest_stored_sample(): void
+    {
+        [$server, $plain] = $this->serverWithToken();
+
+        // 12:00 healthy, 12:01 unhealthy (warning), 12:02 healthy.
+        $bodies = ['2026-11-22T12:00:00Z' => 40.0, '2026-11-22T12:01:00Z' => 91.0, '2026-11-22T12:02:00Z' => 40.0];
+
+        foreach ($bodies as $collectedAt => $disk) {
+            $body = $this->payload();
+            $body['agent']['collected_at'] = $collectedAt;
+            $body['metrics']['disk']['root']['used_pct'] = $disk;
+
+            Carbon::setTestNow(Carbon::parse($collectedAt));
+            $this->ingest($plain, $body)->assertStatus(202);
+        }
+
+        $this->assertSame(ServerHealth::Ok, $server->refresh()->health);
+
+        // Replay the *middle*, unhealthy sample. This is the regression case:
+        // it must not resurrect its old warning.
+        Carbon::setTestNow('2026-11-22 12:03:00');
+        $middle = $this->payload();
+        $middle['agent']['collected_at'] = '2026-11-22T12:01:00Z';
+        $middle['metrics']['disk']['root']['used_pct'] = 91.0;
+
+        $json = json_encode($middle, JSON_THROW_ON_ERROR);
+        $result = $this->app->make(StoreSample::class)->store(
+            ServerToken::query()->sole(),
+            $this->app->make(PayloadValidator::class)->validate($json),
+            strlen($json),
+            hash('sha256', $json),
+        );
+
+        $this->assertFalse($result->created);
+        $this->assertSame('2026-11-22 12:02:00', $result->sample->collected_at->format('Y-m-d H:i:s'));
+        $this->assertSame(ServerHealth::Ok, $result->issues->health);
+        $this->assertSame([], $result->issues->codes);
+
+        $server->refresh();
+
+        $this->assertSame(3, MetricSample::query()->count());
+        $this->assertSame(ServerHealth::Ok, $server->health);
+        $this->assertSame([], $server->issue_codes);
+    }
+
+    public function test_edge_duplicate_of_the_newest_sample_keeps_its_health(): void
+    {
+        [$server, $plain] = $this->serverWithToken();
+
+        $unhealthy = $this->payload();
+        $unhealthy['metrics']['disk']['root']['used_pct'] = 86.0;
+
+        $this->ingest($plain, $unhealthy)->assertStatus(202);
+
+        // A fast retry of the newest sample in the same wall-clock second.
+        Carbon::setTestNow('2026-11-22 12:00:01');
+
+        $this->ingest($plain, $unhealthy)->assertStatus(202);
+
+        $server->refresh();
+
+        $this->assertSame(1, MetricSample::query()->count());
+        $this->assertSame(ServerHealth::Warning, $server->health);
+        $this->assertSame([AlertRule::DiskHigh->value], $server->issue_codes);
+    }
+
+    public function test_detect_issues_at_most_one_settings_query_per_call_after_warm_up(): void
+    {
+        $detector = $this->app->make(IssueDetector::class);
+
+        [$server] = $this->serverWithToken();
+        $sample = $server->samples()->create([
+            'collected_at' => Carbon::now(),
+            'received_at' => Carbon::now(),
+            'schema_version' => 1,
+            'interval_seconds' => 60,
+            'cpu_usage_pct' => 10,
+            'cpu_iowait_pct' => 0.1,
+            'cpu_cores' => 8,
+            'load1' => 0.5,
+            'load5' => 0.5,
+            'load15' => 0.5,
+            'mem_total_bytes' => 1,
+            'mem_used_bytes' => 1,
+            'mem_used_pct' => 10,
+            'swap_total_bytes' => 0,
+            'swap_used_bytes' => 0,
+            'swap_used_pct' => 0,
+            'disk_total_bytes' => 1,
+            'disk_used_bytes' => 1,
+            'disk_used_pct' => 10,
+            'disk_inode_pct' => 10,
+            'net_rx_bps' => 0,
+            'net_tx_bps' => 0,
+            'processes_running' => 1,
+            'processes_blocked' => 0,
+            'uptime_seconds' => 1,
+            'payload_bytes' => 1,
+        ]);
+
+        $detector->detect($server, $sample, [], []);
+
+        $queries = 0;
+        DB::listen(function ($query) use (&$queries): void {
+            if (str_contains($query->sql, 'settings')) {
+                $queries++;
+            }
+        });
+
+        $detector->detect($server, $sample, ['service.apache.running' => 0, 'service.apache.installed' => 1, 'service.apache.enabled' => 1], ['smart.status' => 'failed']);
+
+        // At most the single read a cold miss for a newly configured key may
+        // need; a warm detection must add nothing.
+        $this->assertLessThanOrEqual(1, $queries);
     }
 
     public function test_cpu_high_across_three_ingests_is_detected_from_stored_samples(): void

@@ -12,7 +12,9 @@ use App\Models\Server;
 use App\Services\SettingsRepository;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class IssueDetectorTest extends TestCase
@@ -38,6 +40,38 @@ class IssueDetectorTest extends TestCase
     }
 
     // -- CPU ---------------------------------------------------------------
+
+    public function test_consecutive_samples_comes_from_settings(): void
+    {
+        // CPU at 96 for two samples: enough for a 2-sample window, not for 3.
+        $this->app->make(SettingsRepository::class)->set('alerts.rules.cpu_high.consecutive_samples', 2, 'int');
+
+        $this->assertSame([AlertRule::CpuHigh->value], $this->detectHistory([96, 96])->codes);
+    }
+
+    public function test_load_consecutive_samples_comes_from_settings(): void
+    {
+        $this->app->make(SettingsRepository::class)->set('alerts.rules.load_high.consecutive_samples', 2, 'int');
+
+        $this->assertSame([AlertRule::LoadHigh->value], $this->detectHistory(loads: [9, 9], cores: 4)->codes);
+    }
+
+    public function test_detect_issues_at_most_one_settings_query_per_call_after_warm_up(): void
+    {
+        // Warm the settings cache, then prove detection adds no queries at all.
+        $this->detect($this->sample(), [], []);
+
+        $queries = 0;
+        DB::listen(function ($query) use (&$queries): void {
+            if (str_contains($query->sql, 'settings')) {
+                $queries++;
+            }
+        });
+
+        $this->detect($this->sample(), ['service.mysql.running' => 0], ['smart.status' => 'ok']);
+
+        $this->assertSame(0, $queries);
+    }
 
     public function test_cpu_high_is_critical_when_the_latest_three_samples_are_all_over_the_critical_line(): void
     {
@@ -252,28 +286,48 @@ class IssueDetectorTest extends TestCase
         $this->assertSame(ServerHealth::Warning, $fromStatus->health);
         $this->assertSame(AlertSeverity::Warning->value, $fromStatus->details[AlertRule::SmartWarning->value]['severity']);
 
-        $reallocated = $this->detect($this->sample(), [], ['smart.status' => 'ok', 'smart.disk.sda.reallocated_sectors' => 4]);
+        // Exact keys emitted by agent/modules/smart.sh.
+        $reallocated = $this->detect($this->sample(), [], ['smart.status' => 'ok', 'smart.disk.sda.realloc' => 4]);
 
         $this->assertSame(ServerHealth::Warning, $reallocated->health);
         $this->assertSame(AlertSeverity::Warning->value, $reallocated->details[AlertRule::SmartWarning->value]['severity']);
 
-        $pending = $this->detect($this->sample(), [], ['smart.disk.nvme0n1.pending_sectors' => 1]);
+        $pending = $this->detect($this->sample(), [], ['smart.disk.nvme0n1.pending' => 1]);
 
         $this->assertSame(ServerHealth::Warning, $pending->health);
     }
 
-    public function test_healthy_smart_counters_do_not_trigger(): void
+    public function test_legacy_sector_suffixes_are_still_understood(): void
+    {
+        $this->assertSame([AlertRule::SmartWarning->value], $this->detect($this->sample(), [], ['smart.disk.sda.reallocated_sectors' => 4])->codes);
+        $this->assertSame([AlertRule::SmartWarning->value], $this->detect($this->sample(), [], ['smart.disk.sda.pending_sectors' => 1])->codes);
+    }
+
+    public function test_non_sector_smart_counters_never_trigger(): void
     {
         $this->assertSame([], $this->detect($this->sample(), [], [
             'smart.status' => 'ok',
-            'smart.disk.sda.reallocated_sectors' => 0,
-            'smart.disk.sda.pending_sectors' => 0,
+            'smart.disk.sda.power_on_hours' => 40_000,
+            'smart.disk.sda.written_gb' => 90_000.0,
+        ])->codes);
+    }
+
+    public function test_healthy_smart_counters_do_not_trigger(): void
+    {
+        // The full shape the agent reports for one healthy disk.
+        $this->assertSame([], $this->detect($this->sample(), [], [
+            'smart.status' => 'ok',
+            'smart.disk.sda.health' => 'PASSED',
+            'smart.disk.sda.realloc' => 0,
+            'smart.disk.sda.pending' => 0,
+            'smart.disk.sda.power_on_hours' => 12_345,
+            'smart.disk.sda.written_gb' => 4321.5,
         ])->codes);
     }
 
     public function test_a_failed_smart_status_wins_over_a_warning(): void
     {
-        $issues = $this->detect($this->sample(), [], ['smart.status' => 'failed', 'smart.disk.sda.pending_sectors' => 8]);
+        $issues = $this->detect($this->sample(), [], ['smart.status' => 'failed', 'smart.disk.sda.pending' => 8]);
 
         $this->assertContains(AlertRule::SmartFailed->value, $issues->codes);
         $this->assertNotContains(AlertRule::SmartWarning->value, $issues->codes);
@@ -318,6 +372,22 @@ class IssueDetectorTest extends TestCase
 
         // Missing state keys must not be read as "installed and enabled".
         $this->assertSame([], $this->detect($this->sample(), ['service.httpd.running' => 0], [])->codes);
+    }
+
+    public function test_the_cpanel_service_key_shape_is_the_contract(): void
+    {
+        // Exact keys emitted by agent/panels/cpanel.sh (whmapi1 servicestatus).
+        $issues = $this->detect($this->sample(), [
+            'service.apache.installed' => 1,
+            'service.apache.enabled' => 1,
+            'service.apache.running' => 1,
+            'service.mysql.installed' => 1,
+            'service.mysql.enabled' => 1,
+            'service.mysql.running' => 0,
+        ], []);
+
+        $this->assertSame([AlertRule::ServiceDown->value], $issues->codes);
+        $this->assertSame(['mysql'], $issues->details[AlertRule::ServiceDown->value]['value']);
     }
 
     // -- MySQL -------------------------------------------------------------
@@ -460,6 +530,60 @@ class IssueDetectorTest extends TestCase
         $this->assertSame(['modsec'], $this->detect($this->sample(), ['security.modsec' => '0'], [])->details[AlertRule::SecurityDisabled->value]['value']);
     }
 
+    /**
+     * `security.modsec` carries the raw `SecRuleEngine` value, so anything
+     * outside the explicit disabled set is treated as enabled.
+     *
+     * @return array<string, array{0: string, 1: bool}>
+     */
+    public static function securityModes(): array
+    {
+        return [
+            'DetectionOnly is enabled' => ['DetectionOnly', false],
+            'On is enabled' => ['On', false],
+            'on is enabled' => ['on', false],
+            'enabled is enabled' => ['enabled', false],
+            'legacy 1 is enabled' => ['1', false],
+            'Off is disabled' => ['Off', true],
+            'off with padding is disabled' => ['  off  ', true],
+            '0 is disabled' => ['0', true],
+            'false is disabled' => ['false', true],
+            'no is disabled' => ['no', true],
+            'disabled is disabled' => ['disabled', true],
+        ];
+    }
+
+    #[DataProvider('securityModes')]
+    public function test_security_modsec_modes(string $mode, bool $disabled): void
+    {
+        $this->app->make(SettingsRepository::class)->set('alerts.rules.security_disabled.enabled', true, 'bool');
+
+        $issues = $this->detect($this->sample(), ['security.modsec' => $mode], []);
+
+        $this->assertSame($disabled, $issues->has(AlertRule::SecurityDisabled->value));
+    }
+
+    public function test_the_cpanel_security_key_shape_is_the_contract(): void
+    {
+        // Exact keys emitted by agent/panels/cpanel.sh.
+        $this->app->make(SettingsRepository::class)->set('alerts.rules.security_disabled.enabled', true, 'bool');
+
+        $issues = $this->detect($this->sample(), [
+            'security.csf_enabled' => 0,
+            'security.modsec' => 'Off',
+            'security.csf_testing' => '0',
+        ], []);
+
+        $this->assertSame(['csf', 'modsec'], $issues->details[AlertRule::SecurityDisabled->value]['value']);
+    }
+
+    public function test_empty_security_values_are_not_reported_and_stay_silent(): void
+    {
+        $this->app->make(SettingsRepository::class)->set('alerts.rules.security_disabled.enabled', true, 'bool');
+
+        $this->assertSame([], $this->detect($this->sample(), ['security.modsec' => '', 'security.csf_enabled' => null], [])->codes);
+    }
+
     public function test_enabled_security_rules_on_servers_without_the_fields_stay_silent(): void
     {
         $this->app->make(SettingsRepository::class)->set('alerts.rules.security_disabled.enabled', true, 'bool');
@@ -523,18 +647,30 @@ class IssueDetectorTest extends TestCase
      * @param  array{0: float, 1: float, 2: float}  $cpu
      * @param  array{0: float, 1: float, 2: float}|null  $loads
      */
+    /**
+     * Store a run of samples ending at the current test time and detect on the
+     * newest one. `$cpu` drives `cpu_usage_pct`; `$loads` (when given) drives
+     * `load1`, otherwise load stays at a harmless 0.5 so CPU-only tests remain
+     * focused. The series length sets the window size.
+     *
+     * @param  list<float>  $cpu
+     * @param  list<float>|null  $loads
+     */
     private function detectHistory(array $cpu = [10, 10, 10], int $cores = 8, ?array $loads = null): IssueSet
     {
         $server = $this->server();
         $latest = null;
-        $count = count($cpu);
+        $series = $loads ?? $cpu;
+        $count = count($series);
 
-        foreach (array_values($cpu) as $index => $usage) {
+        for ($index = 0; $index < $count; $index++) {
+            $at = Carbon::now()->subMinutes($count - 1 - $index);
+
             $latest = $this->sample(
-                usage: $usage,
+                usage: $cpu[$index] ?? 10.0,
                 cores: $cores,
-                load1: $loads === null ? 0.5 : (float) array_values($loads)[$index],
-                at: Carbon::now()->subMinutes($count - 1 - $index),
+                load1: $loads === null ? 0.5 : (float) $loads[$index],
+                at: $at,
                 server: $server,
             );
         }

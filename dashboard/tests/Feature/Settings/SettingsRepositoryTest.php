@@ -6,6 +6,7 @@ use App\Models\Setting;
 use App\Services\SettingsRepository;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Tests\TestCase;
 
@@ -187,5 +188,75 @@ class SettingsRepositoryTest extends TestCase
         $this->assertNull(Setting::query()->find($key));
         $this->assertFalse(Cache::has(SettingsRepository::CACHE_PREFIX.$key));
         $this->assertSame(6, $this->settings->get($key));
+    }
+
+    public function test_a_config_default_is_cached_so_repeat_reads_skip_the_database(): void
+    {
+        $this->assertSame(90, $this->settings->get('alerts.rules.cpu_high.warning'));
+        $this->assertTrue(Cache::has(SettingsRepository::CACHE_PREFIX.'alerts.rules.cpu_high.warning'));
+
+        $queries = 0;
+        DB::listen(function ($query) use (&$queries): void {
+            if (str_contains($query->sql, 'settings')) {
+                $queries++;
+            }
+        });
+
+        $this->assertSame(90, $this->settings->get('alerts.rules.cpu_high.warning'));
+        $this->assertSame(0, $queries);
+
+        // A different key is a genuine cold miss: exactly one lookup.
+        $this->assertSame(95, $this->settings->get('alerts.rules.cpu_high.critical'));
+        $this->assertSame(1, $queries);
+        $this->assertSame(95, $this->settings->get('alerts.rules.cpu_high.critical'));
+        $this->assertSame(1, $queries);
+    }
+
+    public function test_an_unknown_key_is_cached_as_absent(): void
+    {
+        $this->assertNull($this->settings->get('alerts.unknown.key'));
+
+        $queries = 0;
+        DB::listen(function ($query) use (&$queries): void {
+            if (str_contains($query->sql, 'settings')) {
+                $queries++;
+            }
+        });
+
+        $this->assertNull($this->settings->get('alerts.unknown.key'));
+        $this->assertSame(0, $queries);
+    }
+
+    public function test_set_overrides_a_cached_config_default_within_the_same_request(): void
+    {
+        $this->assertSame(90, $this->settings->get('alerts.rules.cpu_high.warning'));
+
+        $this->settings->set('alerts.rules.cpu_high.warning', 80, 'int');
+
+        $this->assertSame(80, $this->settings->get('alerts.rules.cpu_high.warning'));
+    }
+
+    public function test_forget_restores_the_cached_config_default(): void
+    {
+        $this->settings->set('alerts.rules.cpu_high.warning', 80, 'int');
+        $this->assertSame(80, $this->settings->get('alerts.rules.cpu_high.warning'));
+
+        $this->settings->forget('alerts.rules.cpu_high.warning');
+
+        $this->assertSame(90, $this->settings->get('alerts.rules.cpu_high.warning'));
+    }
+
+    public function test_the_absence_cache_holds_no_value_at_all(): void
+    {
+        // A key with only a config default (and an unknown key) cache absence,
+        // never the resolved value nor anything from config (R22).
+        $this->settings->get('alerts.rules.disk_high.warning');
+        $this->settings->get('alerts.unknown.key');
+
+        $cached = Cache::get(SettingsRepository::CACHE_PREFIX.'alerts.rules.disk_high.warning');
+
+        $this->assertSame('absent', $cached);
+        $this->assertStringNotContainsString('85', (string) $cached);
+        $this->assertSame('absent', Cache::get(SettingsRepository::CACHE_PREFIX.'alerts.unknown.key'));
     }
 }

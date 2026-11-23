@@ -12,9 +12,10 @@ use App\Models\Server;
  * `created` is false when the `(server_id, collected_at)` key already existed:
  * the response is still a 202 and the server state was still advanced, but no
  * second sample or detail row was written. `sample` is the stored (or already
- * existing) sample, `server` is the refreshed server model, and `issues` is
- * the issue set that was written to `servers.health`/`servers.issue_codes` in
- * the same transaction.
+ * existing) sample, `server` is the refreshed server model, and `issues`
+ * describes the newest stored sample. For a replayed duplicate older than the
+ * newest stored sample, `sample` is that newest sample and `issues` is its
+ * current issue state, which the request did not change.
  *
  * Creating alerts from this set is Task 9; ingest only persists the state.
  */

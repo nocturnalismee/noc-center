@@ -35,10 +35,21 @@ class IssueDetector
      */
     private const SERVICE_KEY = '/\Aservice\.([A-Za-z0-9_\-]+)\.(installed|enabled|running)\z/';
 
-    private const SMART_DISK_KEY = '/\Asmart\.disk\.([A-Za-z0-9_\-]+)\.(reallocated_sectors|pending_sectors)\z/';
+    /**
+     * `realloc` / `pending` are the keys shipped by `agent/modules/smart.sh`;
+     * the `_sectors` suffixes are tolerated for older collectors.
+     */
+    private const SMART_DISK_KEY = '/\Asmart\.disk\.([A-Za-z0-9_\-]+)\.(realloc|pending|reallocated_sectors|pending_sectors)\z/';
 
     /**
-     * Used when a rule has no `consecutive_samples` of its own.
+     * `security.modsec` carries the raw `SecRuleEngine` value and
+     * `security.csf_enabled` a 0/1 flag. Anything outside this set (including
+     * `DetectionOnly` and `On`) means the engine is active.
+     */
+    private const DISABLED_VALUES = ['0', 'false', 'off', 'no', 'disabled'];
+
+    /**
+     * Fallback when `alerts.rules.<rule>.consecutive_samples` is not configured.
      */
     private const CONSECUTIVE_SAMPLES = 3;
 
@@ -99,11 +110,14 @@ class IssueDetector
             return null;
         }
 
+        $window = $this->consecutiveSamples(AlertRule::CpuHigh);
+
         return $this->consecutive(
-            $this->history($server, $latest, 'cpu_usage_pct'),
+            $this->history($server, $latest, 'cpu_usage_pct', $window),
             $latest->cpu_usage_pct,
             (float) $this->threshold(AlertRule::CpuHigh, 'warning'),
             (float) $this->threshold(AlertRule::CpuHigh, 'critical'),
+            $window,
             AlertRule::CpuHigh,
         );
     }
@@ -115,8 +129,10 @@ class IssueDetector
         }
 
         // `cpu_cores` lives inside the per-sample `cpu` block. Without a core
-        // count for this sample there is no scale to compare against, so the
-        // rule stays silent instead of borrowing another sample's value.
+        // count on this sample there is no scale to compare against, so the
+        // rule stays silent instead of borrowing another sample's value: a
+        // host that resized between samples would be judged against the wrong
+        // scale.
         $cores = $latest->cpu_cores;
 
         if ($cores === null || $cores <= 0) {
@@ -125,12 +141,14 @@ class IssueDetector
 
         $warning = $cores * (float) $this->threshold(AlertRule::LoadHigh, 'warning_multiplier');
         $critical = $cores * (float) $this->threshold(AlertRule::LoadHigh, 'critical_multiplier');
+        $window = $this->consecutiveSamples(AlertRule::LoadHigh);
 
         return $this->consecutive(
-            $this->history($server, $latest, 'load1'),
+            $this->history($server, $latest, 'load1', $window),
             $latest->load1,
             $warning,
             $critical,
+            $window,
             AlertRule::LoadHigh,
         );
     }
@@ -143,13 +161,13 @@ class IssueDetector
      *
      * @return list<float|null>
      */
-    private function history(Server $server, MetricSample $latest, string $column): array
+    private function history(Server $server, MetricSample $latest, string $column, int $window): array
     {
         $previous = MetricSample::query()
             ->where('server_id', $server->getKey())
             ->where('collected_at', '<', $latest->collected_at)
             ->orderByDesc('collected_at')
-            ->limit(self::CONSECUTIVE_SAMPLES - 1)
+            ->limit(max(0, $window - 1))
             ->pluck($column)
             ->all();
 
@@ -166,10 +184,10 @@ class IssueDetector
      *
      * @param  list<float|null>  $history
      */
-    private function consecutive(array $history, float $value, float $warning, float $critical, AlertRule $rule): ?array
+    private function consecutive(array $history, float $value, float $warning, float $critical, int $window, AlertRule $rule): ?array
     {
         // A short history (right after onboarding) is not an incident.
-        if (count($history) < self::CONSECUTIVE_SAMPLES - 1) {
+        if (count($history) < $window - 1) {
             return null;
         }
 
@@ -389,6 +407,15 @@ class IssueDetector
         );
     }
 
+    /**
+     * A module's cache age in seconds.
+     *
+     * A numeric `<module>.cache_age_seconds` wins, because the agent knows the
+     * exact age of its own cache. Only when that is absent (or not numeric) is
+     * the age derived as `now - <module>.updated_at`, which accepts epoch
+     * seconds or a date string. Unparseable values are "unknown", never
+     * "ancient", so they never trigger.
+     */
     private function moduleAge(array $maps, string $module, CarbonImmutable $now): ?int
     {
         $reported = $this->key($maps, $module.'.cache_age_seconds');
@@ -446,7 +473,7 @@ class IssueDetector
         foreach (['csf_enabled' => 'csf', 'modsec' => 'modsec'] as $field => $name) {
             $value = $this->key([$panelMetrics], 'security.'.$field);
 
-            if ($value !== null && ! $this->truthy($value)) {
+            if ($this->reportedOff($value)) {
                 $disabled[] = $name;
             }
         }
@@ -456,6 +483,32 @@ class IssueDetector
         }
 
         return $this->issue(AlertRule::SecurityDisabled, $disabled, 'enabled', AlertSeverity::Warning);
+    }
+
+    /**
+     * `security.modsec` is the raw `SecRuleEngine` value (`On`,
+     * `DetectionOnly`, `Off`) and `security.csf_enabled` a 0/1 flag. Only the
+     * explicit disabled set counts, after trim+lowercase; anything else
+     * (including `DetectionOnly`) means active. Missing, null or blank is
+     * "not reported" and stays silent.
+     */
+    private function reportedOff(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return ! $value;
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return $value == 0;
+        }
+
+        if (! is_string($value)) {
+            return false;
+        }
+
+        $normalized = Str::lower(trim($value));
+
+        return $normalized !== '' && in_array($normalized, self::DISABLED_VALUES, true);
     }
 
     private function truthy(mixed $value): bool
@@ -517,6 +570,18 @@ class IssueDetector
     private function threshold(AlertRule $rule, string $key): mixed
     {
         return $this->settings($key, $rule);
+    }
+
+    /**
+     * The number of consecutive samples a window rule requires. Honours
+     * `alerts.rules.<rule>.consecutive_samples`; a non-positive or non-numeric
+     * override falls back to the default rather than disabling the rule.
+     */
+    private function consecutiveSamples(AlertRule $rule): int
+    {
+        $value = $this->number($this->threshold($rule, 'consecutive_samples'));
+
+        return $value !== null && $value >= 1 ? (int) $value : self::CONSECUTIVE_SAMPLES;
     }
 
     private function settings(string $key, AlertRule $rule): mixed

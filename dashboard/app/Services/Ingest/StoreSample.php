@@ -3,6 +3,7 @@
 namespace App\Services\Ingest;
 
 use App\Issues\IssueDetector;
+use App\Issues\IssueSet;
 use App\Models\MetricSample;
 use App\Models\Server;
 use App\Models\ServerToken;
@@ -22,8 +23,11 @@ use Illuminate\Validation\ValidationException;
  *
  * A duplicate still advances the server state (identity, latest metrics,
  * `last_seen_at`, thresholds) because the agent proved it is alive; the
- * sample, its detail row and the issue state derived from it keep the values
- * stored by the first insert (`insertOrIgnore` does not update).
+ * sample and its detail row keep the values stored by the first insert
+ * (`insertOrIgnore` does not update). Issue detection always runs on the
+ * newest stored sample, and the persisted `health`/`issue_codes` are only
+ * rewritten when that newest sample is the one this request stored; an older
+ * replayed duplicate returns the current issue state without changing it.
  */
 class StoreSample
 {
@@ -103,22 +107,74 @@ class StoreSample
             $this->touchToken($token);
 
             // Evaluated inside the transaction: the CPU/load history query
-            // must see the sample just inserted, and the issue state must be
-            // written atomically with the metrics that produced it.
-            $issues = $this->issues->detect($server, $sample, $payload->panelMetrics, $payload->extensions);
+            // must see the stored sample, and the issue state must be written
+            // atomically with the metrics that produced it.
+            //
+            // Detection always runs on the *newest stored* sample. A duplicate that is
+            // older than that (an agent replaying a stale packet) would
+            // otherwise rebuild a window of stale readings and overwrite the
+            // current health with a past value; its result is returned to the
+            // caller so the response still describes the current state.
+            $newest = $this->newestSample($server);
+            $issues = $this->detectFor($newest, $payload);
+            $created = $inserted > 0;
 
-            $server->forceFill([
-                'health' => $issues->health,
-                'issue_codes' => $issues->codes,
-            ])->save();
+            // Persist only when this request's sample is the newest one. An
+            // older replay is a valid duplicate (202) but describes the past;
+            // rewriting the server from it would regress the current health.
+            if ($created || $newest->is($sample)) {
+                $server->forceFill([
+                    'health' => $issues->health,
+                    'issue_codes' => $issues->codes,
+                ])->save();
+            }
 
-            return [$inserted > 0, $sample, $issues];
+            // A replayed duplicate that is *older* than what is already stored
+            // did not become the current state: report the newest stored
+            // sample so the response still describes what the dashboard shows.
+            return [$created, $created ? $sample : $newest, $issues];
         }, 1);
 
         $server->refresh();
         $sample->refresh();
 
         return new IngestResult($created, $sample, $server, $issues);
+    }
+
+    /**
+     * The newest stored sample for the server, "newest" being the largest
+     * `collected_at` (the unique key with `server_id`). Deliberately not
+     * `Server::latestSample()`, which orders by `latestOfMany('collected_at')`
+     * and therefore resolves to the *oldest* row.
+     */
+    private function newestSample(Server $server): MetricSample
+    {
+        return MetricSample::query()
+            ->where('server_id', $server->getKey())
+            ->orderByDesc('collected_at')
+            ->firstOrFail();
+    }
+
+    /**
+     * Detect issues for a stored sample. A freshly inserted sample is judged
+     * on the payload that was just validated (no extra detail read); an
+     * existing one is judged on its stored detail row, because a duplicate
+     * does not overwrite what the first insert saved.
+     */
+    private function detectFor(MetricSample $sample, IngestPayload $payload): IssueSet
+    {
+        if ($sample->wasRecentlyCreated) {
+            return $this->issues->detect($sample->server, $sample, $payload->panelMetrics, $payload->extensions);
+        }
+
+        $detail = $sample->detail;
+
+        return $this->issues->detect(
+            $sample->server,
+            $sample,
+            $detail?->panel_metrics ?? [],
+            $detail?->extensions ?? [],
+        );
     }
 
     /**
