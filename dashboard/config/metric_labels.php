@@ -37,7 +37,7 @@ return [
         'cpanel.version' => ['label' => 'cPanel version', 'type' => 'text'],
         'cpanel.accounts' => ['label' => 'Accounts', 'type' => 'count'],
         'cpanel.mailq' => ['label' => 'Mail queue', 'type' => 'count'],
-        'cpanel.mysql_ping' => ['label' => 'MySQL ping', 'type' => 'text'],
+        'cpanel.mysql_ping' => ['label' => 'MySQL ping', 'type' => 'bool'],
         'cpanel.webserver' => ['label' => 'Web server', 'type' => 'text'],
         'cpanel.cagefs' => ['label' => 'CageFS', 'type' => 'text'],
 

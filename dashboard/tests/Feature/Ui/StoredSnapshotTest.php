@@ -62,7 +62,7 @@ class StoredSnapshotTest extends TestCase
         $newer = $this->sample($server, now());
         $this->detail($newer, [
             'cpanel.version' => '110.0.33',
-            'mysql.query.0.info' => 'SELECT * FROM invoices WHERE total > 1000',
+            'mysql.query.0.INFO' => 'SELECT * FROM invoices WHERE total > 1000',
         ]);
 
         $response = $this->actingAs($admin)->get(route('servers.snapshot', $server));
@@ -83,6 +83,7 @@ class StoredSnapshotTest extends TestCase
 
         $event = AuditEvent::query()->where('action', 'server.snapshot_viewed')->firstOrFail();
         $this->assertSame($newer->id, $event->meta_json['sample_id']);
+        $this->assertSame($admin->id, $event->user_id);
     }
 
     public function test_an_admin_without_samples_sees_an_empty_state(): void

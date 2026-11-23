@@ -31,7 +31,11 @@ class MetricPresenter
      *     quota: array{accounts:string,over:string,cache_age:string,top:list<array{user:string,used_gb:string}>},
      *     imunify: array{scanning:string,age:string,files:string,target:string,cache_age:string},
      *     queries: list<array{user:string,db:string,state:string,time:string,info:string}>,
-     *     truncated: bool
+     *     truncated: bool,
+     *     generic_shown: int,
+     *     generic_total: int,
+     *     module_truncated: bool,
+     *     total: int
      * }
      */
     public static function groups(array $flat): array
@@ -42,7 +46,9 @@ class MetricPresenter
         $quotaTop = [];
         $queries = [];
         $truncated = false;
+        $moduleTruncated = false;
         $genericRows = 0;
+        $genericTotal = 0;
 
         foreach ($flat as $rawKey => $rawValue) {
             if (! is_string($rawKey) || $rawKey === '' || ! is_scalar($rawValue)) {
@@ -59,7 +65,7 @@ class MetricPresenter
                     $field = $matches[2];
                     $services[$name] ??= ['name' => $name, 'installed' => null, 'enabled' => null, 'running' => null];
                     if (in_array($field, ['installed', 'enabled', 'running'], true)) {
-                        $services[$name][$field] = (bool) $value;
+                        $services[$name][$field] = self::booleanOrNull($value);
                     }
                 }
 
@@ -104,13 +110,16 @@ class MetricPresenter
                 $prefix = 'other';
             }
 
+            $genericTotal++;
+
             if ($genericRows >= self::MAX_GENERIC_ROWS) {
                 $truncated = true;
 
                 continue;
             }
 
-            $definition = config('metric_labels.keys.'.$key);
+            $definitions = config('metric_labels.keys', []);
+            $definition = is_array($definitions) ? ($definitions[$key] ?? null) : null;
             $type = is_array($definition) ? (string) ($definition['type'] ?? 'text') : 'text';
             $label = is_array($definition) ? (string) ($definition['label'] ?? '') : '';
             $label = $label !== '' ? $label : self::keyLabel($key);
@@ -128,10 +137,12 @@ class MetricPresenter
         $orderedGroups = [];
         foreach (self::GROUP_ORDER as $key) {
             if (isset($groups[$key]) && $groups[$key]['rows'] !== []) {
+                usort($groups[$key]['rows'], fn (array $a, array $b): int => strcmp($a['key'], $b['key']));
                 $orderedGroups[] = $groups[$key];
             }
         }
 
+        ksort($services, SORT_NATURAL | SORT_FLAG_CASE);
         $serviceRows = [];
         foreach (array_slice($services, 0, self::MAX_SERVICE_ROWS, true) as $service) {
             $serviceRows[] = [
@@ -145,6 +156,7 @@ class MetricPresenter
 
         if (count($services) > self::MAX_SERVICE_ROWS) {
             $truncated = true;
+            $moduleTruncated = true;
         }
 
         $smart = [
@@ -157,11 +169,11 @@ class MetricPresenter
 
         ksort($smartDisks);
         foreach (array_slice($smartDisks, 0, self::MAX_SMART_DISKS, true) as $device => $fields) {
-            $health = $fields['health'] ?? null;
+            $health = self::diskHealth($fields['health'] ?? null);
             $smart['disks'][] = [
                 'device' => $device,
-                'health' => self::text($health),
-                'health_label' => ucfirst(strtolower(self::text($health))),
+                'health' => $health,
+                'health_label' => ucfirst($health),
                 'realloc' => self::format($fields['realloc'] ?? null, 'count'),
                 'pending' => self::format($fields['pending'] ?? null, 'count'),
                 'power_on_hours' => self::format($fields['power_on_hours'] ?? null, 'count'),
@@ -171,6 +183,7 @@ class MetricPresenter
 
         if (count($smartDisks) > self::MAX_SMART_DISKS) {
             $truncated = true;
+            $moduleTruncated = true;
         }
 
         usort($quotaTop, fn (array $a, array $b): int => (float) $b['used_gb'] <=> (float) $a['used_gb']);
@@ -186,6 +199,7 @@ class MetricPresenter
 
         if (count($quotaTop) > self::MAX_QUOTA_USERS) {
             $truncated = true;
+            $moduleTruncated = true;
         }
 
         $imunify = [
@@ -204,7 +218,7 @@ class MetricPresenter
                 'db' => $query['db'] !== '' ? $query['db'] : '—',
                 'state' => $query['state'] !== '' ? $query['state'] : '—',
                 'time' => $query['time'] !== '' ? $query['time'] : '—',
-                'info' => $query['info'] !== '' ? $query['info'] : '—',
+                'info' => $query['info'] !== '' ? Str::limit($query['info'], 500, '…') : '—',
             ];
         }
 
@@ -220,6 +234,9 @@ class MetricPresenter
             'imunify' => $imunify,
             'queries' => $queryRows,
             'truncated' => $truncated,
+            'generic_shown' => $genericRows,
+            'generic_total' => $genericTotal,
+            'module_truncated' => $moduleTruncated,
             'total' => count($flat),
         ];
     }
@@ -346,6 +363,29 @@ class MetricPresenter
         }
 
         return Str::limit($text, 300, '…');
+    }
+
+    private static function booleanOrNull(mixed $value): ?bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return $value != 0;
+        }
+
+        return filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+    }
+
+    private static function diskHealth(mixed $value): string
+    {
+        return match (strtoupper(self::text($value))) {
+            'PASSED', 'OK', 'HEALTHY' => 'healthy',
+            'WARNING', 'WARN' => 'warning',
+            'FAILED', 'FAIL', 'CRITICAL' => 'failed',
+            default => 'unknown',
+        };
     }
 
     private static function boolLabel(mixed $value): string

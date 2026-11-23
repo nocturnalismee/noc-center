@@ -7,6 +7,7 @@
         $groups = $panel['groups'] ?? [];
         $services = $panel['services'] ?? [];
         $queries = $panel['queries'] ?? [];
+        $canViewQueries = $canViewSnapshot ?? false;
         $primaryGroups = array_values(array_filter($groups, fn ($group) => $group['key'] !== 'other'));
         $other = collect($groups)->firstWhere('key', 'other');
         $hasFacts = $primaryGroups !== [] || ($other['rows'] ?? []) !== [] || $services !== [] || $queries !== [];
@@ -81,7 +82,7 @@
                 </section>
             @endif
 
-            @if ($queries !== [])
+            @if ($queries !== [] && $canViewQueries)
                 <section aria-labelledby="panel-queries">
                     <div class="flex items-baseline justify-between gap-4">
                         <h3 id="panel-queries" class="text-[11px] font-semibold text-text">MySQL queries</h3>
@@ -112,6 +113,8 @@
                         </table>
                     </div>
                 </section>
+            @elseif ($queries !== [])
+                <p class="text-[9.5px] text-text-muted">MySQL statement text is visible to administrators only.</p>
             @endif
 
             @if ($other && ($other['rows'] ?? []) !== [])
@@ -130,9 +133,9 @@
                 </details>
             @endif
 
-            @if ($panel['truncated'] ?? false)
+            @if (($panel['generic_total'] ?? 0) > ($panel['generic_shown'] ?? 0))
                 <p class="text-[9px] text-text-muted">
-                    Showing the first {{ count($other['rows'] ?? []) }} of {{ $panel['total'] ?? 0 }} reported values.
+                    Showing the first {{ $panel['generic_shown'] ?? 0 }} of {{ $panel['generic_total'] ?? 0 }} panel values.
                 </p>
             @endif
         </div>

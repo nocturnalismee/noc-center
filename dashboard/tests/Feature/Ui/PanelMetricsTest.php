@@ -28,9 +28,9 @@ class PanelMetricsTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_panel_tab_renders_cpanel_security_services_and_masked_mysql_queries(): void
+    public function test_panel_tab_renders_cpanel_security_services_and_masked_mysql_queries_for_admins(): void
     {
-        $viewer = User::factory()->create();
+        $admin = User::factory()->create(['role' => 'admin']);
         $server = $this->server();
         $sample = $this->sample($server);
 
@@ -39,6 +39,7 @@ class PanelMetricsTest extends TestCase
             'cpanel.accounts' => 42,
             'cpanel.mysql_ping' => true,
             'security.csf_enabled' => true,
+            'security.csf_testing' => false,
             'security.modsec' => 'On',
             'service.mysql.installed' => true,
             'service.mysql.enabled' => true,
@@ -55,18 +56,44 @@ class PanelMetricsTest extends TestCase
             'mysql.query.0.info' => "SELECT * FROM users WHERE id = 1 AND email = 'a@example.test'",
         ]);
 
-        $this->actingAs($viewer)
+        $this->actingAs($admin)
             ->get(route('servers.show', ['server' => $server, 'tab' => 'panel']))
             ->assertOk()
             ->assertSee('110.0.32')
-            ->assertSee('42')
-            ->assertSee('Yes')
+            ->assertSee('Accounts')
+            ->assertSee('CSF enabled')
+            ->assertSee('CSF testing mode')
+            ->assertSeeInOrder(['CSF testing mode', 'No'])
+            ->assertSee('MySQL ping')
+            ->assertSeeInOrder(['MySQL ping', 'Yes'])
             ->assertSee('On')
             ->assertSee('mysql')
             ->assertSee('nginx')
             ->assertSee('Critical')
             ->assertSee('SELECT * FROM users WHERE id = ? AND email = ?')
             ->assertDontSee("SELECT * FROM users WHERE id = 1 AND email = 'a@example.test'");
+    }
+
+    public function test_viewers_never_see_mysql_query_text(): void
+    {
+        $viewer = User::factory()->create();
+        $server = $this->server();
+        $sample = $this->sample($server);
+
+        $this->detail($sample, [
+            'cpanel.version' => '110.0.32',
+            'mysql.query.0.user' => 'app',
+            'mysql.query.0.db' => 'production',
+            'mysql.query.0.info' => 'SELECT * FROM users WHERE id = 1',
+        ]);
+
+        $this->actingAs($viewer)
+            ->get(route('servers.show', ['server' => $server, 'tab' => 'panel']))
+            ->assertOk()
+            ->assertSee('110.0.32')
+            ->assertSee('MySQL statement text is visible to administrators only.')
+            ->assertDontSee('MySQL queries')
+            ->assertDontSee('SELECT * FROM users WHERE id = ?');
     }
 
     public function test_panel_values_and_unknown_keys_are_escaped(): void
@@ -95,7 +122,7 @@ class PanelMetricsTest extends TestCase
 
         $flat = [];
         for ($i = 0; $i < 250; $i++) {
-            $flat['other.key_'.$i] = $i;
+            $flat['cpanel.extra_'.$i] = $i;
         }
 
         $this->detail($sample, $flat);
@@ -103,8 +130,7 @@ class PanelMetricsTest extends TestCase
         $this->actingAs($viewer)
             ->get(route('servers.show', ['server' => $server, 'tab' => 'panel']))
             ->assertOk()
-            ->assertSee('Showing the first 200')
-            ->assertSee('250');
+            ->assertSee('Showing the first 200 of 250 panel values.');
     }
 
     public function test_modules_tab_renders_smart_quota_and_imunify_state(): void
@@ -118,11 +144,14 @@ class PanelMetricsTest extends TestCase
             'smart.detail' => 'One disk needs attention',
             'smart.disks' => 2,
             'smart.cache_age_seconds' => 7200,
-            'smart.disk.sda.health' => 'warning',
+            'smart.disk.sda.health' => 'PASSED',
             'smart.disk.sda.realloc' => 8,
             'smart.disk.sda.pending' => 0,
             'smart.disk.sda.power_on_hours' => 12000,
             'smart.disk.sda.written_gb' => 2048,
+            'smart.disk.sdb.health' => 'FAILED',
+            'smart.disk.sdb.realloc' => 2,
+            'smart.disk.sdb.pending' => 1,
             'diskquota.accounts' => 42,
             'diskquota.over' => 3,
             'diskquota.cache_age_seconds' => 3600,
@@ -140,6 +169,9 @@ class PanelMetricsTest extends TestCase
             ->assertOk()
             ->assertSee('One disk needs attention')
             ->assertSee('sda')
+            ->assertSee('Healthy')
+            ->assertSee('Failed')
+            ->assertSee('text-critical', false)
             ->assertSee('alice')
             ->assertSee('12.5')
             ->assertSee('public_html')

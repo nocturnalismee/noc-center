@@ -10,6 +10,8 @@
         $hasSmart = ($smart['disks'] ?? []) !== [] || in_array($smart['status'] ?? 'unknown', ['ok', 'warning', 'failed', 'unknown'], true);
         $hasQuota = ($quota['accounts'] ?? 'Not reported') !== 'Not reported' || ($quota['top'] ?? []) !== [];
         $hasImunify = ($imunify['scanning'] ?? 'Not reported') !== 'Not reported' || ($imunify['files'] ?? 'Not reported') !== 'Not reported';
+        $quotaOver = $quota['over'] ?? 'Not reported';
+        $quotaOverWarning = is_numeric($quotaOver) && (float) $quotaOver > 0;
     @endphp
 
     @if (! $hasSmart && ! $hasQuota && ! $hasImunify)
@@ -56,9 +58,9 @@
                                 @foreach ($smart['disks'] as $disk)
                                     @php
                                         $healthTone = match ($disk['health']) {
-                                            'Healthy' => 'text-ok',
-                                            'Warning' => 'text-warning',
-                                            'Failed' => 'text-critical',
+                                            'healthy' => 'text-ok',
+                                            'warning' => 'text-warning',
+                                            'failed' => 'text-critical',
                                             default => 'text-text-muted',
                                         };
                                     @endphp
@@ -86,7 +88,7 @@
                     </div>
                     <div class="flex items-baseline justify-between gap-4 border-b border-divider py-2 sm:block sm:px-4">
                         <dt class="text-[9px] uppercase tracking-[0.08em] text-text-muted">Over quota</dt>
-                        <dd class="font-mono text-[10.5px] {{ ($quota['over'] ?? '0') !== '0' ? 'text-warning' : 'text-text' }}">{{ $quota['over'] ?? 'Not reported' }}</dd>
+                        <dd class="font-mono text-[10.5px] {{ $quotaOverWarning ? 'text-warning' : 'text-text' }}">{{ $quotaOver }}</dd>
                     </div>
                     <div class="flex items-baseline justify-between gap-4 border-b border-divider py-2 sm:block sm:pl-4">
                         <dt class="text-[9px] uppercase tracking-[0.08em] text-text-muted">Cache age</dt>
@@ -142,7 +144,7 @@
                 </dl>
             </section>
 
-            @if ($modules['truncated'] ?? false)
+            @if ($modules['module_truncated'] ?? false)
                 <p class="text-[9px] text-text-muted">Some reported module rows are not shown because the list was truncated.</p>
             @endif
         </div>
