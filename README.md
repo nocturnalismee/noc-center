@@ -44,7 +44,7 @@ timers, troubleshooting, token rotation, and uninstall.
 | --- | --- |
 | `app/`, `config/`, `database/`, `public/`, `resources/`, `routes/`, `tests/` | Laravel dashboard application. |
 | `ops/` | Shared-hosting and VPS deployment, cron, backup, and restore files. |
-| `tools/php.sh`, `tools/test.sh` | Local Podman wrappers for Composer, Artisan, Pint, and tests. |
+| `tools/php.sh`, `tools/test.sh` | Local wrappers for Composer, Artisan, Pint, and tests. They use host PHP 8.3+ when available and fall back to Podman. |
 | `tools/load-ingest.php` | Acceptance load generator for the ingest endpoint. |
 | `agent/` | Agent: `collector.sh` core, `lib/`, `panels/`, `modules/`, `systemd/`, `config/`, installer and uninstaller. |
 | `tools/tests/`, `tools/test-agent.sh`, `tools/mock-ingest.py` | Agent test suites, one-command runner, and local mock ingest endpoint. |
@@ -752,12 +752,15 @@ files after the run and never commit them.
 
 ```bash
 touch database/load-acceptance.sqlite
-./tools/php.sh env DB_DATABASE=/app/database/load-acceptance.sqlite APP_ENV=local \
+./tools/php.sh env DB_DATABASE=database/load-acceptance.sqlite APP_ENV=local \
   php artisan migrate --force
-./tools/php.sh env DB_DATABASE=/app/database/load-acceptance.sqlite APP_ENV=local \
+./tools/php.sh env DB_DATABASE=database/load-acceptance.sqlite APP_ENV=local \
   php artisan noc:make-load-fixture --servers=100 \
-  --path=/app/database/load-acceptance.json
+  --path=database/load-acceptance.json
 ```
+
+Relative paths work with both the native toolchain (repository root) and the
+Podman fallback (mounted at `/app`, same working directory).
 
 `noc:make-load-fixture` refuses `APP_ENV=production`, writes a mode-0600 JSON
 file of `{name, token, payload}` entries, and reuses existing `load-NNN`
