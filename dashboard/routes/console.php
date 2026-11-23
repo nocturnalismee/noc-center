@@ -26,3 +26,10 @@ Schedule::command('noc:evaluate-liveness')
 Schedule::command('noc:alert-reminders')
     ->everyFiveMinutes()
     ->withoutOverlapping(10);
+
+// Metric rollups (spec §11): 5m from samples, then 1h, then 1d, all over the
+// last completed buckets. Shorter than the cadence so a killed run cannot
+// strand the lock.
+Schedule::command('noc:rollup')
+    ->everyFiveMinutes()
+    ->withoutOverlapping(5);
