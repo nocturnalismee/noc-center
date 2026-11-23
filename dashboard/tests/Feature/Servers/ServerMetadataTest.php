@@ -125,6 +125,34 @@ class ServerMetadataTest extends TestCase
         $this->assertSame('JHD-001', $server->label);
     }
 
+    public function test_blank_and_null_metadata_are_stored_as_null(): void
+    {
+        $server = $this->servers->create([
+            'name' => 'web-01',
+            'hostname' => 'web-01.example.test',
+            'server_type' => '   ',
+            'provider' => null,
+            'location' => '',
+            'ip_address' => '  ',
+            'label' => null,
+        ]);
+
+        $fresh = $server->fresh();
+
+        $this->assertNull($fresh->server_type);
+        $this->assertNull($fresh->provider);
+        $this->assertNull($fresh->location);
+        $this->assertNull($fresh->ip_address);
+        $this->assertNull($fresh->label);
+
+        $row = DB::table('servers')->where('id', $server->id)->first();
+        $this->assertNull($row->server_type);
+        $this->assertNull($row->provider);
+        $this->assertNull($row->location);
+        $this->assertNull($row->ip_address);
+        $this->assertNull($row->label);
+    }
+
     public function test_metadata_is_never_unique(): void
     {
         $first = $this->servers->create([
@@ -307,7 +335,7 @@ class ServerMetadataTest extends TestCase
         $this->assertArrayNotHasKey('group_name', $array);
     }
 
-    public function test_group_name_is_no_longer_accepted_by_create(): void
+    public function test_group_name_is_ignored_by_create(): void
     {
         $server = $this->servers->create([
             'name' => 'web-01',

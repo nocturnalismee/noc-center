@@ -40,6 +40,12 @@ class ServerService
             }
         }
 
+        foreach (['server_type', 'provider', 'location', 'ip_address', 'label'] as $key) {
+            if (($attributes[$key] ?? null) === '') {
+                $attributes[$key] = null;
+            }
+        }
+
         $validated = Validator::make($attributes, [
             'name' => ['required', 'string', 'max:100', Rule::unique('servers', 'name')],
             'hostname' => ['required', 'string', 'max:255'],
