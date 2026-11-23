@@ -73,6 +73,16 @@ class SchemaTest extends TestCase
         );
     }
 
+    public function test_server_metadata_columns_are_indexed(): void
+    {
+        foreach (['server_type', 'provider', 'location', 'alerts_enabled'] as $column) {
+            $this->assertTrue(
+                $this->indexExists('servers', [$column], false),
+                "servers.{$column} must have a non-unique index.",
+            );
+        }
+    }
+
     public function test_server_ids_are_ulids(): void
     {
         $server = $this->createServer();

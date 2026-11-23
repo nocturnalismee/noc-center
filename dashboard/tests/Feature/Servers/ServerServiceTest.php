@@ -40,7 +40,7 @@ class ServerServiceTest extends TestCase
 
         $this->assertSame(60, $server->interval_seconds);
         $this->assertSame('none', $server->panel);
-        $this->assertNull($server->group_name);
+        $this->assertNull($server->server_type);
         $this->assertNull($server->notes);
         $this->assertTrue($server->is_active);
         $this->assertSame(ServerHealth::Unknown, $server->health);
@@ -56,13 +56,13 @@ class ServerServiceTest extends TestCase
             'name' => 'db-01',
             'hostname' => 'db-01.example.test',
             'panel' => 'cpanel',
-            'group_name' => 'databases',
+            'server_type' => 'databases',
             'notes' => 'Primary database node.',
             'interval_seconds' => 300,
         ]);
 
         $this->assertSame('cpanel', $server->panel);
-        $this->assertSame('databases', $server->group_name);
+        $this->assertSame('databases', $server->server_type);
         $this->assertSame('Primary database node.', $server->notes);
         $this->assertSame(300, $server->interval_seconds);
     }
@@ -182,7 +182,7 @@ class ServerServiceTest extends TestCase
         return [
             'hostname' => ['hostname', Str::repeat('a', 256)],
             'panel' => ['panel', Str::repeat('a', 33)],
-            'group_name' => ['group_name', Str::repeat('a', 101)],
+            'server_type' => ['server_type', Str::repeat('a', 101)],
             'notes' => ['notes', Str::repeat('a', 2001)],
         ];
     }

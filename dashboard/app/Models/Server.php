@@ -21,7 +21,12 @@ class Server extends Model
         'name',
         'hostname',
         'panel',
-        'group_name',
+        'server_type',
+        'provider',
+        'location',
+        'ip_address',
+        'label',
+        'alerts_enabled',
         'notes',
         'os_name',
         'os_version',
@@ -80,6 +85,7 @@ class Server extends Model
             'health' => ServerHealth::class,
             'issue_codes' => 'array',
             'is_active' => 'boolean',
+            'alerts_enabled' => 'boolean',
         ];
     }
 
