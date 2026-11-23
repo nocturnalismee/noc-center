@@ -6,7 +6,6 @@ use App\Enums\AlertRule;
 use App\Enums\AlertSeverity;
 use App\Enums\AlertStatus;
 use App\Enums\ServerHealth;
-use App\Enums\ServerStatus;
 use App\Issues\IssueSet;
 use App\Models\Alert;
 use App\Models\Server;
@@ -197,28 +196,33 @@ class AlertEngine
         $closed = 0;
 
         foreach ($pending as $rule) {
-            // The one non-recovery close is the server leaving `stale` for
-            // `offline`; everything else (back online) is a real recovery.
-            $note = $activeRule !== null ? 'Server offline' : 'Issue cleared';
+            // The two liveness rules are mutually exclusive. Leaving `stale`
+            // for `offline` is an escalation (administrative, no recovery);
+            // every other close of an open rule — going back online — is a
+            // real condition recovery.
+            $escalation = $rule === AlertRule::ServerStale && $activeRule === AlertRule::ServerOffline;
 
-            $closed += $this->closeLivenessRule($server, $rule, $note, $note === 'Issue cleared');
+            $closed += $this->closeLivenessRule(
+                $server,
+                $rule,
+                $escalation ? 'Server offline' : 'Issue cleared',
+                ! $escalation,
+            );
         }
 
-        // A healthy online server keeps the health `StoreSample` wrote inside
-        // its ingest transaction: alert rules cannot see that row before it
-        // commits, so re-deriving health here would briefly drop freshly
-        // detected issues. Liveness must still fix the two cases where that
-        // row is certainly stale: an alert just closed, or a `critical` left
-        // over from an alert that has since been resolved.
-        if (
-            $activeRule === null
-            && $closed === 0
-            && $server->status() === ServerStatus::Online
-            && $server->health !== ServerHealth::Critical
-        ) {
+        // Ingest owns `health` and `issue_codes` for an online server: the
+        // sample that made it online was just committed by `StoreSample`,
+        // which writes both for that sample atomically. Re-deriving them from
+        // the alerts visible here could overwrite a critical or warning that
+        // ingest detected — its alert evaluation runs only after the sample
+        // transaction commits — so a return leaves the row untouched.
+        if ($activeRule === null) {
             return;
         }
 
+        // The deferral is self-correcting: the next `StoreSample` writes
+        // `health` and `issue_codes` in the same transaction, so a code the
+        // scheduler leaves behind cannot outlive the next sample.
         $this->refreshServerHealth($server);
     }
 
@@ -226,10 +230,11 @@ class AlertEngine
      * Health is the aggregate of the open/acknowledged alerts (spec §9.3,
      * §10): `critical` if any is critical, `warning` if any is warning, else
      * `ok` once a sample exists and `unknown` when the server was never seen.
+     * `issue_codes` is the set of those alerts' rule keys.
      *
-     * A server that returns is never written `ok` while another rule is still
-     * open, and liveness codes are dropped from `issue_codes` because the
-     * ingest detector does not produce them.
+     * Liveness calls this only while a server is stale or offline. For an
+     * online server `StoreSample` owns both columns: see
+     * `evaluateLiveness()`.
      */
     public function refreshServerHealth(Server $server): void
     {
@@ -327,9 +332,12 @@ class AlertEngine
     }
 
     /**
-     * Resolve an alert. The recovery notification is dispatched exactly once,
-     * on the transition to resolved, and only when `$notify` is true;
-     * administrative closes (disabled alerts, server deletion) pass false.
+     * Resolve an alert and, by default, send exactly one recovery per channel.
+     *
+     * `$notify` defaults to true on purpose (spec §9): an operator resolving an
+     * alert asserts that the condition is gone. A maintenance close — "we are
+     * doing this deliberately, do not celebrate" — is a Task 19 UI decision
+     * that will pass `$notify: false`; liveness never suppresses recovery here.
      */
     public function resolve(Alert $alert, ?User $actor = null, ?string $note = null, bool $notify = true): void
     {
