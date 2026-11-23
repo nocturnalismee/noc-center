@@ -334,6 +334,30 @@ class AlertNotificationTest extends TestCase
         $this->assertSame(1, $alert->fresh()->notification_count);
     }
 
+    public function test_a_reminder_queued_before_acknowledgement_does_not_send_after_it(): void
+    {
+        $admin = $this->user('admin', UserRole::Admin, notify: true);
+        $operator = $this->user('operator', UserRole::Operator, notify: true);
+
+        Notification::fake();
+
+        $alert = $this->openAlert('memory_high', 'critical');
+        $this->runJob($alert, 'email', 'opened');
+
+        // The reminder command queued this job just before the ack landed.
+        Carbon::setTestNow('2026-11-23 16:01:00');
+        $this->engine()->acknowledge($alert, $operator);
+
+        $this->runJob($alert, 'email', 'opened');
+
+        $delivery = $this->delivery($alert, 'email')->fresh();
+
+        $this->assertSame('sent', $delivery->status);
+        $this->assertSame(1, $delivery->attempts);
+        $this->assertSame(1, $alert->fresh()->notification_count);
+        Notification::assertSentToTimes($admin, AlertOpened::class, 1);
+    }
+
     public function test_an_acknowledged_alert_still_delivers_its_original_opened_notification(): void
     {
         $admin = $this->user('admin', UserRole::Admin, notify: true);

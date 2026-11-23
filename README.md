@@ -181,7 +181,9 @@ The release layout is shared-hosting friendly and also works on a VPS:
    php -r 'echo "base64:".base64_encode(random_bytes(32)).PHP_EOL;'
    ```
    `shared/.env` is authoritative; `deploy.sh` symlinks it into every release
-   and it replaces any release-local `.env`. `APP_KEY` encrypts Telegram
+   and it replaces any release-local `.env`. `APP_URL` must be the canonical
+   public origin: the app rejects other Host headers so password-reset links
+   cannot be redirected to another domain. `APP_KEY` encrypts Telegram
    credentials and the two-factor secret and keys agent-token hashes.
    **Changing it invalidates every agent token and makes stored secrets
    unreadable.** Keep a copy of `.env` with the database backup; see

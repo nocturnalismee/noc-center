@@ -22,6 +22,11 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->redirectGuestsTo('/login');
 
+        // Password-reset links are built from the request host. Restrict
+        // accepted Host headers to APP_URL (and its subdomains) so a forged
+        // Host cannot redirect a reset token to another origin.
+        $middleware->trustHosts();
+
         // Global so unmatched routes, route-model-binding 404s, and rendered
         // exceptions also carry the CSP/security headers. The routing pipeline
         // converts exceptions to responses before they bubble out here.
