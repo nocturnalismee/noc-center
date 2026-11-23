@@ -23,8 +23,10 @@ class Waiting extends Component
     #[Locked]
     public int $startedAt = 0;
 
+    #[Locked]
     public int $elapsed = 0;
 
+    #[Locked]
     public bool $connected = false;
 
     public function mount(Server $server): void
@@ -71,6 +73,7 @@ class Waiting extends Component
         return view('livewire.servers.waiting', [
             'appUrl' => (string) config('app.url'),
             'polling' => $this->polling(),
+            'timeoutMinutes' => intdiv(self::TIMEOUT_SECONDS, 60),
         ]);
     }
 

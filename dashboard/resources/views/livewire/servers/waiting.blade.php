@@ -45,7 +45,7 @@
         </section>
     @elseif ($this->timedOut())
         <section class="mt-6 border-y border-divider py-6" aria-labelledby="timeout-heading">
-            <h2 id="timeout-heading" class="text-[13px] font-semibold text-text">No sample after 10 minutes</h2>
+            <h2 id="timeout-heading" class="text-[13px] font-semibold text-text">No sample after {{ $timeoutMinutes }} minutes</h2>
             <p class="mt-2 max-w-[640px] text-[11px] text-text-sub">
                 The agent has not checked in yet. Confirm it is installed, running, and able to reach
                 <span class="font-mono text-[10.5px] text-text">{{ $appUrl }}</span>.
@@ -55,7 +55,7 @@
                 <div>
                     <p class="text-[8.5px] font-medium uppercase tracking-[0.08em] text-text-muted">Troubleshooting</p>
                     <div class="mt-2 flex items-start gap-3 rounded-control border border-border bg-surface px-4 py-3">
-                        <pre id="agent-status-command" class="min-w-0 flex-1 overflow-x-auto whitespace-pre font-mono text-[10.5px] leading-5 text-text">systemctl status noc-agent</pre>
+                        <pre id="agent-status-command" class="min-w-0 flex-1 overflow-x-auto whitespace-pre font-mono text-[10.5px] leading-5 text-text">systemctl status noc-agent.timer</pre>
                         <button type="button" data-copy-target="agent-status-command" class="secondary-button h-9 shrink-0 px-3 text-[11px]">Copy</button>
                     </div>
                 </div>
@@ -97,7 +97,7 @@
                 </div>
                 <div class="flex items-baseline gap-2">
                     <dt class="text-[8.5px] font-medium uppercase tracking-[0.08em] text-text-muted">Checks</dt>
-                    <dd class="text-[10px] text-text-sub">Every 5 seconds, for up to 10 minutes</dd>
+                    <dd class="text-[10px] text-text-sub">Every 5 seconds, for up to {{ $timeoutMinutes }} minutes</dd>
                 </div>
             </dl>
 

@@ -67,6 +67,8 @@
                                     wire:model="name"
                                     class="field"
                                     autocomplete="off"
+                                    required
+                                    aria-required="true"
                                     aria-describedby="name-help name-error"
                                     @error('name') aria-invalid="true" @enderror
                                 >
@@ -88,6 +90,8 @@
                                     class="field"
                                     autocomplete="off"
                                     spellcheck="false"
+                                    required
+                                    aria-required="true"
                                     aria-describedby="hostname-help hostname-error"
                                     @error('hostname') aria-invalid="true" @enderror
                                 >

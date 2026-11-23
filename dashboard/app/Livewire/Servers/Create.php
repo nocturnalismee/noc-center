@@ -7,6 +7,7 @@ use App\Services\Servers\ServerService;
 use App\Services\Tokens\TokenService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
@@ -80,7 +81,7 @@ class Create extends Component
                     'server_type' => $this->server_type,
                     'interval_seconds' => (int) $this->interval_seconds,
                     'alerts_enabled' => $this->alerts_enabled,
-                    'notes' => $this->notes,
+                    'notes' => trim($this->notes) === '' ? null : trim($this->notes),
                 ], auth()->user());
 
                 $issued = app(TokenService::class)->issue($server, auth()->user());
@@ -109,7 +110,7 @@ class Create extends Component
 
         session()->flash('issued_token', [
             'server_id' => $server->getKey(),
-            'plain' => $plain,
+            'token_cipher' => Crypt::encryptString($plain),
             'prefix' => $prefix,
         ]);
 

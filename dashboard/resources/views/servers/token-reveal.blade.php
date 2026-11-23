@@ -71,7 +71,10 @@
                             >Copy</button>
                         </div>
                         <p class="border-t border-divider px-4 py-3 font-mono text-[9.5px] text-text-muted">
-                            # run as root on {{ $server->hostname }}
+                            # copy the agent directory first, then run as root on {{ $server->hostname }}
+                        </p>
+                        <p class="border-t border-divider px-4 py-3 text-[9px] text-text-muted">
+                            The installer reads the token from a mode-600 file; it is never passed in argv or shell history.
                         </p>
                     </div>
                 </section>

@@ -4,16 +4,20 @@ namespace Tests\Feature\Ui;
 
 use App\Livewire\Servers\Create;
 use App\Livewire\Servers\Waiting;
+use App\Models\AuditEvent;
 use App\Models\Server;
 use App\Models\ServerToken;
 use App\Models\User;
 use App\Services\Servers\ServerService;
+use App\Services\Tokens\TokenService;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use PDOException;
+use RuntimeException;
 use Tests\TestCase;
 
 class CreateServerTest extends TestCase
@@ -195,6 +199,31 @@ class CreateServerTest extends TestCase
         $this->assertSame(0, ServerToken::query()->count());
     }
 
+    public function test_a_token_failure_rolls_back_the_server_and_audits(): void
+    {
+        $this->actingAs(User::factory()->create(['role' => 'operator']));
+
+        $this->mock(TokenService::class, function ($mock): void {
+            $mock->shouldReceive('issue')->andThrow(new RuntimeException('token failure'));
+        });
+
+        try {
+            Livewire::test(Create::class)
+                ->set('name', 'web-03')
+                ->set('hostname', 'web-03.nusantara.id')
+                ->call('goToReview')
+                ->call('create');
+
+            $this->fail('Expected the token failure to propagate.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('token failure', $exception->getMessage());
+        }
+
+        $this->assertSame(0, Server::query()->count());
+        $this->assertSame(0, ServerToken::query()->count());
+        $this->assertSame(0, AuditEvent::query()->count());
+    }
+
     public function test_a_successful_submit_creates_the_server_and_token_and_redirects(): void
     {
         $operator = User::factory()->create(['role' => 'operator']);
@@ -225,18 +254,21 @@ class CreateServerTest extends TestCase
         $payload = session('issued_token');
 
         $this->assertIsArray($payload);
-        $this->assertSame(['server_id', 'plain', 'prefix'], array_keys($payload));
+        $this->assertSame(['server_id', 'token_cipher', 'prefix'], array_keys($payload));
         $this->assertSame($server->getKey(), $payload['server_id']);
-        $this->assertSame('noc_', substr($payload['plain'], 0, 4));
-        $this->assertSame(substr($payload['plain'], 0, 8), $payload['prefix']);
 
-        $component->assertDontSee($payload['plain']);
+        $plain = Crypt::decryptString($payload['token_cipher']);
+        $this->assertSame('noc_', substr($plain, 0, 4));
+        $this->assertSame(substr($plain, 0, 8), $payload['prefix']);
+        $this->assertStringNotContainsString($plain, (string) json_encode($payload));
+
+        $component->assertDontSee($plain);
 
         // The flashed payload survives the redirect and is revealed once.
         $this->actingAs($operator)
             ->get(route('servers.token-reveal', $server))
             ->assertOk()
-            ->assertSee($payload['plain']);
+            ->assertSee($plain);
 
         $this->actingAs($operator)
             ->get(route('servers.token-reveal', $server))
@@ -245,11 +277,11 @@ class CreateServerTest extends TestCase
         $stored = json_encode(DB::table('server_tokens')->get())
             .json_encode(DB::table('audit_events')->get());
 
-        $this->assertStringNotContainsString($payload['plain'], (string) $stored);
+        $this->assertStringNotContainsString($plain, (string) $stored);
 
         $token = ServerToken::query()->firstOrFail();
 
-        $this->assertNotSame($payload['plain'], $token->token_hash);
+        $this->assertNotSame($plain, $token->token_hash);
         $this->assertSame($payload['prefix'], $token->token_prefix);
         $this->assertSame($operator->getKey(), $token->created_by);
     }
@@ -271,30 +303,34 @@ class CreateServerTest extends TestCase
         $operator = User::factory()->create(['role' => 'operator']);
         $server = $this->server();
         $payload = $this->payload($server);
+        $plain = Crypt::decryptString($payload['token_cipher']);
 
-        $this->actingAs($operator)
+        $response = $this->actingAs($operator)
             ->withSession(['issued_token' => $payload])
-            ->get(route('servers.token-reveal', $server))
-            ->assertOk()
+            ->get(route('servers.token-reveal', $server));
+
+        $response->assertOk()
             ->assertSee('Server created')
             ->assertSee($server->name)
             ->assertSee($server->hostname)
-            ->assertSee($payload['plain'])
+            ->assertSee($plain)
             ->assertSee($payload['prefix'])
             ->assertSee('Copy this token now. It will not be shown again.')
-            ->assertSee('curl -fsSL '.config('app.url').'/agent/install.sh')
-            ->assertSee('--token '.$payload['plain'])
+            ->assertSee('agent/install.sh')
+            ->assertSee('--api-url '.rtrim((string) config('app.url'), '/').'/api/v1/ingest')
+            ->assertSee('--token-file /root/noc-token')
             ->assertSee(route('servers.waiting', $server), false)
             ->assertSee('Never')
             ->assertSee('24 hours')
             ->assertSee('HMAC-SHA256')
-            ->assertHeader('Cache-Control')
             ->assertHeaderContains('Cache-Control', 'no-store');
+
+        $this->assertStringNotContainsString($plain, (string) $response->viewData('installCommand'));
 
         $this->actingAs($operator)
             ->get(route('servers.token-reveal', $server))
             ->assertNotFound()
-            ->assertDontSee($payload['plain']);
+            ->assertDontSee($plain);
     }
 
     public function test_the_reveal_page_returns_404_for_a_missing_malformed_or_mismatched_payload(): void
@@ -304,12 +340,17 @@ class CreateServerTest extends TestCase
         $other = $this->server(['name' => 'db-01', 'hostname' => 'db-01.nusantara.id']);
 
         $this->actingAs($operator)
-            ->withSession(['issued_token' => ['server_id' => $other->getKey(), 'plain' => $this->plain(), 'prefix' => 'noc_abc']])
+            ->withSession(['issued_token' => ['server_id' => $other->getKey(), 'token_cipher' => Crypt::encryptString($this->plain()), 'prefix' => 'noc_abc']])
             ->get(route('servers.token-reveal', $server))
             ->assertNotFound();
 
         $this->actingAs($operator)
-            ->withSession(['issued_token' => ['server_id' => $server->getKey(), 'plain' => 'not-a-token', 'prefix' => 'noc_abc']])
+            ->withSession(['issued_token' => ['server_id' => $server->getKey(), 'token_cipher' => Crypt::encryptString('not-a-token'), 'prefix' => 'noc_abc']])
+            ->get(route('servers.token-reveal', $server))
+            ->assertNotFound();
+
+        $this->actingAs($operator)
+            ->withSession(['issued_token' => ['server_id' => $server->getKey(), 'token_cipher' => 'not-ciphertext', 'prefix' => 'noc_abc']])
             ->get(route('servers.token-reveal', $server))
             ->assertNotFound();
 
@@ -319,7 +360,7 @@ class CreateServerTest extends TestCase
             ->assertNotFound();
 
         $this->actingAs($operator)
-            ->withSession(['issued_token' => ['server_id' => $server->getKey(), 'plain' => $this->plain(), 'prefix' => 'noc_nope']])
+            ->withSession(['issued_token' => ['server_id' => $server->getKey(), 'token_cipher' => Crypt::encryptString($this->plain()), 'prefix' => 'noc_nope']])
             ->get(route('servers.token-reveal', $server))
             ->assertNotFound();
     }
@@ -359,7 +400,7 @@ class CreateServerTest extends TestCase
 
         $component->call('poll')
             ->assertSee('Troubleshooting')
-            ->assertSee('systemctl status noc-agent')
+            ->assertSee('systemctl status noc-agent.timer')
             ->assertSee('journalctl -u noc-agent -n 50')
             ->assertDontSeeHtml('wire:poll.5s.visible="poll"')
             ->assertDontSee('Agent connected');
@@ -387,7 +428,7 @@ class CreateServerTest extends TestCase
     }
 
     /**
-     * @return array{server_id: string, plain: string, prefix: string}
+     * @return array{server_id: string, token_cipher: string, prefix: string}
      */
     private function payload(Server $server): array
     {
@@ -395,7 +436,7 @@ class CreateServerTest extends TestCase
 
         return [
             'server_id' => $server->getKey(),
-            'plain' => $plain,
+            'token_cipher' => Crypt::encryptString($plain),
             'prefix' => substr($plain, 0, 8),
         ];
     }
