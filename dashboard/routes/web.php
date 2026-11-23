@@ -15,6 +15,7 @@ use App\Livewire\Servers\Waiting;
 use App\Livewire\Settings\AlertSettings;
 use App\Livewire\Settings\Index as SettingsIndex;
 use App\Livewire\Settings\Profile;
+use App\Livewire\Settings\TwoFactor;
 use App\Livewire\Settings\Users;
 use Illuminate\Support\Facades\Route;
 
@@ -40,6 +41,7 @@ Route::middleware('auth')->group(function () {
 
     Route::livewire('/settings', SettingsIndex::class)->name('settings.index');
     Route::livewire('/settings/profile', Profile::class)->name('settings.profile');
+    Route::livewire('/settings/security', TwoFactor::class)->name('settings.security');
     Route::livewire('/settings/users', Users::class)->name('settings.users');
     Route::livewire('/settings/alerts', AlertSettings::class)->name('settings.alerts');
 
