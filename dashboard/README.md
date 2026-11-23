@@ -192,8 +192,11 @@ php ~/noc/current/artisan optimize:clear
 php ~/noc/current/artisan queue:restart
 ```
 
-The old release still points its `storage` symlink at `shared/storage`, so its
-sessions and logs remain available after the rollback.
+Releases created after the shared-storage change point their `storage` symlink
+at `shared/storage`, so sessions and logs remain available after a rollback.
+A release created before that change still has a real `storage` directory and
+does not see data written to shared storage after the upgrade; migrate it with
+`deploy.sh` before relying on a rollback to it.
 
 ## Environment matrix
 
@@ -377,8 +380,9 @@ single file, readable while the dashboard runs), then:
   an existing file, or a missing/unwritable parent directory;
 - writes the copy with mode **0640** (owner read/write, group read) even if the
   operator's umask is permissive;
-- runs `PRAGMA integrity_check` against the copy and deletes it if the check
-  or the copy itself fails;
+- runs `PRAGMA integrity_check` against the copy and deletes the copy if the
+  check fails; if `VACUUM INTO` itself fails, remove the partial file manually
+  after checking that no other backup process owns it;
 - prints the size, `integrity_check: ok`, and the row count of every table;
 - prints no credentials.
 
@@ -474,6 +478,7 @@ for suffix in -wal -shm -journal; do
         mv -- "$DB$suffix" "$OLD$suffix"
     fi
 done
+echo "restore: old database and sidecars moved to $OLD"
 
 # 6. Atomically move the verified copy into place.
 mv -- "$TMP" "$DB"
@@ -495,19 +500,25 @@ chmod 640 "$DB"
 ```
 
 If verification fails or the data is wrong, roll back before deleting `$OLD`.
-Run this as its own block; the variables above are repeated on purpose:
+Run this as its own block. Paste the exact `$OLD` path printed by the restore
+block; the rollback refuses to continue without it and verifies it before
+touching the live database:
 
 ```bash
 set -euo pipefail
 PHP_BIN="${PHP_BIN:-/usr/local/bin/php}"
 APP=/home/ACCOUNT/noc/current
 DB=/home/ACCOUNT/noc-data/noc.sqlite
-STAMP="$(date -u +%Y%m%dT%H%M%SZ)-$$"
-OLD="$DB.before-restore-$STAMP"        # the value printed by the restore block
+OLD="${OLD:?paste the old database path printed by the restore block}"
+FAILED="$DB.failed-restore-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+[[ -f "$OLD" ]] || { echo "rollback: old database not found: $OLD" >&2; exit 1; }
+[[ ! -e "$FAILED" ]] || { echo "rollback: destination exists: $FAILED" >&2; exit 1; }
 "$PHP_BIN" "$APP/artisan" down
-mv -- "$DB" "$DB.failed-restore-$STAMP"
+mv -- "$DB" "$FAILED"
 for suffix in -wal -shm -journal; do
-    rm -f -- "$DB$suffix"
+    if [[ -e "$DB$suffix" ]]; then
+        mv -- "$DB$suffix" "$FAILED$suffix"
+    fi
 done
 mv -- "$OLD" "$DB"
 for suffix in -wal -shm -journal; do
@@ -523,9 +534,10 @@ chmod 640 "$DB"
 # Shared hosting: uncomment the schedule:run cron line again.
 ```
 
-The rollback preserves the old database's `-wal`/`-shm` sidecars, so committed
-pages that were only in the WAL are not lost. `chmod` and `$STAMP` use the same
-values printed by the restore block.
+The rollback moves the failed restored database and its sidecars to
+`$DB.failed-restore-…`, then restores the old main file with its `-wal`/`-shm`,
+so pages that were only in the old WAL are not lost. Delete the failed copy
+after the old data is accepted.
 
 Restoring into a fresh SQLite file preserves server and sample counts (covered
 by `tests/Feature/Ops/BackupTest.php`). The backup does **not** contain

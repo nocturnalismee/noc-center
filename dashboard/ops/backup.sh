@@ -201,4 +201,4 @@ fi
 
 # A SIGKILL can leave a hidden partial. It is never a valid backup and is
 # excluded from retention, so clear old ones without touching a concurrent run.
-find "$BACKUP_DIR" -maxdepth 1 -type f ! -type l -name '.noc-*.partial.sqlite' -mtime +1 -delete 2>/dev/null || true
+find "$BACKUP_DIR" -maxdepth 1 -type f ! -type l -name '.noc-*.partial.sqlite' -mmin +1440 -delete 2>/dev/null || true
