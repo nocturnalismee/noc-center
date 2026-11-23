@@ -224,17 +224,13 @@
         <section class="mt-6" aria-labelledby="panel-heading">
             <h2 id="panel-heading" class="text-[13px] font-semibold text-text">Panel metrics</h2>
             <p class="mt-1 text-[9.5px] text-text-muted">cPanel and security facts reported by the agent.</p>
-            <div class="mt-4 border-y border-divider py-8 text-center text-[10.5px] text-text-muted">
-                Panel details are recorded with each sample. Select a server with a recent sample to inspect them.
-            </div>
+            @include('livewire.servers.tabs.panel', ['panel' => $panel])
         </section>
     @elseif ($tab === 'modules')
         <section class="mt-6" aria-labelledby="modules-heading">
             <h2 id="modules-heading" class="text-[13px] font-semibold text-text">Module freshness</h2>
             <p class="mt-1 text-[9.5px] text-text-muted">SMART, quota, Imunify, and database module state.</p>
-            <div class="mt-4 border-y border-divider py-8 text-center text-[10.5px] text-text-muted">
-                Module details are recorded with each sample. Select a server with a recent sample to inspect them.
-            </div>
+            @include('livewire.servers.tabs.modules', ['modules' => $panel])
         </section>
     @elseif ($tab === 'alerts')
         <section class="mt-6" aria-labelledby="alerts-heading">

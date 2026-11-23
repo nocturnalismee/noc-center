@@ -7,6 +7,7 @@ use App\Models\AuditEvent;
 use App\Models\MetricSample;
 use App\Models\Server;
 use App\Models\User;
+use App\Support\MetricPresenter;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Layout;
@@ -46,6 +47,16 @@ class Show extends Component
         $alerts = collect();
         $history = collect();
         $actors = collect();
+        $panel = null;
+
+        if (in_array($tab, ['panel', 'modules'], true)) {
+            $detail = $sample?->detail()->first();
+
+            $panel = MetricPresenter::groups(array_merge(
+                $detail?->panel_metrics ?? [],
+                $detail?->extensions ?? [],
+            ));
+        }
 
         if ($tab === 'alerts') {
             $alerts = $this->server->alerts()
@@ -84,6 +95,7 @@ class Show extends Component
             'statusState' => $this->server->status()->value,
             'issueLabels' => $this->issueLabels(),
             'itsm' => $this->itsm($sample),
+            'panel' => $panel,
         ]);
     }
 
