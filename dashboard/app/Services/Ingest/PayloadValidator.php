@@ -41,10 +41,11 @@ class PayloadValidator
     public const FLAT_MAP_KEY_PATTERN = '/\A[A-Za-z][A-Za-z0-9_.-]{0,63}\z/';
 
     /**
-     * What a validation message calls each field. Laravel splits hyphenated
-     * attribute names (`agent.interval_seconds` → "agent.interval seconds"),
-     * so the readable name is supplied explicitly; keys stay dotted for
-     * machine-readable errors. All other names are left as the dotted path.
+     * What a validation message calls each field. Laravel's legacy behaviour
+     * was to split a hyphenated attribute (`interval_seconds` rendering as
+     * "interval seconds"); supplying an explicit name keeps messages readable
+     * and independent of that behaviour. Keys stay dotted for machine-readable
+     * errors; names not listed here fall back to the dotted path.
      *
      * @var array<string, string>
      */
@@ -265,8 +266,8 @@ class PayloadValidator
             'extensions' => ['sometimes', 'nullable', 'array'],
         ]);
 
-        // Readable names keep the field keys dotted but drop the hyphen split
-        // that would render `interval_seconds` as "interval seconds".
+        // Explicit names keep messages readable and decoupled from Laravel's
+        // legacy hyphen-splitting of attribute names; error keys stay dotted.
         $validator->setAttributeNames(self::ATTRIBUTE_NAMES);
 
         return $validator;

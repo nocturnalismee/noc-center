@@ -8,8 +8,10 @@ use App\Models\Server;
 use App\Models\ServerToken;
 use App\Services\Ingest\IngestPayload;
 use App\Services\Ingest\PayloadValidator;
+use App\Services\Ingest\StoreSample;
 use App\Services\Tokens\TokenService;
 use Illuminate\Contracts\Support\Arrayable;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -20,6 +22,7 @@ use Illuminate\Testing\TestResponse;
 use Illuminate\Validation\ValidationException;
 use JsonException;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 use Throwable;
 
@@ -107,7 +110,13 @@ class PayloadValidationTest extends TestCase
         // never reaches schema validation: it is malformed JSON (R36), not a
         // 422, and nothing is stored. The validator's own UTF-8 guard remains
         // as defence for values built in PHP rather than decoded.
-        $json = str_replace('"smart.status":"ok"', "\"smart.status\":\"\xB1garbage\"", $this->payloadJson());
+        $original = $this->payloadJson();
+        $json = str_replace('"smart.status":"ok"', "\"smart.status\":\"\xB1garbage\"", $original);
+
+        // Guard: prove the invalid byte was actually introduced, so this test
+        // cannot pass vacuously on an unchanged (valid) body.
+        $this->assertNotSame($original, $json);
+        $this->assertFalse(mb_check_encoding($json, 'UTF-8'));
 
         $response = $this->ingestRaw($json);
 
@@ -732,6 +741,51 @@ class PayloadValidationTest extends TestCase
         $this->assertStringNotContainsString('Stack trace', $body);
     }
 
+    public function test_an_http_exception_keeps_its_status_and_message(): void
+    {
+        $plain = $this->issueToken();
+
+        $this->app->instance(StoreSample::class, $this->stubStore(fn () => throw new HttpException(429, 'Slow down.')));
+
+        $response = $this->postBody($this->payloadJson(), 'application/json', $plain);
+
+        $response->assertStatus(429);
+        $response->assertExactJson(['error' => 'http_error', 'message' => 'Slow down.']);
+        $this->assertNoStore($response, 'An HTTP exception response must never be cached.');
+    }
+
+    public function test_a_wrapped_http_exception_does_not_echo_its_message(): void
+    {
+        $plain = $this->issueToken();
+
+        $this->app->instance(StoreSample::class, $this->stubStore(
+            fn () => throw new HttpException(503, 'internals: /app/storage/db.sqlite', new \Exception('boom')),
+        ));
+
+        $response = $this->postBody($this->payloadJson(), 'application/json', $plain);
+
+        $response->assertStatus(503);
+        $response->assertExactJson(['error' => 'http_error']);
+        $this->assertStringNotContainsString('/app/', $response->getContent());
+        $this->assertNoStore($response);
+    }
+
+    public function test_a_storage_query_exception_is_a_generic_500(): void
+    {
+        $plain = $this->issueToken();
+
+        $this->app->instance(StoreSample::class, $this->stubStore(
+            fn () => throw new QueryException('sqlite', 'select 1', [], new \Exception('boom')),
+        ));
+
+        $response = $this->postBody($this->payloadJson(), 'application/json', $plain);
+
+        $response->assertStatus(500);
+        $response->assertExactJson(['error' => 'server_error']);
+        $this->assertNoStore($response);
+        $this->assertStringNotContainsString('sqlite', $response->getContent());
+    }
+
     public function test_oversized_payloads_are_not_stored(): void
     {
         $plain = $this->issueToken();
@@ -807,6 +861,26 @@ class PayloadValidationTest extends TestCase
     private function ingestRaw(string $body, string $contentType = 'application/json'): TestResponse
     {
         return $this->postBody($body, $contentType, $this->issueToken());
+    }
+
+    /**
+     * A `StoreSample` whose `storeRaw()` throws whatever the callback throws.
+     */
+    private function stubStore(\Closure $thrower): StoreSample
+    {
+        return new class($thrower) extends StoreSample
+        {
+            public function __construct(private readonly \Closure $thrower)
+            {
+                // Deliberately skips the parent constructor: the validator is
+                // never reached.
+            }
+
+            public function storeRaw(ServerToken $token, string $rawJson): never
+            {
+                ($this->thrower)();
+            }
+        };
     }
 
     private function postBody(string $body, string $contentType, string $plain): TestResponse

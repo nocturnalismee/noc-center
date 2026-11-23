@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use JsonException;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
 
 class IngestController extends Controller
@@ -53,6 +54,16 @@ class IngestController extends Controller
             return $this->error('invalid_json', 400);
         } catch (ValidationException $exception) {
             return $this->error('unprocessable_entity', 422, $exception->errors());
+        } catch (HttpExceptionInterface $exception) {
+            // A deliberate `abort()`/`HttpException` carries an intended
+            // status (for example 429); keep it, with the same no-store and
+            // no-internals rules as every other ingest response. A wrapped
+            // exception may hide a cause, so its message is never echoed.
+            $body = $exception->getPrevious() === null
+                ? ['error' => 'http_error', 'message' => $exception->getMessage()]
+                : ['error' => 'http_error'];
+
+            return $this->respond($body, $exception->getStatusCode());
         } catch (Throwable $exception) {
             // Never let an unhandled failure escape: the framework's renderer
             // would answer 500 without `Cache-Control: no-store`, and its body
