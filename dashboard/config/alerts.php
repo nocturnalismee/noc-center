@@ -19,6 +19,28 @@ return [
 
     'test_rate_per_minute' => 3,
 
+    /*
+    | How long a queued `SendAlertNotification` job stays "unique" for one
+    | `(alert, channel, event)`, in seconds. A duplicate queued inside this
+    | window is dropped; a failed job is retried through `retry_backoff_seconds`
+    | because the lock is released when the job starts running.
+    */
+    'notification_unique_for' => 300,
+
+    /*
+    | Base URL used in alert notifications. Every notification links to the
+    | alert detail page so an operator can act on it.
+    */
+    'url' => env('APP_URL', 'http://localhost'),
+
+    /*
+    | Connection timeout (seconds) and total timeout (seconds) for the fixed
+    | Telegram host. The bot token lives in the URL path, so the full URL must
+    | never reach a log, exception message, audit row or the UI.
+    */
+    'telegram_connect_timeout' => 5,
+    'telegram_timeout' => 10,
+
     'channels' => [
 
         'email' => [

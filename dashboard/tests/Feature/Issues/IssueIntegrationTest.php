@@ -66,8 +66,9 @@ class IssueIntegrationTest extends TestCase
 
         $this->assertSame(ServerHealth::Critical, $server->health);
         $this->assertSame([AlertRule::MemoryHigh->value, AlertRule::ServiceDown->value], $server->issue_codes);
-        // Issue detection never opens alerts; that is Task 9.
-        $this->assertSame(0, Alert::query()->count());
+        // Task 9 wires issue detection into the alert engine: each detected
+        // ingest rule has one open/acknowledged alert for the server.
+        $this->assertSame(2, Alert::query()->where('server_id', $server->id)->whereNotNull('active_key')->count());
     }
 
     public function test_a_duplicate_ingest_recomputes_health_without_adding_samples(): void
@@ -160,7 +161,11 @@ class IssueIntegrationTest extends TestCase
         // sampled", not "how new is the newest row".
         $this->assertTrue($server->last_seen_at->equalTo(Carbon::now('UTC')));
         $this->assertSame('2026-11-22 12:00:00', $server->last_sample_at->format('Y-m-d H:i:s'));
-        $this->assertSame(0, Alert::query()->count());
+        // Task 9: the 12:00 disk_high alert opened, then the healthy 12:01
+        // sample resolved it. The replay of the older sample must not reopen
+        // it — `evaluate()` sees the current issue state, not the payload.
+        $this->assertSame(1, Alert::query()->count());
+        $this->assertSame('resolved', Alert::query()->sole()->status->value);
     }
 
     public function test_an_older_duplicate_response_describes_the_newest_stored_sample(): void

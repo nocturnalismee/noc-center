@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Alerts\AlertEngine;
 use App\Http\Controllers\Controller;
 use App\Models\ServerToken;
 use App\Services\Ingest\StoreSample;
@@ -22,8 +23,10 @@ class IngestController extends Controller
      */
     private const JSON_MEDIA_TYPE = '/\Aapplication\/json(?:\s*;\s*(?:[^;,"\s]+\s*=\s*(?:"[^"]*"|[^;,"\s]*)\s*)?)*\z/i';
 
-    public function __construct(private readonly StoreSample $samples)
-    {
+    public function __construct(
+        private readonly StoreSample $samples,
+        private readonly AlertEngine $alerts,
+    ) {
         //
     }
 
@@ -49,7 +52,7 @@ class IngestController extends Controller
         $token = $request->attributes->get('noc_token');
 
         try {
-            $this->samples->storeRaw($token, $this->body($request));
+            $result = $this->samples->storeRaw($token, $this->body($request));
         } catch (JsonException) {
             return $this->error('invalid_json', 400);
         } catch (ValidationException $exception) {
@@ -71,6 +74,16 @@ class IngestController extends Controller
             report($exception);
 
             return $this->error('server_error', 500);
+        }
+
+        // Alerting runs after the sample transaction committed and can never
+        // change the response (spec §9.4): a rule-engine or queue failure is
+        // reported, the alerting state is recovered by the next evaluation,
+        // and the agent still receives 202.
+        try {
+            $this->alerts->evaluate($result->server, $result->issues);
+        } catch (Throwable $exception) {
+            report($exception);
         }
 
         return $this->respond(['status' => 'accepted'], 202);
