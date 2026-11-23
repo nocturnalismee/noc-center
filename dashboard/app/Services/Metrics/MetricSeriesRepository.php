@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 /**
- * Build chart series from raw samples or metric rollups (spec §7.6, §9.2).
+ * Build chart series from raw samples or metric rollups (spec §7.6, §11, §12.3).
  *
  * Short ranges read `metric_samples`; long ranges read `metric_rollups` at
  * the resolution named by `config/metrics.php`. When the requested window
@@ -41,12 +41,12 @@ class MetricSeriesRepository
         $metricConfig = $metrics[$metric];
 
         $rangeSeconds = (int) $rangeConfig['seconds'];
-        $cap = (int) $rangeConfig['cap'];
+        $cap = max(1, (int) $rangeConfig['cap']);
         $isRaw = $rangeConfig['source'] === 'raw';
 
         $sourceResolution = $isRaw
             ? max(1, (int) $server->interval_seconds)
-            : (int) $rangeConfig['resolution'];
+            : max(1, (int) $rangeConfig['resolution']);
 
         $factor = max(1, (int) ceil(($rangeSeconds / $sourceResolution) / $cap));
         $resolution = $sourceResolution * $factor;
@@ -56,7 +56,14 @@ class MetricSeriesRepository
 
         $points = $isRaw
             ? $this->rawPoints($server, $metricConfig['raw'], $from, $now, $resolution)
-            : $this->rollupPoints($server, $metricConfig['rollup'], (int) $rangeConfig['resolution'], $from, $now, $resolution);
+            : $this->rollupPoints($server, $metricConfig['rollup'], max(1, (int) $rangeConfig['resolution']), $from, $now, $resolution);
+
+        // A window that is not aligned to the effective bucket can intersect
+        // one more bucket than `range / resolution` (e.g. 24h at 12:00:30).
+        // Keep the newest cap buckets so the resolution never has to widen.
+        if (count($points) > $cap) {
+            $points = array_values(array_slice($points, -$cap));
+        }
 
         return [
             'metric' => $metric,

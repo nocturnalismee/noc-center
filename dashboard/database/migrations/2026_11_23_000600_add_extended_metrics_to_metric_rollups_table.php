@@ -11,7 +11,9 @@ return new class extends Migration
         Schema::table('metric_rollups', function (Blueprint $table) {
             // Additive columns for the long-range chart series (spec §7.6).
             // Defaults of zero keep rows written before this migration
-            // readable; `noc:rollup --backfill-days=N` fills them in.
+            // readable. `noc:rollup --backfill-days=N` can only rebuild the
+            // raw-retained history (metric_samples, 14 days); older rollups
+            // stay zero because their source samples are already pruned.
             $table->decimal('swap_used_pct_sum', 12, 2)->default(0);
             $table->decimal('disk_inode_pct_sum', 12, 2)->default(0);
             $table->unsignedBigInteger('processes_running_sum')->default(0);

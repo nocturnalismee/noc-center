@@ -14,7 +14,7 @@ use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
- * Task 13: chart series repository and JSON endpoint (spec §7.6, §9.2, §10).
+ * Task 13: chart series repository and JSON endpoint (spec §7.6, §11, §12.3).
  *
  * Short ranges read `metric_samples` downsampled to at most 240 points; long
  * ranges read `metric_rollups` at their configured resolution and weight the
@@ -209,6 +209,48 @@ class SeriesApiTest extends TestCase
         $this->assertSame($sorted, $timestamps);
     }
 
+    public function test_a_misaligned_window_never_exceeds_the_cap(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        // now 12:00:30: the 24h window starts mid-bucket, so epoch alignment
+        // would otherwise produce 241 buckets for the same 360s resolution.
+        Carbon::setTestNow('2026-11-23 12:00:30');
+
+        $server = $this->server();
+
+        $rows = [];
+        $start = Carbon::parse('2026-11-22 12:00:00', 'UTC');
+
+        // Continuous 1/min stream filling both partial edge buckets.
+        for ($minute = 0; $minute <= 1440; $minute++) {
+            $at = $start->copy()->addMinutes($minute);
+
+            $rows[] = $this->rawRow($server, $at, 10.0);
+        }
+
+        foreach (array_chunk($rows, 500) as $chunk) {
+            DB::table('metric_samples')->insert($chunk);
+        }
+
+        $body = $this->getJson($this->url($server, 'cpu', '24h'))
+            ->assertOk()
+            ->json();
+
+        $this->assertSame(360, $body['resolution']);
+        $this->assertCount(240, $body['points']);
+
+        // The newest cap buckets are kept: the partial 12:00 bucket is
+        // dropped, not widened to 420s.
+        $this->assertSame('2026-11-22T12:06:00Z', $body['points'][0]['t']);
+        $this->assertSame('2026-11-23T12:00:00Z', $body['points'][239]['t']);
+
+        $timestamps = array_column($body['points'], 't');
+        $sorted = $timestamps;
+        sort($sorted);
+        $this->assertSame($sorted, $timestamps);
+    }
+
     // ------------------------------------------------------------------
     // Rollup ranges
     // ------------------------------------------------------------------
@@ -218,9 +260,11 @@ class SeriesApiTest extends TestCase
         $this->actingAs(User::factory()->create());
         $server = $this->server();
 
-        // Both rows fall in the same 900s effective bucket for 7d.
-        $this->rollup($server, '2026-11-20 00:00:00', 300, 4, ['cpu_usage_sum' => 100]);
-        $this->rollup($server, '2026-11-20 00:05:00', 300, 2, ['cpu_usage_sum' => 50]);
+        // Both rows fall in the same 900s effective bucket for 7d. The two
+        // means differ (90 and 100), so an average-of-averages would be 95
+        // while the weighted mean is 99.
+        $this->rollup($server, '2026-11-20 00:00:00', 300, 1, ['cpu_usage_sum' => 90]);
+        $this->rollup($server, '2026-11-20 00:05:00', 300, 9, ['cpu_usage_sum' => 900]);
 
         $body = $this->getJson($this->url($server, 'cpu', '7d'))
             ->assertOk()
@@ -229,7 +273,8 @@ class SeriesApiTest extends TestCase
         $this->assertSame(900, $body['resolution']);
         $this->assertCount(1, $body['points']);
         $this->assertSame('2026-11-20T00:00:00Z', $body['points'][0]['t']);
-        $this->assertSame(25.0, (float) $body['points'][0]['v']);
+        $this->assertSame(99.0, (float) $body['points'][0]['v']);
+        $this->assertNotEquals(95.0, (float) $body['points'][0]['v']);
     }
 
     public function test_seven_day_and_ninety_day_ranges_respect_the_cap_and_source_resolution(): void
@@ -288,6 +333,149 @@ class SeriesApiTest extends TestCase
     }
 
     // ------------------------------------------------------------------
+    // Coverage edge cases
+    // ------------------------------------------------------------------
+
+    public function test_an_empty_series_returns_an_empty_points_array(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $server = $this->server();
+
+        $this->getJson($this->url($server, 'cpu', '24h'))
+            ->assertOk()
+            ->assertExactJson([
+                'metric' => 'cpu',
+                'range' => '24h',
+                'resolution' => 360,
+                'points' => [],
+            ]);
+    }
+
+    public function test_zero_valued_metrics_produce_points_not_gaps(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $server = $this->server();
+
+        $this->sample($server, '2026-11-23 11:59:00', ['cpu_usage_pct' => 0]);
+
+        $points = $this->getJson($this->url($server, 'cpu', '1h'))
+            ->assertOk()
+            ->json('points');
+
+        $this->assertSame([['t' => '2026-11-23T11:59:00Z', 'v' => 0]], $points);
+    }
+
+    public function test_rollup_rows_with_zero_samples_are_skipped(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $server = $this->server();
+
+        $this->rollup($server, '2026-11-20 00:00:00', 300, 0, ['cpu_usage_sum' => 100]);
+        $this->rollup($server, '2026-11-20 01:00:00', 300, 2, ['cpu_usage_sum' => 20]);
+
+        $points = $this->getJson($this->url($server, 'cpu', '7d'))
+            ->assertOk()
+            ->json('points');
+
+        $this->assertSame([['t' => '2026-11-20T01:00:00Z', 'v' => 10]], $points);
+    }
+
+    public function test_raw_interval_drives_the_source_resolution_and_cap(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $fast = $this->server(10);
+        $slow = $this->server(3600);
+
+        $this->assertSame(
+            20,
+            $this->getJson($this->url($fast, 'cpu', '1h'))->assertOk()->json('resolution'),
+        );
+        $this->assertSame(
+            360,
+            $this->getJson($this->url($fast, 'cpu', '24h'))->assertOk()->json('resolution'),
+        );
+        $this->assertSame(
+            3600,
+            $this->getJson($this->url($slow, 'cpu', '1h'))->assertOk()->json('resolution'),
+        );
+    }
+
+    public function test_thirty_day_and_one_year_resolutions(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $server = $this->server();
+
+        $this->assertSame(
+            3600,
+            $this->getJson($this->url($server, 'cpu', '30d'))->assertOk()->json('resolution'),
+        );
+        $this->assertSame(
+            86400,
+            $this->getJson($this->url($server, 'cpu', '1y'))->assertOk()->json('resolution'),
+        );
+    }
+
+    public function test_extended_metrics_map_over_a_rollup_range(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $server = $this->server();
+
+        $this->rollup($server, '2026-11-20 00:00:00', 300, 4, [
+            'swap_used_pct_sum' => 40,
+            'disk_inode_pct_sum' => 20,
+            'processes_running_sum' => 400,
+        ]);
+
+        $cases = [
+            'swap' => 10.0,
+            'inode' => 5.0,
+            'processes' => 100.0,
+        ];
+
+        foreach ($cases as $metric => $value) {
+            $body = $this->getJson($this->url($server, $metric, '7d'))
+                ->assertOk()
+                ->json();
+
+            $this->assertSame(900, $body['resolution']);
+            $this->assertCount(1, $body['points'], "Metric {$metric} should have one point.");
+            $this->assertEqualsWithDelta($value, $body['points'][0]['v'], 0.0001);
+        }
+    }
+
+    public function test_window_includes_from_and_excludes_now(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $server = $this->server();
+
+        $this->sample($server, '2026-11-23 11:00:00', ['cpu_usage_pct' => 10]);
+        $this->sample($server, '2026-11-23 12:00:00', ['cpu_usage_pct' => 20]);
+
+        $points = $this->getJson($this->url($server, 'cpu', '1h'))
+            ->assertOk()
+            ->json('points');
+
+        $this->assertSame([['t' => '2026-11-23T11:00:00Z', 'v' => 10]], $points);
+    }
+
+    public function test_malformed_cap_and_resolution_config_does_not_throw(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $server = $this->server();
+
+        config(['metrics.ranges.1h.cap' => 0]);
+
+        $raw = $this->getJson($this->url($server, 'cpu', '1h'))->assertOk()->json();
+        $this->assertGreaterThanOrEqual(1, $raw['resolution']);
+
+        config(['metrics.ranges.7d.cap' => 0, 'metrics.ranges.7d.resolution' => 0]);
+
+        $rollup = $this->getJson($this->url($server, 'cpu', '7d'))->assertOk()->json();
+        $this->assertGreaterThanOrEqual(1, $rollup['resolution']);
+    }
+
+    // ------------------------------------------------------------------
     // Validation, authorisation, soft deletes
     // ------------------------------------------------------------------
 
@@ -314,6 +502,26 @@ class SeriesApiTest extends TestCase
             static fn (string $sql): bool => str_contains($sql, 'metric_samples')
                 || str_contains($sql, 'metric_rollups'),
         ));
+    }
+
+    public function test_array_and_missing_parameters_are_rejected_on_their_key(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $server = $this->server();
+
+        $base = '/servers/'.$server->getKey().'/series';
+
+        $this->getJson($base.'?range=1h')
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('metric');
+
+        $this->getJson($base.'?metric=cpu')
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('range');
+
+        $this->getJson($base.'?metric[]=cpu&range=1h')
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('metric');
     }
 
     public function test_a_guest_is_redirected_to_login(): void
@@ -367,10 +575,11 @@ class SeriesApiTest extends TestCase
                 ],
             ]);
 
-        $cacheControl = strtolower((string) $response->headers->get('Cache-Control'));
+        $cacheControl = $response->headers->get('Cache-Control');
 
-        $this->assertStringContainsString('private', $cacheControl);
-        $this->assertStringContainsString('max-age=15', $cacheControl);
+        $this->assertSame('max-age=15, private', $cacheControl);
+        $this->assertStringNotContainsString('public', (string) $cacheControl);
+        $this->assertStringNotContainsString('no-cache', (string) $cacheControl);
     }
 
     // ------------------------------------------------------------------
@@ -429,6 +638,43 @@ class SeriesApiTest extends TestCase
     }
 
     /**
+     * A raw insert row for bulk seeding; `sample()` is the Eloquent path.
+     *
+     * @return array<string, int|float|string>
+     */
+    private function rawRow(Server $server, Carbon $at, float $cpuUsagePct): array
+    {
+        return [
+            'server_id' => $server->getKey(),
+            'collected_at' => $at->format('Y-m-d H:i:s'),
+            'received_at' => $at->format('Y-m-d H:i:s'),
+            'interval_seconds' => 60,
+            'cpu_usage_pct' => $cpuUsagePct,
+            'cpu_iowait_pct' => 0,
+            'cpu_cores' => 4,
+            'load1' => 0,
+            'load5' => 0,
+            'load15' => 0,
+            'mem_total_bytes' => 1,
+            'mem_used_bytes' => 0,
+            'mem_used_pct' => 0,
+            'swap_total_bytes' => 0,
+            'swap_used_bytes' => 0,
+            'swap_used_pct' => 0,
+            'disk_total_bytes' => 1,
+            'disk_used_bytes' => 0,
+            'disk_used_pct' => 0,
+            'disk_inode_pct' => 0,
+            'net_rx_bps' => 0,
+            'net_tx_bps' => 0,
+            'processes_running' => 1,
+            'processes_blocked' => 0,
+            'uptime_seconds' => 1,
+            'payload_bytes' => 1,
+        ];
+    }
+
+    /**
      * @param  array<string, int|float>  $sums
      */
     private function rollup(
@@ -447,13 +693,13 @@ class SeriesApiTest extends TestCase
             'cpu_iowait_sum' => 0,
             'mem_used_pct_sum' => $sums['mem_used_pct_sum'] ?? 0,
             'disk_used_pct_sum' => 0,
-            'swap_used_pct_sum' => 0,
-            'disk_inode_pct_sum' => 0,
+            'swap_used_pct_sum' => $sums['swap_used_pct_sum'] ?? 0,
+            'disk_inode_pct_sum' => $sums['disk_inode_pct_sum'] ?? 0,
             'load1_sum' => 0,
             'net_rx_bps_sum' => 0,
             'net_tx_bps_sum' => 0,
-            'processes_running_sum' => 0,
-            'processes_blocked_sum' => 0,
+            'processes_running_sum' => $sums['processes_running_sum'] ?? 0,
+            'processes_blocked_sum' => $sums['processes_blocked_sum'] ?? 0,
             'cpu_usage_min' => 0,
             'cpu_usage_max' => 0,
             'mem_used_pct_min' => 0,

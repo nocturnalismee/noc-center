@@ -10,7 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 /**
- * JSON chart series for one server (spec §9.2).
+ * JSON chart series for one server (spec §11, §12.3).
  *
  * The endpoint is read-only and private: viewers may read any server they can
  * view, and the response is cacheable for 15 seconds only by the client.
