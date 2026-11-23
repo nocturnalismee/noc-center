@@ -50,7 +50,8 @@ class ServerDetailTest extends TestCase
             ->assertSee('web-01.nusantara.id')
             ->assertDontSee('Rotate token')
             ->assertDontSee('Edit server')
-            ->assertDontSee('Stored snapshot');
+            ->assertDontSee('Stored snapshot')
+            ->assertDontSee('tab=history', false);
     }
 
     public function test_operators_see_token_and_edit_actions_and_admins_see_the_snapshot_action(): void
@@ -165,6 +166,24 @@ class ServerDetailTest extends TestCase
             ->assertSee('—');
     }
 
+    public function test_the_chart_subtexts_render_wib_and_not_utc(): void
+    {
+        $viewer = User::factory()->create();
+        $server = $this->server();
+
+        $this->actingAs($viewer)
+            ->get(route('servers.show', $server))
+            ->assertOk()
+            ->assertSee('collector samples · WIB')
+            ->assertDontSee('collector samples · UTC');
+
+        $this->actingAs($viewer)
+            ->get(route('servers.show', ['server' => $server, 'tab' => 'performance']))
+            ->assertOk()
+            ->assertSee('downsampled for display · WIB')
+            ->assertDontSee('downsampled for display · UTC');
+    }
+
     public function test_each_tab_renders_its_section_and_invalid_tabs_fall_back_to_overview(): void
     {
         $viewer = User::factory()->create();
@@ -198,7 +217,6 @@ class ServerDetailTest extends TestCase
             'panel' => 'Panel metrics',
             'modules' => 'Module freshness',
             'alerts' => 'CPU high',
-            'history' => 'server.updated',
         ];
 
         foreach ($expectations as $tab => $needle) {
@@ -207,6 +225,21 @@ class ServerDetailTest extends TestCase
                 ->assertOk()
                 ->assertSee($needle);
         }
+
+        // Viewers cannot read the audit history even by asking for the tab.
+        $this->actingAs($viewer)
+            ->get(route('servers.show', ['server' => $server, 'tab' => 'history']))
+            ->assertOk()
+            ->assertSee('History is restricted to operators and administrators.')
+            ->assertDontSee('server.updated');
+
+        $operator = User::factory()->create(['role' => 'operator']);
+
+        $this->actingAs($operator)
+            ->get(route('servers.show', ['server' => $server, 'tab' => 'history']))
+            ->assertOk()
+            ->assertSee('History')
+            ->assertSee('server.updated');
 
         $this->actingAs($viewer)
             ->get(route('servers.show', ['server' => $server, 'tab' => 'bogus']))

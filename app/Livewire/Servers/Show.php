@@ -48,6 +48,7 @@ class Show extends Component
         $history = collect();
         $actors = collect();
         $panel = null;
+        $canViewHistory = Gate::allows('viewAny', AuditEvent::class);
 
         if (in_array($tab, ['panel', 'modules'], true)) {
             $detail = $sample?->detail()->first();
@@ -65,7 +66,7 @@ class Show extends Component
                 ->get();
         }
 
-        if ($tab === 'history') {
+        if ($tab === 'history' && $canViewHistory) {
             $history = AuditEvent::query()
                 ->where('target_type', $this->server->getMorphClass())
                 ->where('target_id', $this->server->getKey())
@@ -89,6 +90,7 @@ class Show extends Component
             'alerts' => $alerts,
             'history' => $history,
             'actors' => $actors,
+            'canViewHistory' => $canViewHistory,
             'canOperate' => auth()->user()?->canOperate() ?? false,
             'canViewSnapshot' => auth()->user()?->can('viewSnapshot', $this->server) ?? false,
             'lastSeen' => $this->lastSeen(),

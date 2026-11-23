@@ -86,6 +86,58 @@ class UserManagementTest extends TestCase
         $this->assertSame(2, User::query()->count());
     }
 
+    public function test_user_emails_are_trimmed_lowercased_and_unique_case_insensitively(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $this->actingAs($admin);
+
+        Livewire::test(UserForm::class)
+            ->set('name', 'Mixed Case')
+            ->set('email', '  Mixed.Case@Example.COM  ')
+            ->set('role', 'operator')
+            ->set('isActive', true)
+            ->set('password', 'temporary-password-1')
+            ->set('passwordConfirmation', 'temporary-password-1')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $created = User::query()->where('email', 'mixed.case@example.com')->sole();
+        $this->assertSame('mixed.case@example.com', $created->email);
+
+        Livewire::test(UserForm::class)
+            ->set('name', 'Duplicate Mixed')
+            ->set('email', 'MIXED.CASE@EXAMPLE.COM')
+            ->set('role', 'viewer')
+            ->set('password', 'temporary-password-1')
+            ->set('passwordConfirmation', 'temporary-password-1')
+            ->call('save')
+            ->assertHasErrors('email');
+
+        $this->assertSame(1, User::query()->where('email', 'mixed.case@example.com')->count());
+    }
+
+    public function test_a_failed_user_form_clears_the_password_fields_from_the_snapshot(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $this->actingAs($admin);
+
+        $component = Livewire::test(UserForm::class)
+            ->set('name', '')
+            ->set('email', 'not-an-email')
+            ->set('role', 'viewer')
+            ->set('password', 'super-secret-password-1')
+            ->set('passwordConfirmation', 'super-secret-password-1')
+            ->call('save')
+            ->assertHasErrors(['name', 'email'])
+            ->assertSet('password', '')
+            ->assertSet('passwordConfirmation', '');
+
+        $this->assertStringNotContainsString('super-secret-password-1', json_encode($component->getData()));
+        $this->assertStringNotContainsString('super-secret-password-1', $component->html());
+    }
+
     public function test_an_admin_can_change_a_role_and_deactivate_a_user(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);

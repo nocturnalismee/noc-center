@@ -28,6 +28,15 @@ class AuditLogger
     private const REDACTED = '[redacted]';
 
     /**
+     * Bounded client metadata. The `ip` column is VARCHAR(45) (IPv6 max) and
+     * the user agent is capped at 1 KiB so a hostile header cannot inflate the
+     * append-only audit table or fail a driver with a column limit.
+     */
+    private const IP_MAX_LENGTH = 45;
+
+    private const USER_AGENT_MAX_LENGTH = 1024;
+
+    /**
      * Write an append-only audit event for the current request actor.
      *
      * The actor is never inferred from the subject. Callers either run after
@@ -48,10 +57,19 @@ class AuditLogger
             'action' => $action,
             'target_type' => $subject?->getMorphClass(),
             'target_id' => $subject?->getKey(),
-            'ip' => $request?->ip(),
-            'user_agent' => $request?->userAgent(),
+            'ip' => $this->bounded($request?->ip(), self::IP_MAX_LENGTH),
+            'user_agent' => $this->bounded($request?->userAgent(), self::USER_AGENT_MAX_LENGTH),
             'meta_json' => $meta === [] ? null : $this->redact($meta),
         ]);
+    }
+
+    private function bounded(?string $value, int $maxLength): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        return mb_substr($value, 0, $maxLength);
     }
 
     /**

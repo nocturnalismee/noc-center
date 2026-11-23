@@ -32,6 +32,26 @@ class CreateAdminTest extends TestCase
         $this->assertTrue(Hash::check(self::PASSWORD, $user->password));
     }
 
+    public function test_it_trims_and_lowercases_the_email_and_unique_checks_case_insensitively(): void
+    {
+        $this->artisan('noc:create-admin', [
+            '--name' => 'Admin User',
+            '--email' => '  Admin@Example.COM  ',
+            '--password' => self::PASSWORD,
+        ])->assertSuccessful();
+
+        $this->assertSame('admin@example.com', User::query()->sole()->email);
+
+        $this->artisan('noc:create-admin', [
+            '--name' => 'Duplicate Admin',
+            '--email' => 'ADMIN@EXAMPLE.COM',
+            '--password' => self::PASSWORD,
+            '--force' => true,
+        ])->assertFailed();
+
+        $this->assertSame(1, User::query()->count());
+    }
+
     public function test_it_never_prints_the_password(): void
     {
         $exitCode = Artisan::call('noc:create-admin', [

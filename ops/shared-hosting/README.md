@@ -63,6 +63,11 @@ ops/shared-hosting/deploy.sh --app-root="$HOME/noc" --release-dir="$PWD"
 php ~/noc/current/artisan noc:create-admin
 ```
 
+Run the deploy script and every `artisan` command as the PHP-FPM/account user,
+or chown `~/noc-data/noc.sqlite`, `~/noc/shared/storage` and
+`bootstrap/cache` to that user. A root-owned SQLite or WAL file can make the
+web process fail with `unable to open database file` or `database is locked`.
+
 Then:
 
 - Point the domain's document root at `~/noc/current/public`.

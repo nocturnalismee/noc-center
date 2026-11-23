@@ -32,6 +32,22 @@ class LoginTest extends TestCase
         $this->assertAuthenticatedAs($user);
     }
 
+    public function test_login_is_case_insensitive_for_the_email_address(): void
+    {
+        $user = User::factory()->create([
+            'email' => 'mixed.case@example.com',
+            'password' => 'correct-horse-battery',
+        ]);
+
+        $response = $this->post('/login', [
+            'email' => 'MIXED.CASE@EXAMPLE.COM',
+            'password' => 'correct-horse-battery',
+        ]);
+
+        $response->assertRedirect('/dashboard');
+        $this->assertAuthenticatedAs($user);
+    }
+
     public function test_a_wrong_password_returns_a_generic_error_and_leaves_the_user_guest(): void
     {
         User::factory()->create([

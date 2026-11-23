@@ -248,6 +248,23 @@ class TokenServiceTest extends TestCase
         $this->assertNotNull($this->tokens->authenticate($rotated->plain));
     }
 
+    public function test_rotation_uses_the_configured_grace_minutes_when_no_value_is_passed(): void
+    {
+        Carbon::setTestNow('2026-11-22 12:00:00');
+
+        config(['tokens.grace_minutes' => 45]);
+
+        $server = $this->server();
+        $old = $this->tokens->issue($server);
+
+        $this->tokens->rotate($server);
+
+        $this->assertSame(
+            now()->addMinutes(45)->toDateTimeString(),
+            $old->token->fresh()->expires_at?->toDateTimeString(),
+        );
+    }
+
     public function test_rotation_never_extends_an_existing_earlier_expiry(): void
     {
         Carbon::setTestNow('2026-11-22 12:00:00');

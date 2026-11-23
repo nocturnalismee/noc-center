@@ -9,8 +9,10 @@ use App\Services\Users\UserSessions;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
+use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 
 /**
@@ -68,23 +70,33 @@ class UserForm extends Component
             Gate::authorize('update', $target);
         }
 
-        $this->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => [
-                'required',
-                'string',
-                'email',
-                'max:255',
-                Rule::unique('users', 'email')->ignore($this->userId),
-            ],
-            'role' => ['required', Rule::in(array_column(UserRole::cases(), 'value'))],
-            'isActive' => ['boolean'],
-            'password' => $creating
-                ? ['required', 'string', Password::min(12), 'same:passwordConfirmation']
-                : ['nullable'],
-        ]);
+        $this->email = Str::lower(trim($this->email));
+
+        try {
+            $this->validate([
+                'name' => ['required', 'string', 'max:255'],
+                'email' => [
+                    'required',
+                    'string',
+                    'email',
+                    'max:255',
+                    Rule::unique('users', 'email')->ignore($this->userId),
+                ],
+                'role' => ['required', Rule::in(array_column(UserRole::cases(), 'value'))],
+                'isActive' => ['boolean'],
+                'password' => $creating
+                    ? ['required', 'string', Password::min(12), 'same:passwordConfirmation']
+                    : ['nullable'],
+            ]);
+        } catch (ValidationException $exception) {
+            $this->clearPasswords();
+
+            throw $exception;
+        }
 
         if ($target !== null && $this->wouldRemoveTheLastAdmin($target)) {
+            $this->clearPasswords();
+
             if ($this->role !== UserRole::Admin->value) {
                 $this->addError('role', 'The last active administrator cannot be demoted.');
             }
@@ -116,6 +128,7 @@ class UserForm extends Component
                 'is_active' => (bool) $user->is_active,
             ]);
 
+            $this->clearPasswords();
             $this->dispatch('user-saved');
 
             return;
@@ -186,6 +199,8 @@ class UserForm extends Component
         });
 
         if ($removedLastAdmin) {
+            $this->clearPasswords();
+
             if ($this->role !== UserRole::Admin->value) {
                 $this->addError('role', 'The last active administrator cannot be demoted.');
             }
@@ -197,6 +212,7 @@ class UserForm extends Component
             return;
         }
 
+        $this->clearPasswords();
         $this->dispatch('user-saved');
     }
 
@@ -228,5 +244,15 @@ class UserForm extends Component
             ->where('is_active', true)
             ->where('id', '!=', $target->getKey())
             ->doesntExist();
+    }
+
+    /**
+     * Never leave an administrator-set password in public Livewire state
+     * after a validation failure or a completed save.
+     */
+    private function clearPasswords(): void
+    {
+        $this->password = '';
+        $this->passwordConfirmation = '';
     }
 }

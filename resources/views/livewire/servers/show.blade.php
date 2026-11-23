@@ -84,6 +84,8 @@
 
     <nav class="mt-8 flex gap-6 overflow-x-auto border-b border-border" aria-label="Server sections">
         @foreach (['overview' => 'Overview', 'performance' => 'Performance', 'panel' => 'Panel', 'modules' => 'Modules', 'alerts' => 'Alerts', 'history' => 'History'] as $key => $label)
+            @continue($key === 'history' && ! $canViewHistory)
+
             <a
                 href="{{ route('servers.show', ['server' => $server, 'tab' => $key, 'range' => $range]) }}"
                 @class([
@@ -104,7 +106,7 @@
                 <div class="flex flex-wrap items-start justify-between gap-3">
                     <div>
                         <h2 id="performance-heading" class="text-[13px] font-semibold text-text">Performance</h2>
-                        <p class="mt-1 text-[9.5px] text-text-muted">Last hour · {{ $server->interval_seconds }}s collector samples · UTC</p>
+                        <p class="mt-1 text-[9.5px] text-text-muted">Last hour · {{ $server->interval_seconds }}s collector samples · WIB</p>
                     </div>
                     <div class="flex items-center gap-4 text-[10px]">
                         @foreach ($series as $line)
@@ -173,7 +175,7 @@
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <div>
                     <h2 id="range-heading" class="text-[13px] font-semibold text-text">Resource history</h2>
-                    <p class="mt-1 text-[9.5px] text-text-muted">{{ $server->interval_seconds }}s collector · downsampled for display · UTC</p>
+                    <p class="mt-1 text-[9.5px] text-text-muted">{{ $server->interval_seconds }}s collector · downsampled for display · WIB</p>
                 </div>
                 <div class="flex flex-wrap items-center gap-4 text-[10px]">
                     @foreach ($ranges as $key)
@@ -277,27 +279,34 @@
     @elseif ($tab === 'history')
         <section class="mt-6" aria-labelledby="history-heading">
             <h2 id="history-heading" class="text-[13px] font-semibold text-text">History</h2>
-            <p class="mt-1 text-[9.5px] text-text-muted">Audit events for this server and its tokens.</p>
 
-            @if ($history->isEmpty())
-                <div class="mt-4 border-y border-divider py-8 text-center text-[10.5px] text-text-muted">
-                    No audit events have been recorded for this server.
-                </div>
+            @if (! $canViewHistory)
+                <p class="mt-3 border-y border-divider py-6 text-[10.5px] text-text-sub">
+                    History is restricted to operators and administrators.
+                </p>
             @else
-                <ol class="mt-4 border-t border-divider">
-                    @foreach ($history as $event)
-                        <li class="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-divider py-2.5 text-[10.5px]">
-                            <span class="w-16 shrink-0 text-[9px] text-text-muted">
-                                {{ $event->created_at?->timezone('Asia/Jakarta')->format('H:i:s') }}
-                            </span>
-                            <span class="min-w-32 text-text-sub">{{ $actors[$event->user_id] ?? 'System' }}</span>
-                            <span class="font-medium text-text">{{ $event->action }}</span>
-                            @if (isset($event->meta_json['note']))
-                                <span class="text-text-muted">{{ $event->meta_json['note'] }}</span>
-                            @endif
-                        </li>
-                    @endforeach
-                </ol>
+                <p class="mt-1 text-[9.5px] text-text-muted">Audit events for this server and its tokens.</p>
+
+                @if ($history->isEmpty())
+                    <div class="mt-4 border-y border-divider py-8 text-center text-[10.5px] text-text-muted">
+                        No audit events have been recorded for this server.
+                    </div>
+                @else
+                    <ol class="mt-4 border-t border-divider">
+                        @foreach ($history as $event)
+                            <li class="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-divider py-2.5 text-[10.5px]">
+                                <span class="w-16 shrink-0 text-[9px] text-text-muted">
+                                    {{ $event->created_at?->timezone('Asia/Jakarta')->format('H:i:s') }}
+                                </span>
+                                <span class="min-w-32 text-text-sub">{{ $actors[$event->user_id] ?? 'System' }}</span>
+                                <span class="font-medium text-text">{{ $event->action }}</span>
+                                @if (isset($event->meta_json['note']))
+                                    <span class="text-text-muted">{{ $event->meta_json['note'] }}</span>
+                                @endif
+                            </li>
+                        @endforeach
+                    </ol>
+                @endif
             @endif
         </section>
     @endif

@@ -26,7 +26,7 @@ class Tokens extends Component
 
     public function mount(Server $server): void
     {
-        Gate::authorize('view', $server);
+        Gate::authorize('manageTokens', Server::class);
 
         $this->server = $server;
     }
@@ -42,7 +42,11 @@ class Tokens extends Component
     {
         Gate::authorize('manageTokens', Server::class);
 
-        $issued = app(TokenService::class)->rotate($this->server, 1440, auth()->user());
+        $issued = app(TokenService::class)->rotate(
+            $this->server,
+            (int) config('tokens.grace_minutes', 1440),
+            auth()->user(),
+        );
 
         session()->flash('issued_token', [
             'server_id' => $this->server->getKey(),

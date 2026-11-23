@@ -173,6 +173,52 @@ class SettingsTest extends TestCase
         $this->assertTrue(AuditEvent::query()->where('action', 'user.email_changed')->exists());
     }
 
+    public function test_profile_emails_are_trimmed_lowercased_and_unique_case_insensitively(): void
+    {
+        User::factory()->create(['email' => 'taken@example.com']);
+
+        $user = User::factory()->create([
+            'email' => 'profile.owner@example.com',
+            'email_verified_at' => now()->subDay(),
+        ]);
+
+        $this->actingAs($user);
+
+        Livewire::test(Profile::class)
+            ->set('email', '  New.Address@Example.COM  ')
+            ->set('emailPassword', 'password')
+            ->call('saveProfile')
+            ->assertHasNoErrors();
+
+        $this->assertSame('new.address@example.com', $user->fresh()->email);
+
+        Livewire::test(Profile::class)
+            ->set('email', 'TAKEN@EXAMPLE.COM')
+            ->set('emailPassword', 'password')
+            ->call('saveProfile')
+            ->assertHasErrors('email');
+
+        $this->assertSame('new.address@example.com', $user->fresh()->email);
+    }
+
+    public function test_a_failed_password_change_clears_the_current_password_from_the_snapshot(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user);
+
+        $component = Livewire::test(Profile::class)
+            ->set('currentPassword', 'password')
+            ->set('newPassword', 'short')
+            ->set('newPasswordConfirmation', 'short')
+            ->call('savePassword')
+            ->assertHasErrors('newPassword')
+            ->assertSet('currentPassword', '');
+
+        $this->assertStringNotContainsString('"currentPassword":"password"', json_encode($component->getData()));
+        $this->assertStringNotContainsString('"currentPassword":"password"', $component->html());
+    }
+
     public function test_password_change_requires_the_current_password_and_clears_the_flag(): void
     {
         $user = User::factory()->create(['must_change_password' => true]);
@@ -338,6 +384,24 @@ class SettingsTest extends TestCase
 
         $this->assertFalse($repository->hasSecret('alerts.channels.telegram.bot_token'));
         $this->assertNull($repository->get('alerts.channels.telegram.bot_token'));
+    }
+
+    public function test_a_failed_alert_settings_save_clears_the_bot_token_from_the_snapshot(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $token = '123456789:super-secret-bot-token-value-abcdefghijkl';
+
+        $this->actingAs($admin);
+
+        $component = Livewire::test(AlertSettings::class)
+            ->set('reminderHours', 'not-a-number')
+            ->set('botToken', $token)
+            ->call('save')
+            ->assertHasErrors('reminderHours')
+            ->assertSet('botToken', '');
+
+        $this->assertStringNotContainsString($token, json_encode($component->getData()));
+        $this->assertStringNotContainsString($token, $component->html());
     }
 
     public function test_telegram_chat_and_thread_ids_are_validated(): void

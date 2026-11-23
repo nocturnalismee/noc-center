@@ -334,6 +334,30 @@ class AlertNotificationTest extends TestCase
         $this->assertSame(1, $alert->fresh()->notification_count);
     }
 
+    public function test_an_acknowledged_alert_still_delivers_its_original_opened_notification(): void
+    {
+        $admin = $this->user('admin', UserRole::Admin, notify: true);
+        $operator = $this->user('operator', UserRole::Operator, notify: true);
+
+        Queue::fake();
+        Notification::fake();
+
+        $alert = $this->openAlert('memory_high', 'critical');
+
+        // The operator acknowledges before the queued opening job is handled.
+        $this->engine()->acknowledge($alert, $operator);
+
+        $this->assertSame('pending', $this->delivery($alert, 'email')->status);
+
+        $this->runJob($alert, 'email', 'opened');
+
+        $delivery = $this->delivery($alert, 'email')->fresh();
+
+        $this->assertSame('sent', $delivery->status);
+        $this->assertNotNull($delivery->sent_at);
+        Notification::assertSentTo($admin, AlertOpened::class);
+    }
+
     public function test_reminders_skip_resolved_alerts_and_honor_next_retry_at(): void
     {
         $this->user('admin', UserRole::Admin, notify: true);

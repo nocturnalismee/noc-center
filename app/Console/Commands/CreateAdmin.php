@@ -40,7 +40,7 @@ class CreateAdmin extends Command
             return self::FAILURE;
         }
 
-        $email = strtolower((string) $this->option('email'));
+        $email = strtolower(trim((string) $this->option('email')));
 
         $validator = Validator::make([
             'name' => $this->option('name'),

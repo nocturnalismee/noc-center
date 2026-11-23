@@ -55,6 +55,29 @@ class AuditLogTest extends TestCase
         $this->assertSame(json_encode($event->meta_json), $rawMeta);
     }
 
+    public function test_a_long_user_agent_and_remote_address_are_truncated_to_column_widths(): void
+    {
+        $this->app->instance('request', Request::create(
+            '/activity',
+            'GET',
+            server: [
+                'REMOTE_ADDR' => str_repeat('1', 200),
+                'HTTP_USER_AGENT' => str_repeat('A', 5000),
+            ],
+        ));
+
+        $event = $this->app->make(AuditLogger::class)->log('auth.login', null);
+
+        $this->assertLessThanOrEqual(45, mb_strlen((string) $event->ip));
+        $this->assertLessThanOrEqual(1024, mb_strlen((string) $event->user_agent));
+        $this->assertSame(str_repeat('1', 45), $event->ip);
+        $this->assertSame(str_repeat('A', 1024), $event->user_agent);
+
+        $stored = AuditEvent::query()->findOrFail($event->id);
+        $this->assertLessThanOrEqual(45, mb_strlen((string) $stored->ip));
+        $this->assertLessThanOrEqual(1024, mb_strlen((string) $stored->user_agent));
+    }
+
     public function test_an_unauthenticated_log_with_a_user_subject_stores_a_null_actor(): void
     {
         $subject = User::factory()->create();
@@ -260,7 +283,7 @@ class AuditLogTest extends TestCase
         $this->assertSame((string) $user->id, $audit->target_id);
     }
 
-    public function test_a_failed_login_event_records_the_attempted_email_without_the_password(): void
+    public function test_a_failed_login_event_records_a_redacted_email_without_the_password(): void
     {
         Event::dispatch(new Failed('web', null, [
             'email' => 'attacker@example.com',
@@ -271,9 +294,10 @@ class AuditLogTest extends TestCase
 
         $this->assertNull($audit->user_id);
         $this->assertNull($audit->target_id);
-        $this->assertSame(['email' => 'attacker@example.com'], $audit->meta_json);
+        $this->assertSame(['email' => '[redacted]'], $audit->meta_json);
 
         $stored = (string) DB::table('audit_events')->where('id', $audit->id)->value('meta_json');
+        $this->assertStringNotContainsString('attacker@example.com', $stored);
         $this->assertStringNotContainsString('wrong-password', $stored);
     }
 }

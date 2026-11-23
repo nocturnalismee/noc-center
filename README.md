@@ -205,6 +205,11 @@ The release layout is shared-hosting friendly and also works on a VPS:
    refuses PHP < 8.3 or a missing asset manifest, runs
    `migrate --force --isolated`, rebuilds config/route/view caches, and swaps
    `current` atomically. It never calls `sudo`.
+   **Run `deploy.sh` and every artisan command as the PHP-FPM user** (on shared
+   hosting usually the account owner; on a VPS e.g.
+   `sudo -u www-data php .../artisan ...`), or chown the SQLite file and
+   `~/noc/shared/storage` to that user first. Running them as another user can
+   create root-owned SQLite/WAL files that the web process cannot write.
 2. **Create the first administrator once**:
    ```bash
    php ~/noc/current/artisan noc:create-admin
@@ -295,6 +300,9 @@ Notes:
   competing with ingest writes on shared hosting. If the host provides Redis,
   use it. On a VPS set `QUEUE_SCHEDULED_WORKER=false` in `.env` **before**
   `config:cache` so two workers do not consume the same jobs.
+- `NOC_TOKEN_GRACE_MINUTES` (default `1440`) is the rotation grace window.
+  Change it in `.env` and rebuild the config cache; it affects new rotations
+  only, never an existing expiry.
 - `DB_TRANSACTION_MODE=IMMEDIATE` is honoured on PHP 8.4+; PHP 8.3 still uses
   `BEGIN DEFERRED`, so do not rely on `IMMEDIATE` to rule out lock contention.
 - Keep `shared/storage/` and `bootstrap/cache/` writable **only** by the PHP
@@ -347,6 +355,13 @@ journalctl -u noc-queue -f
 
 After every deploy on a VPS, run `php artisan queue:restart` (the deploy script
 does this best-effort) so workers load the new release.
+
+The systemd units run as `User=www-data`. Run `deploy.sh`, `artisan` commands,
+the scheduler and the queue worker as `www-data` (for example
+`sudo -u www-data php /var/www/noc/current/artisan ...`), or chown
+`/var/lib/noc/noc.sqlite`, the `shared/storage` tree and `bootstrap/cache` to
+`www-data`. Otherwise a root/monitor-owned SQLite file or WAL sidecar can block
+the web process with `database is locked` or `unable to open database file`.
 
 **Health:** Laravel exposes `GET /up`. Monitor it externally and add a
 dead-man check: alert when `max(servers.last_seen_at)` is older than three
@@ -836,8 +851,9 @@ set it in production. Remove `/tmp/noc-agent*` afterwards.
 - Session cookies are `Secure` (under HTTPS), `HttpOnly`, and `SameSite=Lax`
   (`SESSION_SECURE_COOKIE=true`); `APP_KEY` rotation invalidates agent tokens and
   stored secrets (documented recovery below).
-- Rate limits return `429` with `Retry-After`: login 5/min, ingest 30/min per
-  token plus 60 failed auth/min per IP, Telegram/email test 3/min.
+- Rate limits return `429` with `Retry-After`: login 5/min, password-reset
+  request/update 3/min per IP, ingest 30/min per token plus 60 failed auth/min
+  per IP, Telegram/email test 3/min.
 - The last active administrator cannot be demoted, deactivated, or deleted.
 - The audit log is append-only from the UI and every sensitive action (login,
   server/token changes, alert acknowledge/resolve, user/role/settings changes)

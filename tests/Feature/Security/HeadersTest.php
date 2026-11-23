@@ -29,6 +29,24 @@ class HeadersTest extends TestCase
         $this->assertSecurityHeaders($response);
     }
 
+    public function test_an_unmatched_route_404_still_sends_the_security_headers(): void
+    {
+        $response = $this->get('/this-route-does-not-exist');
+
+        $response->assertNotFound();
+        $this->assertSecurityHeaders($response);
+    }
+
+    public function test_a_route_model_binding_404_still_sends_the_security_headers(): void
+    {
+        $user = User::factory()->create();
+
+        $response = $this->actingAs($user)->get('/servers/01J00000000000000000000000');
+
+        $response->assertNotFound();
+        $this->assertSecurityHeaders($response);
+    }
+
     public function test_the_csp_nonce_matches_every_inline_script(): void
     {
         $response = $this->get('/login');

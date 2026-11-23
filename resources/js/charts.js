@@ -8,6 +8,40 @@ function cssColor(name) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
+const JAKARTA_TIME_ZONE = 'Asia/Jakarta';
+
+const jakartaTickTime = new Intl.DateTimeFormat('en-GB', {
+    timeZone: JAKARTA_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+});
+
+const jakartaTickDay = new Intl.DateTimeFormat('en-GB', {
+    timeZone: JAKARTA_TIME_ZONE,
+    day: '2-digit',
+    month: 'short',
+});
+
+const jakartaTooltip = new Intl.DateTimeFormat('en-GB', {
+    timeZone: JAKARTA_TIME_ZONE,
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+});
+
+function formatJakarta(value, formatter) {
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+        return '';
+    }
+
+    return formatter.format(date).replace(',', '');
+}
+
 function parseSeries(el) {
     try {
         const parsed = JSON.parse(el.dataset.series || '[]');
@@ -97,6 +131,19 @@ function chartOptions() {
                 bodyColor: cssColor('--text-sub'),
                 padding: 10,
                 displayColors: true,
+                callbacks: {
+                    title: (items) => {
+                        if (!Array.isArray(items) || items.length === 0) {
+                            return '';
+                        }
+
+                        const timestamp = items[0]?.parsed?.x;
+
+                        return timestamp === undefined || timestamp === null
+                            ? ''
+                            : `${formatJakarta(timestamp, jakartaTooltip)} WIB`;
+                    },
+                },
             },
         },
         scales: {
@@ -105,7 +152,18 @@ function chartOptions() {
                 time: { tooltipFormat: 'dd MMM HH:mm', displayFormats: { hour: 'HH:mm', day: 'dd MMM' } },
                 grid: { color: divider, drawTicks: false },
                 border: { color: divider },
-                ticks: { color: muted, font: { size: 8.5 }, maxRotation: 0, autoSkipPadding: 18 },
+                ticks: {
+                    color: muted,
+                    font: { size: 8.5 },
+                    maxRotation: 0,
+                    autoSkipPadding: 18,
+                    callback(value) {
+                        const span = Number(this.max) - Number(this.min);
+                        const formatter = span > 2 * 24 * 60 * 60 * 1000 ? jakartaTickDay : jakartaTickTime;
+
+                        return formatJakarta(value, formatter);
+                    },
+                },
             },
             y: {
                 beginAtZero: true,

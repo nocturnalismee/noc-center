@@ -525,7 +525,6 @@ class MvpAcceptanceTest extends TestCase
             ->assertForbidden();
 
         Livewire::test(ServerTokens::class, ['server' => $server['server']])
-            ->call('rotate')
             ->assertStatus(403);
 
         Livewire::test(AlertShow::class, ['alert' => $alert])

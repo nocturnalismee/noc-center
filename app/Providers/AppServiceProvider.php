@@ -74,7 +74,7 @@ class AppServiceProvider extends ServiceProvider
             $email = $event->credentials[config('fortify.username', 'email')] ?? null;
 
             app(AuditLogger::class)->log('auth.failed', null, array_filter(
-                ['email' => is_string($email) ? $email : null],
+                ['email' => is_string($email) ? '[redacted]' : null],
                 static fn (mixed $value): bool => $value !== null,
             ));
         });

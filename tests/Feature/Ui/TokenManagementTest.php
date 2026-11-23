@@ -46,7 +46,7 @@ class TokenManagementTest extends TestCase
         $this->get(route('servers.edit', $server))->assertRedirect('/login');
     }
 
-    public function test_a_viewer_can_read_the_token_list_but_sees_no_actions(): void
+    public function test_a_viewer_cannot_open_the_token_page(): void
     {
         $viewer = User::factory()->create();
         $server = $this->server();
@@ -54,19 +54,28 @@ class TokenManagementTest extends TestCase
 
         $this->actingAs($viewer)
             ->get(route('servers.tokens', $server))
+            ->assertForbidden()
+            ->assertDontSee($issued->token->token_prefix);
+
+        $this->actingAs($viewer)
+            ->get(route('servers.edit', $server))
+            ->assertForbidden();
+    }
+
+    public function test_an_operator_can_read_the_token_page(): void
+    {
+        $operator = User::factory()->create(['role' => 'operator']);
+        $server = $this->server();
+        $issued = app(TokenService::class)->issue($server, $operator, 'Initial agent token');
+
+        $this->actingAs($operator)
+            ->get(route('servers.tokens', $server))
             ->assertOk()
             ->assertSee('Agent tokens')
             ->assertSee($issued->token->token_prefix)
             ->assertSee('Initial agent token')
             ->assertSee('Active')
-            ->assertSee($viewer->name)
-            ->assertSee('Read-only view')
-            ->assertDontSeeHtml('wire:click="rotate"')
-            ->assertDontSee('Revoke');
-
-        $this->actingAs($viewer)
-            ->get(route('servers.edit', $server))
-            ->assertForbidden();
+            ->assertSee($operator->name);
     }
 
     public function test_a_viewer_cannot_call_rotate(): void
@@ -78,7 +87,6 @@ class TokenManagementTest extends TestCase
         $this->actingAs($viewer);
 
         Livewire::test(Tokens::class, ['server' => $server])
-            ->call('rotate')
             ->assertStatus(403);
     }
 
@@ -124,6 +132,26 @@ class TokenManagementTest extends TestCase
         $this->actingAs($viewer);
 
         Livewire::test(Edit::class, ['server' => $server])->assertStatus(403);
+    }
+
+    public function test_rotation_uses_the_configured_grace_minutes(): void
+    {
+        config(['tokens.grace_minutes' => 15]);
+
+        $operator = User::factory()->create(['role' => 'operator']);
+        $server = $this->server();
+        $old = app(TokenService::class)->issue($server);
+
+        $this->actingAs($operator);
+
+        Livewire::test(Tokens::class, ['server' => $server])
+            ->call('rotate')
+            ->assertHasNoErrors();
+
+        $this->assertSame(
+            now()->addMinutes(15)->toDateTimeString(),
+            $old->token->fresh()->expires_at?->toDateTimeString(),
+        );
     }
 
     public function test_rotation_reveals_the_new_token_once_and_keeps_the_old_token_in_grace(): void

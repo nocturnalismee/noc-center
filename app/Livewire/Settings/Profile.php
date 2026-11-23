@@ -5,8 +5,10 @@ namespace App\Livewire\Settings;
 use App\Services\AuditLogger;
 use App\Services\Users\UserSessions;
 use Illuminate\Contracts\View\View;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 
@@ -49,23 +51,32 @@ class Profile extends Component
     public function saveProfile(): void
     {
         $user = auth()->user();
+
+        $this->email = Str::lower(trim($this->email));
         $emailChanged = $this->email !== $user->email;
 
         $this->statusMessage = null;
 
-        $this->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => [
-                'required',
-                'string',
-                'email',
-                'max:255',
-                Rule::unique('users', 'email')->ignore($user->getKey()),
-            ],
-            'notifyEmail' => ['boolean'],
-            'emailPassword' => $emailChanged
-                ? ['required', 'string', 'current_password:web']
-                : ['nullable'],        ]);
+        try {
+            $this->validate([
+                'name' => ['required', 'string', 'max:255'],
+                'email' => [
+                    'required',
+                    'string',
+                    'email',
+                    'max:255',
+                    Rule::unique('users', 'email')->ignore($user->getKey()),
+                ],
+                'notifyEmail' => ['boolean'],
+                'emailPassword' => $emailChanged
+                    ? ['required', 'string', 'current_password:web']
+                    : ['nullable'],
+            ]);
+        } catch (ValidationException $exception) {
+            $this->emailPassword = '';
+
+            throw $exception;
+        }
 
         $changed = [];
 
@@ -112,10 +123,16 @@ class Profile extends Component
 
         $this->statusMessage = null;
 
-        $this->validate([
-            'currentPassword' => ['required', 'string', 'current_password:web'],
-            'newPassword' => ['required', 'string', Password::min(12), 'same:newPasswordConfirmation'],
-        ]);
+        try {
+            $this->validate([
+                'currentPassword' => ['required', 'string', 'current_password:web'],
+                'newPassword' => ['required', 'string', Password::min(12), 'same:newPasswordConfirmation'],
+            ]);
+        } catch (ValidationException $exception) {
+            $this->currentPassword = '';
+
+            throw $exception;
+        }
 
         $user->forceFill([
             'password' => $this->newPassword,

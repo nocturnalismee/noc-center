@@ -88,13 +88,14 @@ class SendAlertNotification implements ShouldQueue
             return;
         }
 
-        // A recovery is only owed once the alert is resolved; an `opened`
-        // delivery (initial or reminder) belongs to an alert still firing.
+        // A recovery is only owed once the alert is resolved. An `opened`
+        // delivery (initial or reminder) must still go out after an
+        // acknowledgement — ack pauses reminders, not the original page.
         if ($this->event === 'resolved' && $alert->status !== AlertStatus::Resolved) {
             return;
         }
 
-        if ($this->event === 'opened' && $alert->status !== AlertStatus::Open) {
+        if ($this->event === 'opened' && $alert->status === AlertStatus::Resolved) {
             return;
         }
 

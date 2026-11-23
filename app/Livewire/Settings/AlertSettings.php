@@ -123,11 +123,19 @@ class AlertSettings extends Component
 
         $this->statusMessage = null;
 
-        $this->validate($this->validationRules(), [
-            'rules.*.warning' => 'Thresholds must be between 0 and 100.',
-        ]);
+        try {
+            $this->validate($this->validationRules(), [
+                'rules.*.warning' => 'Thresholds must be between 0 and 100.',
+            ]);
+        } catch (ValidationException $exception) {
+            $this->botToken = '';
+
+            throw $exception;
+        }
 
         if ($this->hasCrossFieldError()) {
+            $this->botToken = '';
+
             return;
         }
 

@@ -60,10 +60,14 @@ class TokenService
      * expired), rotation still mints a new token with `rotated_from_id = null`
      * and audits `token.rotated`: an explicit, recorded lineage break.
      *
+     * The grace window defaults to `config('tokens.grace_minutes')` (1440
+     * minutes unless configured); pass an integer to override it per call.
+     *
      * @throws InvalidArgumentException
      */
-    public function rotate(Server $server, int $graceMinutes = 1440, ?User $actor = null): IssuedToken
+    public function rotate(Server $server, ?int $graceMinutes = null, ?User $actor = null): IssuedToken
     {
+        $graceMinutes ??= (int) config('tokens.grace_minutes', 1440);
         if ($graceMinutes < 0) {
             throw new InvalidArgumentException('Rotation grace minutes must be zero or greater.');
         }
