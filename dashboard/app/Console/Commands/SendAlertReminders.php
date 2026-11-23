@@ -7,6 +7,7 @@ use App\Alerts\Channels\DeliveryResult;
 use App\Enums\AlertStatus;
 use App\Models\Alert;
 use App\Models\AlertDelivery;
+use App\Services\SettingsRepository;
 use Carbon\CarbonInterface;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
@@ -36,9 +37,9 @@ class SendAlertReminders extends Command
 
     protected $description = 'Re-queue due alert reminders and retries';
 
-    public function handle(AlertNotifier $notifier): int
+    public function handle(AlertNotifier $notifier, SettingsRepository $settings): int
     {
-        $reminderHours = max(1, (int) config('alerts.reminder_hours', 6));
+        $reminderHours = max(1, (int) $settings->get('alerts.reminder_hours', config('alerts.reminder_hours', 6)));
         $stuckAfter = max(1, (int) config('alerts.stuck_pending_after', 300));
         $now = now();
         $queued = 0;

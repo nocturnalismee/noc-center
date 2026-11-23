@@ -15,6 +15,7 @@ use App\Models\AuditEvent;
 use App\Models\MetricSample;
 use App\Models\Server;
 use App\Models\User;
+use App\Services\SettingsRepository;
 use Illuminate\Console\Scheduling\Event;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Eloquent\Model;
@@ -23,6 +24,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
@@ -569,6 +571,58 @@ class LivenessTest extends TestCase
         $this->assertSame($first->id, $alert->id);
         $this->assertEquals('2026-11-23 10:01:00', $alert->last_seen_at->format('Y-m-d H:i:s'));
         $this->assertSame(ServerHealth::Warning, $server->fresh()->health);
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string, 2: string}>
+     */
+    public static function livenessRuleCases(): array
+    {
+        return [
+            'stale' => ['server_stale', '2026-11-23 09:59:59', '2026-11-23 10:30:00'],
+            'offline' => ['server_offline', '2026-11-23 09:30:00', '2026-11-23 09:45:00'],
+        ];
+    }
+
+    #[DataProvider('livenessRuleCases')]
+    public function test_a_disabled_liveness_rule_does_not_open_an_alert(string $rule, string $staleAfter, string $offlineAfter): void
+    {
+        app(SettingsRepository::class)->set('alerts.rules.'.$rule.'.enabled', false, 'bool');
+
+        [$server] = $this->seenServer(staleAfter: $staleAfter, offlineAfter: $offlineAfter);
+
+        $this->runLiveness();
+
+        $this->assertSame(0, Alert::query()->count());
+        $this->assertSame(ServerHealth::Ok, $server->fresh()->health);
+    }
+
+    #[DataProvider('livenessRuleCases')]
+    public function test_a_disabled_liveness_rule_closes_an_existing_alert_without_recovery(string $rule, string $staleAfter, string $offlineAfter): void
+    {
+        $this->adminWithEmail();
+        [$server] = $this->seenServer(staleAfter: $staleAfter, offlineAfter: $offlineAfter);
+
+        $this->runLiveness();
+
+        $alert = Alert::query()->sole();
+        $this->assertSame($rule, $alert->rule_key->value);
+        $this->assertSame(AlertStatus::Open, $alert->status);
+
+        app(SettingsRepository::class)->set('alerts.rules.'.$rule.'.enabled', false, 'bool');
+
+        $this->runLiveness();
+
+        $alert = $alert->fresh();
+        $this->assertSame(AlertStatus::Resolved, $alert->status);
+        $this->assertNull($alert->active_key);
+        $this->assertSame('Alert rule disabled', $alert->resolution_note);
+        $this->assertSame(0, AlertDelivery::query()->where('alert_id', $alert->id)->where('event', 'resolved')->count());
+
+        $audit = AuditEvent::query()->where('action', 'alert.resolved')->where('target_id', $alert->id)->sole();
+        $this->assertFalse($audit->meta_json['notified']);
+
+        $this->assertSame(ServerHealth::Ok, $server->fresh()->health);
     }
 
     public function test_the_schedule_runs_liveness_every_minute_and_reminders_every_five(): void

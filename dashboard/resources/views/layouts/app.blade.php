@@ -77,10 +77,14 @@
                             <span class="sidebar-label">Alerts</span>
                         </a>
 
-                        <a href="/activity" @if (request()->is('activity*')) aria-current="page" @endif class="nav-link" title="Activity" aria-label="Activity">
-                            <x-heroicon-o-signal class="h-5 w-5 shrink-0" />
-                            <span class="sidebar-label">Activity</span>
-                        </a>
+                        @auth
+                            @if (auth()->user()->canOperate())
+                                <a href="/activity" @if (request()->is('activity*')) aria-current="page" @endif class="nav-link" title="Activity" aria-label="Activity">
+                                    <x-heroicon-o-signal class="h-5 w-5 shrink-0" />
+                                    <span class="sidebar-label">Activity</span>
+                                </a>
+                            @endif
+                        @endauth
                     </div>
                 </div>
 

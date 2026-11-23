@@ -4,7 +4,7 @@
 
 @section('content')
     <h1 class="text-[24px] font-semibold leading-8 tracking-[-0.01em] text-text">Choose a new password</h1>
-    <p class="mt-1 text-[12.5px] text-text-sub">Use at least eight characters and keep it unique to this console.</p>
+    <p class="mt-1 text-[12.5px] text-text-sub">Use at least twelve characters and keep it unique to this console.</p>
 
     @if ($errors->any())
         <div class="mt-5 rounded-control border border-critical/40 bg-critical/5 px-3 py-2.5" role="alert">

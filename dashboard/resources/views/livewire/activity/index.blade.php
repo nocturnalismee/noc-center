@@ -10,6 +10,7 @@
         <h1 class="text-[22px] font-semibold leading-7 tracking-[-0.01em] text-text">Activity</h1>
         <p class="mt-1.5 max-w-[78ch] text-[11.5px] text-text-sub">
             Read-only audit trail. Records sign-ins, server and token changes, alert actions, and settings updates. Entries cannot be edited or deleted.
+            Date filters use Asia/Jakarta calendar days.
         </p>
     </div>
 

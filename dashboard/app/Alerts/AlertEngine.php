@@ -11,6 +11,7 @@ use App\Models\Alert;
 use App\Models\Server;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Services\SettingsRepository;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -77,6 +78,7 @@ class AlertEngine
     public function __construct(
         private readonly AlertNotifier $notifier,
         private readonly AuditLogger $audit,
+        private readonly SettingsRepository $settings,
     ) {
         //
     }
@@ -176,8 +178,23 @@ class AlertEngine
 
         $rules = [AlertRule::ServerStale, AlertRule::ServerOffline];
         $pending = [];
+        $disabledClosed = 0;
 
         foreach ($rules as $rule) {
+            if (! $this->livenessRuleEnabled($rule)) {
+                // A rule switched off in settings must not open or update an
+                // alert. An existing open/acknowledged row is closed
+                // administratively, never as a condition recovery.
+                $disabledClosed += $this->closeLivenessRule(
+                    $server,
+                    $rule,
+                    'Alert rule disabled',
+                    false,
+                );
+
+                continue;
+            }
+
             $active = $rule === $activeRule;
 
             if (! $active) {
@@ -215,8 +232,13 @@ class AlertEngine
         // which writes both for that sample atomically. Re-deriving them from
         // the alerts visible here could overwrite a critical or warning that
         // ingest detected — its alert evaluation runs only after the sample
-        // transaction commits — so a return leaves the row untouched.
+        // transaction commits — so a return leaves the row untouched, unless
+        // a disabled rule just closed an alert and health must be rebuilt.
         if ($activeRule === null) {
+            if ($disabledClosed > 0) {
+                $this->refreshServerHealth($server);
+            }
+
             return;
         }
 
@@ -447,6 +469,19 @@ class AlertEngine
         // A stored row is authoritative; the model default is `true`, so a
         // freshly created instance behaves like the column default.
         return $server->alerts_enabled !== false;
+    }
+
+    /**
+     * Liveness rules can be switched off from the alert settings page. The
+     * ingest rules are handled by `IssueDetector`, which already reads its own
+     * `enabled` override.
+     */
+    private function livenessRuleEnabled(AlertRule $rule): bool
+    {
+        return filter_var($this->settings->get(
+            'alerts.rules.'.$rule->value.'.enabled',
+            config()->get('alerts.rules.'.$rule->value.'.enabled'),
+        ), FILTER_VALIDATE_BOOLEAN);
     }
 
     private function severity(array $context): AlertSeverity

@@ -3,6 +3,7 @@
 use App\Http\Middleware\AuthenticateAgentToken;
 use App\Http\Middleware\EnsureIngestBodySize;
 use App\Http\Middleware\EnsurePasswordChanged;
+use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\SecurityHeaders;
 use App\Http\Middleware\ThrottleIngest;
 use App\Http\Middleware\ThrottleIngestFailures;
@@ -23,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->web(append: [
             SecurityHeaders::class,
+            EnsureUserIsActive::class,
             EnsurePasswordChanged::class,
         ]);
 

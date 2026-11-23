@@ -5,6 +5,7 @@ namespace App\Livewire\Settings;
 use App\Enums\UserRole;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Services\Users\UserSessions;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -129,13 +130,20 @@ class Users extends Component
         Gate::authorize('update', $target);
 
         $this->validate([
-            'newPassword' => ['required', 'string', Password::min(8), 'same:newPasswordConfirmation'],
+            'newPassword' => ['required', 'string', Password::min(12), 'same:newPasswordConfirmation'],
         ]);
 
         $target->forceFill([
             'password' => $this->newPassword,
             'must_change_password' => true,
         ])->save();
+
+        $sessions = app(UserSessions::class);
+        $sessions->rotateRememberToken($target);
+        $sessions->purge(
+            $target,
+            $target->getKey() === auth()->id() ? session()->getId() : null,
+        );
 
         app(AuditLogger::class)->log('user.password_reset', $target, [
             'user_id' => $target->getKey(),
@@ -180,7 +188,7 @@ class Users extends Component
         $this->statusMessage = 'User deleted.';
     }
 
-    public function isLastActiveAdmin(User $target): bool
+    private function isLastActiveAdmin(User $target): bool
     {
         if ($target->role() !== UserRole::Admin || ! $target->is_active) {
             return false;

@@ -16,6 +16,7 @@ use App\Models\AlertDelivery;
 use App\Models\Server;
 use App\Models\User;
 use App\Notifications\AlertOpened;
+use App\Services\SettingsRepository;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
@@ -221,6 +222,64 @@ class AlertRetryTest extends TestCase
     }
 
     // --- 3. Reminder query rules -------------------------------------------
+
+    public function test_email_channel_disabled_by_a_database_override_skips_delivery(): void
+    {
+        $this->user('admin', UserRole::Admin, notify: true);
+
+        app(SettingsRepository::class)->set('alerts.channels.email.enabled', false, 'bool');
+
+        Notification::fake();
+
+        $alert = $this->openAlert();
+
+        $this->assertFalse($this->app->make(EmailChannel::class)->enabled());
+        $this->assertSame(DeliveryResult::SKIPPED, $this->app->make(EmailChannel::class)->send($alert, 'opened')->status);
+        Notification::assertNothingSent();
+        $this->assertSame(0, AlertDelivery::query()->where('alert_id', $alert->id)->where('channel', 'email')->count());
+    }
+
+    public function test_reminder_hours_override_changes_the_requeue_window(): void
+    {
+        $this->user('admin', UserRole::Admin, notify: true);
+        $alert = $this->openAlert();
+        $delivery = $this->delivery($alert, 'email', 'opened');
+
+        $delivery->forceFill(['status' => 'sent', 'sent_at' => now(), 'attempts' => 1])->save();
+
+        Carbon::setTestNow('2026-11-23 14:00:00');
+        Queue::fake();
+
+        // The config default is 6 hours: four hours is not due yet.
+        $this->artisan('noc:alert-reminders')->assertSuccessful();
+        Queue::assertNotPushed(SendAlertNotification::class);
+
+        // A database override shortens the window and the same delivery is
+        // now due.
+        app(SettingsRepository::class)->set('alerts.reminder_hours', 3, 'int');
+        $this->artisan('noc:alert-reminders')->assertSuccessful();
+
+        Queue::assertPushed(SendAlertNotification::class, fn (SendAlertNotification $job): bool => $job->channel === 'email');
+    }
+
+    public function test_the_job_reads_the_reminder_hours_override_for_a_sent_delivery(): void
+    {
+        $this->user('admin', UserRole::Admin, notify: true);
+        $alert = $this->openAlert();
+        $delivery = $this->delivery($alert, 'email', 'opened');
+
+        $delivery->forceFill(['status' => 'sent', 'sent_at' => now(), 'attempts' => 1])->save();
+
+        app(SettingsRepository::class)->set('alerts.reminder_hours', 3, 'int');
+
+        Carbon::setTestNow('2026-11-23 14:00:00');
+        Notification::fake();
+
+        (new SendAlertNotification($alert->id, 'email', 'opened'))->handle($this->app->make(AlertNotifier::class));
+
+        $this->assertSame(2, $delivery->fresh()->attempts);
+        Notification::assertSentTimes(AlertOpened::class, 1);
+    }
 
     public function test_a_stuck_pending_row_older_than_the_threshold_is_requeued(): void
     {

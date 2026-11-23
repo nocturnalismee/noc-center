@@ -7,8 +7,10 @@ use App\Livewire\Settings\Users;
 use App\Models\AuditEvent;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Livewire\Livewire;
+use ReflectionMethod;
 use Tests\TestCase;
 
 class UserManagementTest extends TestCase
@@ -197,6 +199,97 @@ class UserManagementTest extends TestCase
 
         $this->assertSame('Updated Name', $target->name);
         $this->assertSame('updated@example.com', $target->email);
+        $this->assertNull($target->email_verified_at);
         $this->assertTrue(Hash::check('password', $target->password));
+    }
+
+    public function test_new_passwords_must_be_at_least_twelve_characters(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $this->actingAs($admin);
+
+        Livewire::test(UserForm::class)
+            ->set('name', 'Short Password')
+            ->set('email', 'short@example.com')
+            ->set('role', 'viewer')
+            ->set('password', 'elevenchars')
+            ->set('passwordConfirmation', 'elevenchars')
+            ->call('save')
+            ->assertHasErrors('password');
+
+        $this->assertNull(User::query()->where('email', 'short@example.com')->first());
+    }
+
+    public function test_an_admin_reset_purges_the_target_sessions_and_rotates_the_remember_token(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $target = User::factory()->create(['role' => 'operator']);
+        $remember = $target->remember_token;
+
+        $this->actingAs($admin);
+
+        foreach (['target-session-a', 'target-session-b'] as $id) {
+            DB::table('sessions')->insert([
+                'id' => $id,
+                'user_id' => $target->id,
+                'ip_address' => '203.0.113.9',
+                'user_agent' => 'PHPUnit',
+                'payload' => 'payload',
+                'last_activity' => now()->timestamp,
+            ]);
+        }
+
+        Livewire::test(Users::class)
+            ->call('startReset', $target->id)
+            ->set('newPassword', 'twelve-chars-ok')
+            ->set('newPasswordConfirmation', 'twelve-chars-ok')
+            ->call('resetPassword')
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseMissing('sessions', ['id' => 'target-session-a']);
+        $this->assertDatabaseMissing('sessions', ['id' => 'target-session-b']);
+        $this->assertNotSame($remember, $target->fresh()->remember_token);
+    }
+
+    public function test_deactivating_a_user_rotates_their_remember_token(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $target = User::factory()->create(['role' => 'operator', 'is_active' => true]);
+        $remember = $target->remember_token;
+
+        $this->actingAs($admin);
+
+        Livewire::test(UserForm::class, ['userId' => $target->id])
+            ->set('isActive', false)
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertFalse($target->fresh()->is_active);
+        $this->assertNotSame($remember, $target->fresh()->remember_token);
+    }
+
+    public function test_admin_password_resets_require_at_least_twelve_characters(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $target = User::factory()->create(['role' => 'operator']);
+
+        $this->actingAs($admin);
+
+        Livewire::test(Users::class)
+            ->call('startReset', $target->id)
+            ->set('newPassword', 'elevenchars')
+            ->set('newPasswordConfirmation', 'elevenchars')
+            ->call('resetPassword')
+            ->assertHasErrors('newPassword');
+
+        $this->assertTrue(Hash::check('password', $target->fresh()->password));
+    }
+
+    public function test_the_last_admin_helper_is_not_public_api(): void
+    {
+        $method = new ReflectionMethod(Users::class, 'isLastActiveAdmin');
+
+        $this->assertTrue($method->isPrivate());
     }
 }

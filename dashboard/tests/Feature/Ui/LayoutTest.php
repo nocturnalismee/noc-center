@@ -67,6 +67,17 @@ class LayoutTest extends TestCase
         }
     }
 
+    public function test_a_viewer_does_not_see_the_activity_sidebar_link(): void
+    {
+        $viewer = User::factory()->create();
+
+        $this->actingAs($viewer)
+            ->get('/dashboard')
+            ->assertOk()
+            ->assertDontSee('href="/activity"', false)
+            ->assertDontSee('aria-label="Activity"', false);
+    }
+
     public function test_the_mobile_menu_control_has_a_forty_four_pixel_target(): void
     {
         $user = User::factory()->create();

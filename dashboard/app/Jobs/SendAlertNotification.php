@@ -7,6 +7,7 @@ use App\Alerts\Channels\DeliveryResult;
 use App\Enums\AlertStatus;
 use App\Models\Alert;
 use App\Models\AlertDelivery;
+use App\Services\SettingsRepository;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\Job as JobContract;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -77,8 +78,10 @@ class SendAlertNotification implements ShouldQueue
         return sprintf('alert:%s:%s:%s', $alertId, $channel, $event);
     }
 
-    public function handle(AlertNotifier $notifier): void
+    public function handle(AlertNotifier $notifier, ?SettingsRepository $settings = null): void
     {
+        $settings ??= app(SettingsRepository::class);
+
         $alert = Alert::query()->with('server')->find($this->alertId);
 
         if ($alert === null) {
@@ -105,7 +108,7 @@ class SendAlertNotification implements ShouldQueue
             return;
         }
 
-        if ($delivery->status === DeliveryResult::SENT && ! $this->reminderDue($delivery)) {
+        if ($delivery->status === DeliveryResult::SENT && ! $this->reminderDue($delivery, $settings)) {
             return;
         }
 
@@ -130,13 +133,13 @@ class SendAlertNotification implements ShouldQueue
      * passed since its last successful send. A `resolved` row is never
      * repeated.
      */
-    private function reminderDue(AlertDelivery $delivery): bool
+    private function reminderDue(AlertDelivery $delivery, SettingsRepository $settings): bool
     {
         if ($this->event !== 'opened' || $delivery->sent_at === null) {
             return false;
         }
 
-        $hours = max(1, (int) config('alerts.reminder_hours', 6));
+        $hours = max(1, (int) $settings->get('alerts.reminder_hours', config('alerts.reminder_hours', 6)));
 
         return $delivery->sent_at->copy()->addHours($hours)->lessThanOrEqualTo(now());
     }

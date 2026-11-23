@@ -15,6 +15,7 @@ use App\Services\SettingsRepository;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Notification;
@@ -203,6 +204,58 @@ class SettingsTest extends TestCase
         $this->assertStringNotContainsString('brand-new-password-1', (string) json_encode($audit->meta_json));
     }
 
+    public function test_self_service_password_change_keeps_the_current_session_and_purges_others(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user);
+        $this->get('/settings/profile')->assertOk();
+
+        $current = session()->getId();
+        $remember = $user->remember_token;
+
+        foreach (['current-session', 'other-session'] as $id) {
+            DB::table('sessions')->insert([
+                'id' => $id,
+                'user_id' => $user->id,
+                'ip_address' => '203.0.113.10',
+                'user_agent' => 'PHPUnit',
+                'payload' => 'payload',
+                'last_activity' => now()->timestamp,
+            ]);
+        }
+
+        $this->assertNotSame('', $current);
+
+        // Keep the real current row under the real session id.
+        DB::table('sessions')->where('id', 'current-session')->update(['id' => $current]);
+
+        Livewire::test(Profile::class)
+            ->set('currentPassword', 'password')
+            ->set('newPassword', 'brand-new-password-1')
+            ->set('newPasswordConfirmation', 'brand-new-password-1')
+            ->call('savePassword')
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseHas('sessions', ['id' => $current]);
+        $this->assertDatabaseMissing('sessions', ['id' => 'other-session']);
+        $this->assertNotSame($remember, $user->fresh()->remember_token);
+    }
+
+    public function test_profile_password_changes_require_at_least_twelve_characters(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user);
+
+        Livewire::test(Profile::class)
+            ->set('currentPassword', 'password')
+            ->set('newPassword', 'elevenchars')
+            ->set('newPasswordConfirmation', 'elevenchars')
+            ->call('savePassword')
+            ->assertHasErrors('newPassword');
+    }
+
     public function test_alert_settings_are_admin_only_and_a_threshold_override_changes_detection(): void
     {
         $operator = User::factory()->create(['role' => 'operator']);
@@ -271,6 +324,8 @@ class SettingsTest extends TestCase
             ->get('/settings/alerts')
             ->assertOk()
             ->assertSee('Configured')
+            ->assertSee('…4567890')
+            ->assertDontSee('-1001234567890')
             ->assertDontSee($token);
 
         foreach (AuditEvent::query()->where('action', 'settings.updated')->get() as $event) {

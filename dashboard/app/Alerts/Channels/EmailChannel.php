@@ -7,6 +7,7 @@ use App\Models\Alert;
 use App\Models\User;
 use App\Notifications\AlertOpened;
 use App\Notifications\AlertResolved;
+use App\Services\SettingsRepository;
 use Illuminate\Support\Facades\Notification;
 use Throwable;
 
@@ -27,6 +28,11 @@ use Throwable;
  */
 class EmailChannel implements AlertChannel
 {
+    public function __construct(private readonly SettingsRepository $settings)
+    {
+        //
+    }
+
     public function name(): string
     {
         return 'email';
@@ -34,7 +40,10 @@ class EmailChannel implements AlertChannel
 
     public function enabled(): bool
     {
-        return (bool) config('alerts.channels.email.enabled', true);
+        return (bool) $this->settings->get(
+            'alerts.channels.email.enabled',
+            config('alerts.channels.email.enabled', true),
+        );
     }
 
     public function send(Alert $alert, string $event): DeliveryResult

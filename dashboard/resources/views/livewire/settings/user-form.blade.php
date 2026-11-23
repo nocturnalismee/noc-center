@@ -81,7 +81,7 @@
                 aria-required="true"
                 @error('password') aria-invalid="true" @enderror
             >
-            <p class="mt-1.5 text-[9px] text-text-muted">At least 8 characters. The user must change it at next sign-in.</p>
+            <p class="mt-1.5 text-[9px] text-text-muted">At least 12 characters. The user must change it at next sign-in.</p>
             @error('password')
                 <p class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
             @enderror

@@ -121,7 +121,7 @@
     <form wire:submit="savePassword" class="mt-10 max-w-[760px]">
         <section class="border-t border-border pt-5" aria-labelledby="profile-password-heading">
             <h2 id="profile-password-heading" class="text-[13px] font-semibold text-text">Password</h2>
-            <p class="mt-1 text-[10px] text-text-sub">Use at least 8 characters. Changing it clears any temporary-password requirement.</p>
+            <p class="mt-1 text-[10px] text-text-sub">Use at least 12 characters. Changing it clears any temporary-password requirement.</p>
 
             <div class="mt-5 grid gap-5 sm:grid-cols-2">
                 <div class="sm:col-span-2">

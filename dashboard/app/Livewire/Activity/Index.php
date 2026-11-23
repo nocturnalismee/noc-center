@@ -86,8 +86,9 @@ class Index extends Component
     }
 
     /**
-     * Parse a strict `Y-m-d` filter. A crafted URL must fall back to "no date
-     * filter" instead of throwing a 500 from Carbon.
+     * Parse a strict `Y-m-d` filter as an Asia/Jakarta calendar day and
+     * convert its boundary to UTC for the query. A crafted URL must fall back
+     * to "no date filter" instead of throwing a 500 from Carbon.
      */
     private function dayBoundary(string $date, string $boundary): ?Carbon
     {
@@ -96,7 +97,7 @@ class Index extends Component
         }
 
         try {
-            $parsed = Carbon::createFromFormat('!Y-m-d', $date, 'UTC');
+            $parsed = Carbon::createFromFormat('!Y-m-d', $date, 'Asia/Jakarta');
         } catch (Throwable) {
             return null;
         }
@@ -105,8 +106,6 @@ class Index extends Component
             return null;
         }
 
-        return $boundary === 'start'
-            ? $parsed->startOfDay()
-            : $parsed->endOfDay();
+        return ($boundary === 'start' ? $parsed->startOfDay() : $parsed->endOfDay())->utc();
     }
 }

@@ -193,21 +193,34 @@
 
             <div class="mt-4 grid gap-5 border-t border-divider pt-4 sm:grid-cols-2">
                 <div>
-                    <label for="telegram-chat-id" class="field-label">Chat ID</label>
-                    <input
-                        id="telegram-chat-id"
-                        type="text"
-                        wire:model="chatId"
-                        class="field font-mono"
-                        autocomplete="off"
-                        spellcheck="false"
-                        placeholder="-1001234567890 or @channelname"
-                        @error('chatId') aria-invalid="true" @enderror
-                    >
-                    <p class="mt-1.5 text-[9px] text-text-muted">Group IDs may be negative; channel usernames start with @.</p>
-                    @error('chatId')
-                        <p class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
-                    @enderror
+                    <span class="field-label">Chat ID</span>
+
+                    @if ($chatIdConfigured && ! $editingChatId)
+                        <div class="mt-1 flex flex-wrap items-center gap-3">
+                            <p class="font-mono text-[11px] text-text">{{ $maskedChatId !== '' ? $maskedChatId : '—' }}</p>
+                            <button type="button" wire:click="editChatId" class="secondary-button h-9">Change</button>
+                        </div>
+                        <p class="mt-1.5 text-[9px] text-text-muted">Partially masked. Use Change to replace the chat or channel.</p>
+                    @else
+                        <input
+                            id="telegram-chat-id"
+                            type="text"
+                            wire:model="chatId"
+                            class="field mt-1 font-mono"
+                            autocomplete="off"
+                            spellcheck="false"
+                            placeholder="-1001234567890 or @channelname"
+                            @error('chatId') aria-invalid="true" @enderror
+                        >
+                        <p class="mt-1.5 text-[9px] text-text-muted">Group IDs may be negative; channel usernames start with @.</p>
+                        @error('chatId')
+                            <p class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+                        @enderror
+
+                        @if ($chatIdConfigured)
+                            <button type="button" wire:click="cancelEditChatId" class="secondary-button mt-2 h-8">Cancel change</button>
+                        @endif
+                    @endif
                 </div>
 
                 <div>

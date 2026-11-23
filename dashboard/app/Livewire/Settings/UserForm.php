@@ -5,6 +5,7 @@ namespace App\Livewire\Settings;
 use App\Enums\UserRole;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Services\Users\UserSessions;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -79,7 +80,7 @@ class UserForm extends Component
             'role' => ['required', Rule::in(array_column(UserRole::cases(), 'value'))],
             'isActive' => ['boolean'],
             'password' => $creating
-                ? ['required', 'string', Password::min(8), 'same:passwordConfirmation']
+                ? ['required', 'string', Password::min(12), 'same:passwordConfirmation']
                 : ['nullable'],
         ]);
 
@@ -129,6 +130,7 @@ class UserForm extends Component
 
             $oldRole = $locked->role();
             $oldActive = (bool) $locked->is_active;
+            $emailChanged = $locked->email !== $this->email;
             $changed = [];
 
             foreach (['name' => $this->name, 'email' => $this->email] as $field => $value) {
@@ -148,9 +150,14 @@ class UserForm extends Component
             $locked->forceFill([
                 'name' => $this->name,
                 'email' => $this->email,
+                'email_verified_at' => $emailChanged ? null : $locked->email_verified_at,
                 'role' => $role,
                 'is_active' => $this->isActive,
             ])->save();
+
+            if ($oldActive && ! $this->isActive) {
+                app(UserSessions::class)->rotateRememberToken($locked);
+            }
 
             if ($changed !== []) {
                 app(AuditLogger::class)->log('user.updated', $locked, [

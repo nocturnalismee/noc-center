@@ -10,6 +10,7 @@ use App\Services\SettingsRepository;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Layout;
@@ -43,6 +44,12 @@ class AlertSettings extends Component
 
     public string $chatId = '';
 
+    public string $maskedChatId = '';
+
+    public bool $chatIdConfigured = false;
+
+    public bool $editingChatId = false;
+
     public string $messageThreadId = '';
 
     public string $botToken = '';
@@ -60,7 +67,7 @@ class AlertSettings extends Component
         $this->reminderHours = (string) $settings->get('alerts.reminder_hours', config('alerts.reminder_hours'));
         $this->emailEnabled = (bool) $settings->get('alerts.channels.email.enabled', config('alerts.channels.email.enabled'));
         $this->telegramEnabled = (bool) $settings->get('alerts.channels.telegram.enabled', config('alerts.channels.telegram.enabled'));
-        $this->chatId = (string) ($settings->get('alerts.channels.telegram.chat_id', config('alerts.channels.telegram.chat_id')) ?? '');
+        $this->applyChatState((string) ($settings->get('alerts.channels.telegram.chat_id', config('alerts.channels.telegram.chat_id')) ?? ''));
         $this->messageThreadId = (string) ($settings->get('alerts.channels.telegram.message_thread_id', config('alerts.channels.telegram.message_thread_id')) ?? '');
 
         foreach ((array) config('alerts.rules', []) as $rule => $keys) {
@@ -69,6 +76,21 @@ class AlertSettings extends Component
                 $this->rules[$rule][$key] = is_bool($value) ? $value : $value;
             }
         }
+    }
+
+    public function editChatId(): void
+    {
+        $this->editingChatId = true;
+        $this->chatId = '';
+        $this->statusMessage = null;
+        $this->resetErrorBag('chatId');
+    }
+
+    public function cancelEditChatId(): void
+    {
+        $this->editingChatId = false;
+        $this->chatId = '';
+        $this->resetErrorBag('chatId');
     }
 
     public function replaceToken(): void
@@ -116,7 +138,17 @@ class AlertSettings extends Component
         $this->write($settings, 'alerts.reminder_hours', (int) $this->reminderHours, 'int', $changed);
         $this->write($settings, 'alerts.channels.email.enabled', $this->emailEnabled, 'bool', $changed);
         $this->write($settings, 'alerts.channels.telegram.enabled', $this->telegramEnabled, 'bool', $changed);
-        $this->write($settings, 'alerts.channels.telegram.chat_id', trim($this->chatId), 'string', $changed);
+
+        $chat = trim($this->chatId);
+
+        if ($this->chatIdConfigured && ! $this->editingChatId) {
+            // The stored chat id is not echoed back into the form. Keeping the
+            // row untouched is what makes the masked display stable.
+        } elseif ($chat === '') {
+            $this->forgetIfPresent($settings, 'alerts.channels.telegram.chat_id', $changed);
+        } else {
+            $this->write($settings, 'alerts.channels.telegram.chat_id', $chat, 'string', $changed);
+        }
 
         $thread = trim($this->messageThreadId);
 
@@ -162,6 +194,9 @@ class AlertSettings extends Component
             $this->replacingToken = false;
         }
 
+        $this->applyChatState((string) ($settings->get('alerts.channels.telegram.chat_id', config('alerts.channels.telegram.chat_id')) ?? ''));
+        $this->editingChatId = false;
+        $this->chatId = '';
         $this->statusMessage = 'Alert settings saved.';
     }
 
@@ -246,9 +281,7 @@ class AlertSettings extends Component
             'reminderHours' => ['required', 'integer', 'min:1', 'max:720'],
             'emailEnabled' => ['boolean'],
             'telegramEnabled' => ['boolean'],
-            'chatId' => trim($this->chatId) === ''
-                ? [Rule::requiredIf(fn (): bool => $this->telegramEnabled), 'nullable']
-                : ['required', 'string', 'max:64', 'regex:/^(@[A-Za-z][A-Za-z0-9_]{4,63}|-?[0-9]{1,20})$/'],
+            'chatId' => $this->chatIdRules(),
             'messageThreadId' => trim($this->messageThreadId) === ''
                 ? ['nullable']
                 : ['required', 'integer', 'min:1'],
@@ -301,7 +334,40 @@ class AlertSettings extends Component
             $valid = false;
         }
 
+        if ($this->telegramEnabled
+            && ! $this->chatIdConfigured
+            && trim($this->chatId) === '') {
+            $this->addError('chatId', 'A chat ID is required when Telegram is enabled.');
+            $valid = false;
+        }
+
         return ! $valid;
+    }
+
+    /**
+     * @return list<mixed>
+     */
+    private function chatIdRules(): array
+    {
+        $chat = trim($this->chatId);
+
+        if ($this->chatIdConfigured && ! $this->editingChatId) {
+            return ['nullable'];
+        }
+
+        if ($chat === '') {
+            return [Rule::requiredIf(fn (): bool => $this->telegramEnabled), 'nullable'];
+        }
+
+        return ['required', 'string', 'max:64', 'regex:/^(@[A-Za-z][A-Za-z0-9_]{4,63}|-?[0-9]{1,20})$/'];
+    }
+
+    private function applyChatState(string $value): void
+    {
+        $value = trim($value);
+
+        $this->chatIdConfigured = $value !== '';
+        $this->maskedChatId = $value === '' ? '' : '…'.Str::substr($value, -7);
     }
 
     /**

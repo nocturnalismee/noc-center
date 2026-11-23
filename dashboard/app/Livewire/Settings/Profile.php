@@ -3,6 +3,7 @@
 namespace App\Livewire\Settings;
 
 use App\Services\AuditLogger;
+use App\Services\Users\UserSessions;
 use Illuminate\Contracts\View\View;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
@@ -113,13 +114,17 @@ class Profile extends Component
 
         $this->validate([
             'currentPassword' => ['required', 'string', 'current_password:web'],
-            'newPassword' => ['required', 'string', Password::min(8), 'same:newPasswordConfirmation'],
+            'newPassword' => ['required', 'string', Password::min(12), 'same:newPasswordConfirmation'],
         ]);
 
         $user->forceFill([
             'password' => $this->newPassword,
             'must_change_password' => false,
         ])->save();
+
+        $sessions = app(UserSessions::class);
+        $sessions->rotateRememberToken($user);
+        $sessions->purge($user, session()->getId());
 
         app(AuditLogger::class)->log('user.password_changed', $user, [
             'user_id' => $user->getKey(),

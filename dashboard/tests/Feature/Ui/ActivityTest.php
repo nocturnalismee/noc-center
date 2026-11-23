@@ -70,6 +70,24 @@ class ActivityTest extends TestCase
             ->assertDontSee('user_id');
     }
 
+    public function test_activity_date_filters_use_jakarta_calendar_days(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin', 'name' => 'Admin User']);
+
+        // 2026-11-22 00:30 in Asia/Jakarta, still 2026-11-21 in UTC.
+        $this->event('server.created', $admin, ['server_id' => '01JKT1'], '2026-11-21 17:30:00');
+        // 2026-11-21 23:30 in Asia/Jakarta, also 2026-11-21 in UTC.
+        $this->event('token.revoked', $admin, ['token_id' => 11], '2026-11-21 16:30:00');
+
+        $this->actingAs($admin);
+
+        Livewire::test(Index::class)
+            ->set('from', '2026-11-22')
+            ->set('to', '2026-11-22')
+            ->assertSee('server_id')
+            ->assertDontSee('token_id');
+    }
+
     public function test_the_audit_page_is_read_only_and_has_no_mutation_routes(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
