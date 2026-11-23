@@ -18,7 +18,11 @@ use Illuminate\Support\Facades\DB;
  * cutoff survives; only rows strictly older than it are eligible. Details are
  * pruned before samples (a sample delete cascades its detail), rollups are
  * pruned by `bucket_start` per resolution, and open/acknowledged alerts,
- * active/grace tokens, and users are never touched.
+ * active/grace tokens, and users are never touched. Alert deliveries are
+ * retained while their parent alert is unresolved: the 90-day window only
+ * applies after resolution, because reminders and recovery read the `opened`
+ * rows. A resolved alert past 365 days is deleted with its deliveries by the
+ * foreign-key cascade.
  *
  * A dry run counts the whole eligible set per table without deleting anything;
  * a real run deletes at most `batch_size` rows per batch and `max_batches`
@@ -93,7 +97,13 @@ class RetentionService
             'alert_deliveries' => $this->pruneBy(
                 'alert_deliveries',
                 'id',
-                fn (Builder $query) => $query->where('created_at', '<', $this->cutoff($now, 'alert_deliveries_days')),
+                fn (Builder $query) => $query
+                    ->where('created_at', '<', $this->cutoff($now, 'alert_deliveries_days'))
+                    // Open and acknowledged alerts keep their `opened` rows so
+                    // reminders still work and recovery can find the channels
+                    // that were notified. The 90-day window only applies once
+                    // the parent alert is resolved.
+                    ->whereIn('alert_id', DB::table('alerts')->select('id')->where('status', 'resolved')),
                 $batchSize,
                 $maxBatches,
                 $dryRun,

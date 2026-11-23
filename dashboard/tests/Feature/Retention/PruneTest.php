@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Retention;
 
+use App\Alerts\AlertNotifier;
+use App\Jobs\SendAlertNotification;
 use App\Models\Alert;
 use App\Models\AlertDelivery;
 use App\Models\MetricRollup;
@@ -17,6 +19,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -185,7 +188,8 @@ class PruneTest extends TestCase
     public function test_alert_deliveries_audit_events_and_failed_jobs_use_their_own_cutoffs(): void
     {
         $server = $this->server();
-        $alert = $this->alert($server, 'open');
+        // Deliveries are only eligible once their parent alert is resolved.
+        $alert = $this->alert($server, 'resolved', $this->daysAgo(1));
 
         $deliveryBoundary = $this->delivery($alert, $this->daysAgo(90), 'email');
         $deliveryOlder = $this->delivery($alert, $this->daysAgo(90)->subSecond(), 'telegram');
@@ -208,6 +212,108 @@ class PruneTest extends TestCase
         $this->assertSame(0, DB::table('audit_events')->where('id', $auditOlder)->count());
         $this->assertSame(1, DB::table('failed_jobs')->count());
         $this->assertSame(0, DB::table('failed_jobs')->where('id', $failedOlder)->count());
+    }
+
+    public function test_deliveries_of_open_and_acknowledged_alerts_survive_regardless_of_age(): void
+    {
+        $server = $this->server();
+        $open = $this->alert($server, 'open');
+        $acknowledged = $this->alert($server, 'acknowledged', acknowledgedAt: $this->daysAgo(500));
+
+        $openDelivery = $this->delivery($open, $this->daysAgo(500), 'email');
+        $acknowledgedDelivery = $this->delivery($acknowledged, $this->daysAgo(500), 'email');
+
+        $counts = $this->prune();
+
+        $this->assertSame(0, $counts['alert_deliveries']);
+        $this->assertNotNull(AlertDelivery::query()->find($openDelivery->getKey()));
+        $this->assertNotNull(AlertDelivery::query()->find($acknowledgedDelivery->getKey()));
+        $this->assertNotNull(Alert::query()->find($open->getKey()));
+        $this->assertNotNull(Alert::query()->find($acknowledged->getKey()));
+    }
+
+    public function test_a_long_open_alert_keeps_its_opened_rows_and_can_still_queue_recovery(): void
+    {
+        $server = $this->server();
+        $alert = $this->alert($server, 'open');
+        $opened = $this->delivery($alert, $this->daysAgo(100), 'email');
+
+        $counts = $this->prune();
+
+        $this->assertSame(0, $counts['alert_deliveries']);
+        $this->assertNotNull(AlertDelivery::query()->find($opened->getKey()));
+
+        $alert->forceFill(['status' => 'resolved', 'resolved_at' => now()])->save();
+
+        Queue::fake();
+        $this->app->make(AlertNotifier::class)->dispatch($alert->fresh(), 'resolved');
+
+        $resolved = AlertDelivery::query()
+            ->where('alert_id', $alert->getKey())
+            ->where('event', 'resolved')
+            ->sole();
+
+        $this->assertSame('pending', $resolved->status);
+        Queue::assertPushed(
+            SendAlertNotification::class,
+            static fn (SendAlertNotification $job): bool => $job->event === 'resolved',
+        );
+    }
+
+    public function test_a_resolved_alerts_deliveries_are_pruned_after_the_90_day_window(): void
+    {
+        $server = $this->server();
+        $alert = $this->alert($server, 'resolved', $this->daysAgo(1));
+        $old = $this->delivery($alert, $this->daysAgo(90)->subSecond(), 'email');
+
+        $counts = $this->prune();
+
+        $this->assertSame(1, $counts['alert_deliveries']);
+        $this->assertNull(AlertDelivery::query()->find($old->getKey()));
+        $this->assertNotNull(Alert::query()->find($alert->getKey()));
+    }
+
+    public function test_max_batches_zero_deletes_nothing_and_does_not_loop(): void
+    {
+        config(['retention.batch_size' => 2, 'retention.max_batches' => 0]);
+
+        $server = $this->server();
+        $samples = [];
+
+        for ($i = 0; $i < 3; $i++) {
+            $samples[] = $this->sample($server, $this->daysAgo(15)->subSeconds($i));
+        }
+
+        $alert = $this->alert($server, 'resolved', $this->daysAgo(1));
+        $delivery = $this->delivery($alert, $this->daysAgo(91), 'email');
+
+        $counts = $this->prune();
+
+        $this->assertSame(0, $counts['metric_samples']);
+        $this->assertSame(0, $counts['alert_deliveries']);
+        $this->assertSame(3, MetricSample::query()->count());
+        $this->assertNotNull(AlertDelivery::query()->find($delivery->getKey()));
+
+        foreach ($samples as $sample) {
+            $this->assertNotNull(MetricSample::query()->find($sample->getKey()));
+        }
+    }
+
+    public function test_deliveries_of_a_pruned_resolved_alert_cascade_away_and_are_not_double_counted(): void
+    {
+        $server = $this->server();
+        $alert = $this->alert($server, 'resolved', $this->daysAgo(365)->subSecond());
+
+        // Newer than the 90-day delivery window, so only the alert cascade can
+        // remove it; the delivery pass must not report it as its own deletion.
+        $delivery = $this->delivery($alert, Carbon::now(), 'email');
+
+        $counts = $this->prune();
+
+        $this->assertSame(1, $counts['resolved_alerts']);
+        $this->assertSame(0, $counts['alert_deliveries']);
+        $this->assertNull(Alert::query()->find($alert->getKey()));
+        $this->assertNull(AlertDelivery::query()->find($delivery->getKey()));
     }
 
     public function test_revoked_and_expired_tokens_old_enough_are_pruned_but_active_and_grace_tokens_survive(): void
