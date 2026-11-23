@@ -5,6 +5,8 @@ namespace App\Alerts;
 use App\Enums\AlertRule;
 use App\Enums\AlertSeverity;
 use App\Enums\AlertStatus;
+use App\Enums\ServerHealth;
+use App\Enums\ServerStatus;
 use App\Issues\IssueSet;
 use App\Models\Alert;
 use App\Models\Server;
@@ -155,6 +157,138 @@ class AlertEngine
     }
 
     /**
+     * Reconcile the two liveness rules for one server (Task 10).
+     *
+     * `server_stale` (warning) and `server_offline` (critical) are mutually
+     * exclusive: at most one is open. The escalation is administrative, so the
+     * rule that no longer holds is closed **without recovery** — recovery is
+     * sent only when the server really comes back and the offline alert
+     * resolves through the normal path (`$notify` true).
+     *
+     * `$activeRule` is null when the server is online (or never seen); then
+     * both rules are closed, and a closed `server_offline` is a real
+     * recovery.
+     */
+    public function evaluateLiveness(Server $server, ?AlertRule $activeRule): void
+    {
+        if (! $this->alertsEnabled($server)) {
+            return;
+        }
+
+        $rules = [AlertRule::ServerStale, AlertRule::ServerOffline];
+        $pending = [];
+
+        foreach ($rules as $rule) {
+            $active = $rule === $activeRule;
+
+            if (! $active) {
+                // A stale→offline escalation is not a condition recovery; an
+                // offline→online transition is.
+                $pending[] = $rule;
+
+                continue;
+            }
+
+            $this->syncRule($server, $rule, true, [
+                'severity' => $rule === AlertRule::ServerOffline ? 'critical' : 'warning',
+            ]);
+        }
+
+        $closed = 0;
+
+        foreach ($pending as $rule) {
+            // The one non-recovery close is the server leaving `stale` for
+            // `offline`; everything else (back online) is a real recovery.
+            $note = $activeRule !== null ? 'Server offline' : 'Issue cleared';
+
+            $closed += $this->closeLivenessRule($server, $rule, $note, $note === 'Issue cleared');
+        }
+
+        // A healthy online server keeps the health `StoreSample` wrote inside
+        // its ingest transaction: alert rules cannot see that row before it
+        // commits, so re-deriving health here would briefly drop freshly
+        // detected issues. Liveness must still fix the two cases where that
+        // row is certainly stale: an alert just closed, or a `critical` left
+        // over from an alert that has since been resolved.
+        if (
+            $activeRule === null
+            && $closed === 0
+            && $server->status() === ServerStatus::Online
+            && $server->health !== ServerHealth::Critical
+        ) {
+            return;
+        }
+
+        $this->refreshServerHealth($server);
+    }
+
+    /**
+     * Health is the aggregate of the open/acknowledged alerts (spec §9.3,
+     * §10): `critical` if any is critical, `warning` if any is warning, else
+     * `ok` once a sample exists and `unknown` when the server was never seen.
+     *
+     * A server that returns is never written `ok` while another rule is still
+     * open, and liveness codes are dropped from `issue_codes` because the
+     * ingest detector does not produce them.
+     */
+    public function refreshServerHealth(Server $server): void
+    {
+        $open = Alert::query()
+            ->where('server_id', $server->getKey())
+            ->whereIn('status', [AlertStatus::Open->value, AlertStatus::Acknowledged->value])
+            ->get();
+
+        $codes = $open
+            ->pluck('rule_key')
+            ->map(static fn (AlertRule $rule): string => $rule->value)
+            ->unique()
+            ->values()
+            ->all();
+
+        $health = match (true) {
+            $open->contains(fn (Alert $alert): bool => $alert->severity === AlertSeverity::Critical) => ServerHealth::Critical,
+            $open->isNotEmpty() => ServerHealth::Warning,
+            $this->hasSample($server) => ServerHealth::Ok,
+            default => ServerHealth::Unknown,
+        };
+
+        $server->forceFill([
+            'health' => $health,
+            'issue_codes' => $codes,
+        ])->save();
+    }
+
+    /**
+     * Close one liveness rule without creating it. The reason distinguishes an
+     * escalation ("Server offline") from a recovery ("Issue cleared").
+     *
+     * @return int 1 when an alert was closed, 0 when the rule was not open.
+     */
+    private function closeLivenessRule(Server $server, AlertRule $rule, string $note, bool $notify): int
+    {
+        $existing = Alert::query()
+            ->where('active_key', $server->getKey().':'.$rule->value)
+            ->first();
+
+        if ($existing === null) {
+            return 0;
+        }
+
+        $this->resolve($existing, null, $note, $notify);
+
+        return 1;
+    }
+
+    private function hasSample(Server $server): bool
+    {
+        if ($server->last_sample_at !== null) {
+            return true;
+        }
+
+        return DB::table('metric_samples')->where('server_id', $server->getKey())->exists();
+    }
+
+    /**
      * R39: administratively close every open/acknowledged alert of a server
      * whose alerts were switched off. No recovery is sent (this is not a
      * condition recovery), `active_key` is cleared so re-enabling can open
@@ -199,13 +333,16 @@ class AlertEngine
      */
     public function resolve(Alert $alert, ?User $actor = null, ?string $note = null, bool $notify = true): void
     {
-        $resolved = DB::transaction(function () use ($alert, $actor, $note): ?Alert {
+        $resolved = DB::transaction(function () use ($alert, $actor, $note, $notify): ?Alert {
             $current = Alert::query()->lockForUpdate()->find($alert->getKey());
 
             if ($current === null || $current->status === AlertStatus::Resolved) {
                 return null;
             }
 
+            // The in-app channel is the `alerts` row itself, so the recovery
+            // reaches operators even when the database queue runs after the
+            // transaction commits: the row is visible as resolved by then.
             $current->forceFill([
                 'status' => AlertStatus::Resolved,
                 'active_key' => null,
@@ -213,6 +350,13 @@ class AlertEngine
                 'resolved_by' => $actor?->getKey(),
                 'resolution_note' => $note,
             ])->save();
+
+            if ($notify) {
+                // Inside the transaction: the `alert_deliveries` rows commit
+                // with the resolution (no half-resolved alert on a rollback),
+                // and the queued jobs are dispatched `afterCommit()`.
+                $this->notifier->dispatch($current, 'resolved');
+            }
 
             $alert->setRawAttributes($current->getAttributes(), true);
 
@@ -235,10 +379,6 @@ class AlertEngine
             ], static fn (mixed $value): bool => $value !== null),
             $actor?->getKey(),
         );
-
-        if ($notify) {
-            $this->notifier->dispatch($resolved, 'resolved');
-        }
     }
 
     /**
