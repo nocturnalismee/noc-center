@@ -17,6 +17,7 @@ This file is the deployment and operations runbook. Design rationale lives in
 - [Alert channels](#alert-channels)
 - [Backup and restore](#backup-and-restore)
 - [PostgreSQL / TimescaleDB migration rehearsal](#postgresql--timescaledb-migration-rehearsal)
+- [Acceptance checklist](#acceptance-checklist)
 - [Security checklist](#security-checklist)
 - [Troubleshooting](#troubleshooting)
 
@@ -637,6 +638,149 @@ place.
    rehearsal became the real migration, cut over `DB_CONNECTION=pgsql`, verify
    ingest, charts, alerts, retention, and backup, and keep the SQLite file
    read-only until the next verification.
+
+## Acceptance checklist
+
+Run this list against the release candidate. It is the spec §17.3/§17.4 sign-off;
+anything that cannot run on the current host must be reported as a blocker, not
+marked done.
+
+### 1. Full test suite, assets, and dependency audit
+
+```bash
+cd dashboard
+./tools/test.sh --with-assets          # Pint, the full suite, then npm run build
+./tools/php.sh php artisan test --filter=MvpAcceptanceTest
+./tools/php.sh composer audit          # expect: no advisories
+./tools/php.sh php artisan about
+./tools/php.sh php artisan route:list
+```
+
+Expected: Pint clean; the acceptance test and the full suite pass; assets build
+from a clean tree with a committed `public/build/manifest.json`; `composer audit`
+reports no advisories; `about` shows the intended PHP/Laravel versions; every
+route in `route:list` is present and no route is unexpectedly public.
+
+### 2. Load check (100 virtual servers, 60 seconds)
+
+Use a **scratch** SQLite database and fixture, never the development or
+production database. `database/*.sqlite*` is git-ignored; still delete these
+files after the run and never commit them.
+
+```bash
+cd dashboard
+touch database/load-acceptance.sqlite
+./tools/php.sh env DB_DATABASE=/app/database/load-acceptance.sqlite APP_ENV=local \
+  php artisan migrate --force
+./tools/php.sh env DB_DATABASE=/app/database/load-acceptance.sqlite APP_ENV=local \
+  php artisan noc:make-load-fixture --servers=100 \
+  --path=/app/database/load-acceptance.json
+```
+
+`noc:make-load-fixture` refuses `APP_ENV=production`, writes a mode-0600 JSON
+file of `{name, token, payload}` entries, and reuses existing `load-NNN`
+servers. The dashboard and the generator must share the same `DB_DATABASE` and
+`APP_KEY` (agent tokens are keyed HMACs).
+
+Start the app with published port 8000 (the `tools/php.sh` wrapper does not
+publish ports). `--no-reload` is required so the child server inherits
+`DB_DATABASE`; without it Laravel starts one server against the default
+database. Then run the load tool:
+
+```bash
+podman run -d --rm --name noc-load-web --userns=keep-id \
+  -v "$PWD:/app:Z" -w /app -e HOME=/tmp \
+  -e DB_DATABASE=/app/database/load-acceptance.sqlite -e APP_ENV=local \
+  -e PHP_CLI_SERVER_WORKERS=8 -p 8000:8000 \
+  localhost/hosters-php:8.4 \
+  php artisan serve --host=0.0.0.0 --port=8000 --no-reload
+curl -fsS http://127.0.0.1:8000/up
+
+# On a normal PHP host:
+php tools/load-ingest.php \
+  --url=http://127.0.0.1:8000/api/v1/ingest \
+  --fixture=database/load-acceptance.json \
+  --seconds=60 --concurrency=100 --log=storage/logs/laravel.log
+
+# On this dev host (no host PHP): run inside the live container. Do not start a
+# second container with another :Z mount of the same tree; the SELinux relabel
+# can make the running server lose read access to /app.
+podman exec -w /app noc-load-web php tools/load-ingest.php \
+  --url=http://127.0.0.1:8000/api/v1/ingest \
+  --fixture=/app/database/load-acceptance.json \
+  --seconds=60 --concurrency=100 --log=/app/storage/logs/laravel.log
+
+podman stop noc-load-web
+rm -f database/load-acceptance.sqlite database/load-acceptance.sqlite-* \
+      database/load-acceptance.json
+```
+
+Expected: exit 0; every response is `202` (a deliberate `--interval` below the
+agent cadence may also show `429`); **zero** `database is locked` (responses and
+new log lines); no 5xx; p95 ingest < 200 ms. By default the first wave is
+phase-staggered across one interval, modelling agents installed at different
+times; add `--no-stagger` for a 100-request burst probe. The tool exits non-zero
+on a 5xx, a connection/TLS error, or any locked-database error.
+
+### 3. Agent compatibility
+
+Point the unmodified Bash agent at the local server, once:
+
+```bash
+TOKEN=$(python3 -c 'import json; print(json.load(open("database/load-acceptance.json"))[0]["token"])')
+install -m 600 /dev/null /tmp/noc-agent-token
+printf '%s\n' "$TOKEN" > /tmp/noc-agent-token
+install -m 600 /dev/null /tmp/noc-agent.conf
+cat > /tmp/noc-agent.conf <<'EOF'
+API_URL=http://127.0.0.1:8000/api/v1/ingest
+ALLOW_INSECURE_HTTP=1
+SERVER_TOKEN_FILE=/tmp/noc-agent-token
+STATE_DIR=/tmp/noc-agent-state
+INTERVAL_SECONDS=60
+PANEL=none
+ENABLE_MYSQL=0
+ENABLE_SMART=0
+ENABLE_DISKQUOTA=0
+ENABLE_IMUNIFY=0
+EOF
+mkdir -p /tmp/noc-agent-state /tmp/noc-agent-run
+agent/collector.sh --config /tmp/noc-agent.conf \
+  --state-dir /tmp/noc-agent-state --run-dir /tmp/noc-agent-run
+echo "collector exit: $?"
+```
+
+Expected: exit 0, the endpoint answers `202 Accepted`, one `metric_samples` row
+exists for that server, the dashboard shows it Online, and neither the token nor
+the bot token appears in `storage/logs/laravel.log`, the agent output, or the
+system journal. `ALLOW_INSECURE_HTTP=1` is for this loopback check only; never
+set it in production. Remove `/tmp/noc-agent*` afterwards.
+
+### 4. Security checklist
+
+- `.env` and `*.sqlite` live **outside** `public/`; Nginx denies dotfiles and
+  SQLite sidecars (`ops/vps/nginx.conf`).
+- Every HTML/JSON response carries the CSP nonce policy and the
+  `X-Content-Type-Options`, `Referrer-Policy`, and `Permissions-Policy` headers;
+  production HTTPS adds HSTS.
+- The agent token is stored only as an HMAC-SHA256 hash; plaintext is shown once
+  on the reveal page (`Cache-Control: no-store`) and never in Livewire state, URLs,
+  HTML after reveal, logs, notifications, audit rows, or the payload.
+- The Telegram bot token is encrypted at rest with `APP_KEY`, write-only in the
+  UI, and never appears in logs, exceptions, audit, or notification text.
+- MySQL query text and `.info` values are admin-only and redacted in alert
+  context; they are never logged.
+- `APP_ENV=production` and `APP_DEBUG=false`; error pages are generic.
+- Session cookies are `Secure` (under HTTPS), `HttpOnly`, and `SameSite=Lax`
+  (`SESSION_SECURE_COOKIE=true`); `APP_KEY` rotation invalidates agent tokens and
+  stored secrets (documented recovery below).
+- Rate limits return `429` with `Retry-After`: login 5/min, ingest 30/min per
+  token plus 60 failed auth/min per IP, Telegram/email test 3/min.
+- The last active administrator cannot be demoted, deactivated, or deleted.
+- The audit log is append-only from the UI and every sensitive action (login,
+  server/token changes, alert acknowledge/resolve, user/role/settings changes)
+  is recorded.
+- `composer audit` is clean and `composer.lock` is committed; backups leave the
+  server encrypted and restore is rehearsed.
 
 ## Security checklist
 
