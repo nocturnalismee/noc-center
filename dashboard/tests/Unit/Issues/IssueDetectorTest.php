@@ -49,6 +49,15 @@ class IssueDetectorTest extends TestCase
         $this->assertSame([AlertRule::CpuHigh->value], $this->detectHistory([96, 96])->codes);
     }
 
+    public function test_consecutive_samples_below_two_falls_back_to_the_default(): void
+    {
+        $this->app->make(SettingsRepository::class)->set('alerts.rules.cpu_high.consecutive_samples', 1, 'int');
+
+        // One 96% sample is a spike, not a window: the default of 3 applies.
+        $this->assertSame([], $this->detectHistory([96])->codes);
+        $this->assertSame([AlertRule::CpuHigh->value], $this->detectHistory([96, 96, 96])->codes);
+    }
+
     public function test_load_consecutive_samples_comes_from_settings(): void
     {
         $this->app->make(SettingsRepository::class)->set('alerts.rules.load_high.consecutive_samples', 2, 'int');
@@ -639,14 +648,6 @@ class IssueDetectorTest extends TestCase
         return $this->detector->detect($latest->server, $latest, $panelMetrics, $extensions);
     }
 
-    /**
-     * Store three samples ending at the current test time and detect on the
-     * newest one. `$cpu` drives `cpu_usage_pct`; `$loads` drives `load1`
-     * (which defaults to a harmless 0.5 so CPU-only tests stay focused).
-     *
-     * @param  array{0: float, 1: float, 2: float}  $cpu
-     * @param  array{0: float, 1: float, 2: float}|null  $loads
-     */
     /**
      * Store a run of samples ending at the current test time and detect on the
      * newest one. `$cpu` drives `cpu_usage_pct`; `$loads` (when given) drives

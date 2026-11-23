@@ -574,14 +574,15 @@ class IssueDetector
 
     /**
      * The number of consecutive samples a window rule requires. Honours
-     * `alerts.rules.<rule>.consecutive_samples`; a non-positive or non-numeric
-     * override falls back to the default rather than disabling the rule.
+     * `alerts.rules.<rule>.consecutive_samples`; a value below 2 would make a
+     * single spike alert, so such overrides fall back to the default rather
+     * than weakening the rule. Non-numeric values fall back too.
      */
     private function consecutiveSamples(AlertRule $rule): int
     {
         $value = $this->number($this->threshold($rule, 'consecutive_samples'));
 
-        return $value !== null && $value >= 1 ? (int) $value : self::CONSECUTIVE_SAMPLES;
+        return $value !== null && $value >= 2 ? (int) $value : self::CONSECUTIVE_SAMPLES;
     }
 
     private function settings(string $key, AlertRule $rule): mixed

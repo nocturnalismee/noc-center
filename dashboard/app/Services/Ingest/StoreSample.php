@@ -143,9 +143,9 @@ class StoreSample
 
     /**
      * The newest stored sample for the server, "newest" being the largest
-     * `collected_at` (the unique key with `server_id`). Deliberately not
-     * `Server::latestSample()`, which orders by `latestOfMany('collected_at')`
-     * and therefore resolves to the *oldest* row.
+     * `collected_at` (the unique key with `server_id`). Deliberately explicit
+     * instead of `Server::latestSample()`, so the lookup does not depend on a
+     * relation object's ordering semantics.
      */
     private function newestSample(Server $server): MetricSample
     {

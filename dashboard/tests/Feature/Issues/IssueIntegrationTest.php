@@ -299,7 +299,7 @@ class IssueIntegrationTest extends TestCase
             'payload_bytes' => 1,
         ]);
 
-        $detector->detect($server, $sample, [], []);
+        $detector->detect($server, $sample, ['service.apache.running' => 0, 'service.apache.installed' => 1, 'service.apache.enabled' => 1], ['smart.status' => 'failed']);
 
         $queries = 0;
         DB::listen(function ($query) use (&$queries): void {
@@ -310,9 +310,8 @@ class IssueIntegrationTest extends TestCase
 
         $detector->detect($server, $sample, ['service.apache.running' => 0, 'service.apache.installed' => 1, 'service.apache.enabled' => 1], ['smart.status' => 'failed']);
 
-        // At most the single read a cold miss for a newly configured key may
-        // need; a warm detection must add nothing.
-        $this->assertLessThanOrEqual(1, $queries);
+        // A warm detection must add no settings reads at all.
+        $this->assertSame(0, $queries);
     }
 
     public function test_cpu_high_across_three_ingests_is_detected_from_stored_samples(): void
