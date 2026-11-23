@@ -21,6 +21,8 @@ scripts live in [`dashboard/ops/`](dashboard/ops/).
 ```bash
 cd dashboard
 cp .env.example .env
+touch database/database.sqlite
+./tools/php.sh composer install
 ./tools/php.sh php artisan key:generate
 ./tools/php.sh php artisan migrate
 ./tools/php.sh php artisan noc:create-admin

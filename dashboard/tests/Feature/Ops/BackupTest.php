@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Ops;
 
+use App\Console\QueueWorkerSchedule;
 use App\Models\MetricSample;
 use App\Models\Server;
 use App\Models\ServerToken;
@@ -167,6 +168,48 @@ class BackupTest extends TestCase
 
         $this->assertNull($tokens->resolve($issued->plain));
         $this->assertTrue(ServerToken::query()->where('token_prefix', $issued->token->token_prefix)->exists());
+    }
+
+    public function test_the_backup_file_is_owner_readable_only(): void
+    {
+        if (PHP_OS_FAMILY === 'Windows') {
+            $this->markTestSkipped('POSIX file modes are not available on Windows.');
+        }
+
+        $this->seedFleet(servers: 1, samplesPerServer: 1);
+
+        $path = $this->path('noc.sqlite');
+
+        $this->artisan('noc:backup', ['--path' => $path])->assertSuccessful();
+
+        $this->assertSame(0640, fileperms($path) & 0777);
+    }
+
+    public function test_the_queue_worker_is_scheduled_when_enabled_and_absent_when_disabled(): void
+    {
+        config(['queue.scheduled_worker' => true]);
+
+        $enabled = new Schedule;
+        QueueWorkerSchedule::register($enabled);
+
+        $registered = array_values(array_filter(
+            $enabled->events(),
+            static fn (Event $event): bool => str_contains($event->command ?? '', 'queue:work'),
+        ));
+
+        $this->assertCount(1, $registered);
+        $this->assertSame('* * * * *', $registered[0]->expression);
+        $this->assertTrue($registered[0]->withoutOverlapping);
+
+        config(['queue.scheduled_worker' => false]);
+
+        $disabled = new Schedule;
+        QueueWorkerSchedule::register($disabled);
+
+        $this->assertCount(0, array_filter(
+            $disabled->events(),
+            static fn (Event $event): bool => str_contains($event->command ?? '', 'queue:work'),
+        ));
     }
 
     public function test_the_queue_worker_is_scheduled_every_minute_without_overlapping(): void

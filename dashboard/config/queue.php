@@ -17,6 +17,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Scheduled Queue Worker
+    |--------------------------------------------------------------------------
+    |
+    | Shared hosting has no supervisor, so the scheduler runs a short-lived
+    | `queue:work` every minute. A VPS runs a long-lived systemd worker
+    | instead; set `QUEUE_SCHEDULED_WORKER=false` there (in `.env`, before the
+    | config cache is built) so two workers do not compete for the same jobs.
+    |
+    */
+
+    'scheduled_worker' => env('QUEUE_SCHEDULED_WORKER', true),
+
+    /*
+    |--------------------------------------------------------------------------
     | Queue Connections
     |--------------------------------------------------------------------------
     |

@@ -94,10 +94,17 @@ class BackupDatabase extends Command
             $quoted = $connection->getPdo()->quote($path);
             $connection->statement('VACUUM INTO '.$quoted);
         } catch (Throwable $exception) {
+            // SQLite can leave a partial file when VACUUM INTO fails; never
+            // leave it behind looking like a usable backup.
+            $this->removeFailedCopy($path);
             $this->error('Backup failed: '.$this->safe($exception->getMessage()));
 
             return self::FAILURE;
         }
+
+        // Backups contain the whole database. Keep them private even when the
+        // operator's umask is permissive.
+        @chmod($path, 0640);
 
         try {
             $backup = new PDO('sqlite:'.$path);

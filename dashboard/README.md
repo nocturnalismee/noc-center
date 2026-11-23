@@ -56,6 +56,8 @@ host, prefix them with `./tools/php.sh php`.
 
 ```bash
 cp .env.example .env
+touch database/database.sqlite
+./tools/php.sh composer install
 ./tools/php.sh php artisan key:generate
 ./tools/php.sh php artisan migrate
 ./tools/php.sh php artisan noc:create-admin --name="Operator" \
@@ -78,50 +80,83 @@ The release layout is shared-hosting friendly and also works on a VPS:
 ~/noc/
   releases/2026-11-24T120000Z/   uploaded release
   shared/.env                    persistent, chmod 600
+  shared/storage/                persistent sessions/cache/logs/uploads
   current -> releases/...        atomic symlink
 ~/noc-data/noc.sqlite            database (outside public/)
+~/noc-backups/                   timestamped backups and logs
 ```
 
-1. **Upload a release** (including `vendor/` or run Composer on the host) to
+### Prerequisites (once, before the first deploy)
+
+1. **PHP 8.3+ CLI and FPM** with the extensions listed above. Record the
+   absolute CLI path for cron (`command -v php`; on shared hosts it is often
+   `/usr/local/bin/php` or an `/opt/cpanel/.../php` path, not the web PHP).
+2. **Upload a release** (including `vendor/` or run Composer on the host) to
    `~/noc/releases/<timestamp>/`. `public/build/manifest.json` must exist.
-2. **Create the shared environment file** and set at minimum `APP_NAME`,
+3. **Create the directories, backup target, and database file.** Laravel
+   refuses to connect when the configured SQLite file does not exist, and an
+   empty file is a valid empty database:
+   ```bash
+   mkdir -p ~/noc/releases ~/noc/shared/storage/logs ~/noc-data ~/noc-backups
+   chmod 750 ~/noc-data ~/noc-backups ~/noc/shared/storage
+   install -m 640 /dev/null ~/noc-data/noc.sqlite
+   ```
+   The cron redirect in `ops/shared-hosting/cron.example` writes to
+   `~/noc/shared/storage/logs/scheduler.log`; that directory exists after this
+   step and after `deploy.sh`.
+4. **Create the shared environment file** and set at minimum `APP_NAME`,
    `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL=https://…`, `APP_KEY`,
-   `DB_DATABASE` (absolute path), and the `MAIL_*` values you need. See
+   `DB_DATABASE` (absolute path), `QUEUE_SCHEDULED_WORKER=true` (shared
+   hosting), and the `MAIL_*` values you need. See
    [Environment matrix](#environment-matrix).
    ```bash
    install -m 600 /dev/null ~/noc/shared/.env
    # generate the key before the first deploy and paste it into shared/.env
    php -r 'echo "base64:".base64_encode(random_bytes(32)).PHP_EOL;'
    ```
-   `APP_KEY` encrypts Telegram credentials and the two-factor secret and keys
-   agent-token hashes. **Changing it invalidates every agent token and makes
-   stored secrets unreadable.** Keep the backup of `.env` with the database
-   backup; see [Backup and restore](#backup-and-restore).
-3. **Run the deploy script** from the uploaded release (or pass
+   `shared/.env` is authoritative; `deploy.sh` symlinks it into every release
+   and it replaces any release-local `.env`. `APP_KEY` encrypts Telegram
+   credentials and the two-factor secret and keys agent-token hashes.
+   **Changing it invalidates every agent token and makes stored secrets
+   unreadable.** Keep a copy of `.env` with the database backup; see
+   [Backup and restore](#backup-and-restore).
+5. **Install dependencies** if the release does not include `vendor/`:
+   ```bash
+   cd ~/noc/releases/<timestamp>
+   composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader
+   ```
+
+### First deploy
+
+1. **Run the deploy script** from the uploaded release (or pass
    `--release-dir`):
    ```bash
    cd ~/noc/releases/<timestamp>
    ops/shared-hosting/deploy.sh --app-root="$HOME/noc" --release-dir="$PWD"
    ```
-   It links `shared/.env` into the release, refuses PHP < 8.3 or a missing
-   asset manifest, runs `migrate --force --isolated`, rebuilds
-   config/route/view caches, and swaps `current` atomically. It never calls
-   `sudo`.
-4. **Create the first administrator once**:
+   It links `shared/.env`, converts the release `storage/` into a symlink to
+   `~/noc/shared/storage` (copying any existing files on the first run),
+   refuses PHP < 8.3 or a missing asset manifest, runs
+   `migrate --force --isolated`, rebuilds config/route/view caches, and swaps
+   `current` atomically. It never calls `sudo`.
+2. **Create the first administrator once**:
    ```bash
    php ~/noc/current/artisan noc:create-admin
    ```
-5. **Point the document root** at `~/noc/current/public`. `.env`, `storage/`,
+3. **Point the document root** at `~/noc/current/public`. `.env`, `storage/`,
    `vendor/`, and SQLite must stay outside it.
-6. **Enable the scheduler** — cron line from
-   [`ops/shared-hosting/cron.example`](ops/shared-hosting/cron.example), or
-   the systemd units in [`ops/vps/`](ops/vps/).
-7. **Configure alerts** at `/settings/alerts` and press **Send test** for each
+4. **Enable the scheduler** — cron line from
+   [`ops/shared-hosting/cron.example`](ops/shared-hosting/cron.example) using
+   the absolute PHP binary, or the systemd units in [`ops/vps/`](ops/vps/).
+   The backup directory already exists from the prerequisites, so its log and
+   the backup cron can be installed safely.
+5. **Configure alerts** at `/settings/alerts` and press **Send test** for each
    channel (see [Alert channels](#alert-channels)).
-8. **Take the first backup** and confirm it verifies:
+6. **Take the first backup** and confirm it verifies:
    ```bash
    php ~/noc/current/artisan noc:backup --path="$HOME/noc-backups/noc-$(date -u +%Y%m%dT%H%M%SZ).sqlite"
    ```
+
 
 ## Update and rollback
 
@@ -131,21 +166,34 @@ Upload a new release directory, then run:
 ops/shared-hosting/deploy.sh --app-root="$HOME/noc" --release-dir="$HOME/noc/releases/<new>"
 ```
 
-- `migrate --force --isolated` uses the cache lock so two deploys cannot race.
+- `migrate --force --isolated` uses the cache lock, and `deploy.sh` also takes
+  an exclusive host-level `flock` on `$APP_ROOT/.deploy.lock` when `flock` is
+  available, so two deploys cannot race. With shared storage and
+  `CACHE_STORE=file`, the cache lock spans releases; a release with a private
+  cache or a different cache store only serialises itself.
 - `config:cache`, `route:cache`, and `view:cache` run **before** the symlink
   swap; a failure leaves the previous release live.
 - Nginx serves through `current`, so the switch is atomic.
-- If `.env` is empty, `deploy.sh` links `shared/.env` into the release.
+- `shared/.env` is authoritative: when it exists, `deploy.sh` symlinks it into
+  every release and it replaces a release-local `.env`.
+- `storage` is a symlink to `shared/storage`, so file sessions, cache, logs,
+  and `storage/app/public` uploads survive the release swap. Keep
+  `~/noc/shared/storage` writable by the PHP user (750 directories; files 640).
 
-**Rollback:** re-point `current` at the previous release and clear the caches.
-Migrations are forward-only; if a migration must be undone, restore the
-database backup taken immediately before the deploy (see below).
+**Rollback:** re-point `current` at the previous release, clear the caches,
+and restart workers. Migrations are forward-only; if a migration must be
+undone, restore the database backup taken immediately before the deploy (see
+below).
 
 ```bash
 ln -sfn ~/noc/releases/<previous> ~/noc/.current.rollback
 mv -Tf ~/noc/.current.rollback ~/noc/current
 php ~/noc/current/artisan optimize:clear
+php ~/noc/current/artisan queue:restart
 ```
+
+The old release still points its `storage` symlink at `shared/storage`, so its
+sessions and logs remain available after the rollback.
 
 ## Environment matrix
 
@@ -164,6 +212,7 @@ database; `MAIL_*` and `APP_KEY` live in `.env` (chmod 600).
 | `CACHE_STORE` | `file` | `redis` |
 | `SESSION_DRIVER` | `file` | `redis` |
 | `QUEUE_CONNECTION` | `database` | `redis` |
+| `QUEUE_SCHEDULED_WORKER` | `true` (scheduler drains queue) | `false` (systemd worker owns it) |
 | `SESSION_SECURE_COOKIE` | `true` under HTTPS | `true` under HTTPS |
 | `LOG_STACK` / `LOG_LEVEL` | `daily` / `warning` | `daily` / `warning` |
 | `MAIL_MAILER` | `smtp` | `smtp` |
@@ -175,10 +224,13 @@ Notes:
 
 - `CACHE_STORE=file` and `SESSION_DRIVER=file` avoid a database-backed cache
   competing with ingest writes on shared hosting. If the host provides Redis,
-  use it.
+  use it. On a VPS set `QUEUE_SCHEDULED_WORKER=false` in `.env` **before**
+  `config:cache` so two workers do not consume the same jobs.
 - `DB_TRANSACTION_MODE=IMMEDIATE` is honoured on PHP 8.4+; PHP 8.3 still uses
   `BEGIN DEFERRED`, so do not rely on `IMMEDIATE` to rule out lock contention.
-- Keep `storage/` and `bootstrap/cache/` writable **only** by the PHP user.
+- Keep `shared/storage/` and `bootstrap/cache/` writable **only** by the PHP
+  user. `deploy.sh` creates `shared/storage` with 750 directories and symlinks
+  each release's `storage` to it, so sessions, cache, and logs survive deploys.
 - On a VPS, Redis must be installed and listening on loopback; the queue and
   scheduler systemd units assume the application is at `/var/www/noc/current`.
 
@@ -194,21 +246,27 @@ The schedule lives in `routes/console.php` and runs:
 | `noc:prune` | daily 03:30 | retention (spec §7.11) |
 | `queue:work --stop-when-empty --max-time=50 --tries=3 --sleep=1` | every minute | email/Telegram + queued jobs |
 
-**Shared hosting:** one cron line is enough —
-[`ops/shared-hosting/cron.example`](ops/shared-hosting/cron.example):
+**Shared hosting:** one cron line is enough — see
+[`ops/shared-hosting/cron.example`](ops/shared-hosting/cron.example). Use the
+absolute PHP 8.3+ CLI path and a visible log file, not `/dev/null`:
 
 ```cron
-* * * * * cd /home/ACCOUNT/noc/current && php artisan schedule:run >> /dev/null 2>&1
+* * * * * cd /home/ACCOUNT/noc/current && /usr/local/bin/php artisan schedule:run >> /home/ACCOUNT/noc/shared/storage/logs/scheduler.log 2>&1
 ```
 
-The scheduled `queue:work` has no supervisor and stops when the queue is empty
-or after 50 seconds, which is below the one-minute cadence. It uses
-`withoutOverlapping`; a killed run cannot block the next minute forever.
+The scheduled `queue:work` exists only when `QUEUE_SCHEDULED_WORKER=true`
+(the default). It is not a supervisor: it stops when the queue is empty or
+after 50 seconds, below the one-minute cadence. It uses `withoutOverlapping`
+with a two-minute lock, so a run killed at 50 seconds blocks the **immediately
+next tick**; the following tick can run again.
 
 **VPS:** install [`ops/vps/noc-scheduler.service`](ops/vps/noc-scheduler.service)
 with [`noc-scheduler.timer`](ops/vps/noc-scheduler.timer), and
 [`ops/vps/noc-queue.service`](ops/vps/noc-queue.service) for one long-running
-worker (`Restart=always`, `MemoryMax=512M`).
+worker (`Restart=always`, `MemoryMax=512M`). Set
+`QUEUE_SCHEDULED_WORKER=false` in `shared/.env` before `config:cache` (the
+scheduler unit also sets it, but the cached config is authoritative) so the
+schedule does not start a second worker.
 
 ```bash
 sudo cp ops/vps/noc-scheduler.service ops/vps/noc-scheduler.timer ops/vps/noc-queue.service /etc/systemd/system/
@@ -259,6 +317,12 @@ MAIL_FROM_NAME="${APP_NAME}"
   reads `MAIL_SCHEME` (leave `null` unless you need `smtp`/`smtps`).
   `MAIL_ENCRYPTION` is kept for older hosting guides but is not read by this
   version.
+- Production caches configuration (`config:cache`). After changing `MAIL_*` or
+  any other `.env` value, run
+  `php ~/noc/current/artisan config:cache` before **Send test email**; a
+  stale config cache keeps the old mailer. If something looks impossible, run
+  `php ~/noc/current/artisan optimize:clear` and reload. Telegram credentials
+  are stored through Settings, not `.env`, so they take effect on save.
 - Shared hosting must allow **outbound TCP to the SMTP host and port**.
   Many hosts block 25; prefer 587 or 465.
 - Then open `/settings/alerts` and press **Send test email**. The button is
@@ -297,9 +361,10 @@ Telegram URL contains the bot token and is never logged, stored, or shown.
 
 ### Delivery log
 
-The alert detail page lists each channel's `opened`, reminder, and `resolved`
-rows with status, attempt count, and a bounded redacted error. Use it to
-distinguish “queued but worker is down” (`pending`) from “SMTP rejected”
+The alert detail page lists each channel's `opened` rows (including reminder
+attempts; reminders reuse the opening row, there is no `reminder` event) and
+`resolved` rows with status, attempt count, and a bounded redacted error. Use
+it to distinguish “queued but worker is down” (`pending`) from “SMTP rejected”
 (`failed`).
 
 ## Backup and restore
@@ -310,10 +375,18 @@ single file, readable while the dashboard runs), then:
 
 - refuses a relative path, a directory, a symlink (including a broken one),
   an existing file, or a missing/unwritable parent directory;
+- writes the copy with mode **0640** (owner read/write, group read) even if the
+  operator's umask is permissive;
 - runs `PRAGMA integrity_check` against the copy and deletes it if the check
-  fails;
+  or the copy itself fails;
 - prints the size, `integrity_check: ok`, and the row count of every table;
 - prints no credentials.
+
+`VACUUM INTO` reads and rewrites the whole database. On a 1 GB database expect
+seconds to tens of seconds on SSD, and reserve free space in the destination
+directory equal to the database size. Run it off-peak and never run two
+backups at once; the copy does not block writers for the full runtime, but it
+is I/O-heavy.
 
 ```bash
 # production server (absolute path; the directory must exist)
@@ -329,6 +402,13 @@ php ~/noc/current/artisan noc:backup --path=/home/ACCOUNT/noc-backups/noc-2026-1
 `NOC_BACKUP_RETENTION_COUNT` (default 14, `0` disables), or the equivalent
 `--dest`, `--retention-days`, and `--retention-count` flags.
 
+The script refuses a symlinked destination directory, resolves a relative
+`--dest` against the caller's directory, and writes each backup to a unique
+hidden partial file before renaming it into place. Two runs in the same second
+get distinct names, a failed run leaves no timestamped file, and retention
+only considers real (non-hidden, non-symlink) `noc-*.sqlite` files. It runs
+with `umask 027` (750 directories, 640 files).
+
 ```bash
 # nightly at 02:15, keep 14 days and the newest 14 copies
 15 2 * * * /home/ACCOUNT/noc/current/ops/backup.sh >> /home/ACCOUNT/noc-backups/backup.log 2>&1
@@ -337,31 +417,91 @@ php ~/noc/current/artisan noc:backup --path=/home/ACCOUNT/noc-backups/noc-2026-1
 Store copies **off the server**, encrypted (spec §14/§15.2; e.g. `age`, `gpg`,
 or restic/borg). Retention alone is not a backup strategy.
 
-**Restore** (brief maintenance window; stop the scheduler and queue first):
+### Restore
+
+A SQLite database is not one file while WAL mode is active: `noc.sqlite`,
+`noc.sqlite-wal`, and `noc.sqlite-shm` belong together. **Never copy a backup
+over a live database while its sidecars remain.** A stale `-wal`/`-shm` belongs
+to the old database; SQLite can replay or mix those pages into the new file,
+and `PRAGMA integrity_check` may still report `ok` because the result is
+internally consistent while not being the backup you intended. Move the old
+database aside, delete the sidecars, then rename the verified temp copy into
+place. Keep the old file until the restored data is accepted.
 
 ```bash
-# 1. Stop writers: comment out the cron line; on a VPS:
+APP=/home/ACCOUNT/noc/current
+DB=/home/ACCOUNT/noc-data/noc.sqlite
+BK=/home/ACCOUNT/noc-backups/noc-2026-11-24.sqlite
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)-$$
+TMP="$DB.restore-$STAMP"
+OLD="$DB.before-restore-$STAMP"
+
+# 1. Verify the backup itself before touching the live database.
+php -r '$p=new PDO("sqlite:".$argv[1]); $p->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION); echo $p->query("PRAGMA integrity_check")->fetchColumn(), PHP_EOL;' "$BK"
+
+# 2. Stop all writers. On shared hosting comment out the cron line and wait for
+#    a running schedule:run/queue:work to finish; on a VPS:
 sudo systemctl stop noc-queue noc-scheduler.timer
+# If maintenance mode alone is not trusted, also stop PHP-FPM briefly:
+# sudo systemctl stop php8.4-fpm
 
-# 2. Verify the copy before touching the live database
-php -r '$p=new PDO("sqlite:/home/ACCOUNT/noc-backups/noc-2026-11-24.sqlite"); echo $p->query("PRAGMA integrity_check")->fetchColumn(), PHP_EOL;'
+# 3. Put the web app in maintenance mode (503, no new requests reach SQLite).
+php "$APP/artisan" down
 
-# 3. Replace the database with the verified copy (keep the old file just in case)
-mv ~/noc-data/noc.sqlite ~/noc-data/noc.sqlite.before-restore
-cp ~/noc-backups/noc-2026-11-24.sqlite ~/noc-data/noc.sqlite
-chmod 640 ~/noc-data/noc.sqlite
+# 4. Copy the backup to a TEMP file in the SAME directory as the database.
+#    Same filesystem makes the final step an atomic rename.
+cp -- "$BK" "$TMP"
+chmod 640 "$TMP"
 
-# 4. Clear caches and restart the scheduler/queue
-php ~/noc/current/artisan optimize:clear
+# 5. Move the live database aside (rollback path) and remove its sidecars.
+#    The -wal/-shm/-journal files belong to the OLD database and must not
+#    survive next to the restored main file.
+mv -- "$DB" "$OLD"
+rm -f -- "$DB-wal" "$DB-shm" "$DB-journal"
+
+# 6. Atomically move the verified copy into place.
+mv -- "$TMP" "$DB"
+chmod 640 "$DB"
+
+# 7. Check integrity AND the counts you expect from the backup output.
+php -r '$p=new PDO("sqlite:".$argv[1]); $p->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION); echo "integrity_check: ", $p->query("PRAGMA integrity_check")->fetchColumn(), PHP_EOL; foreach (["servers","metric_samples","alerts"] as $t) { echo $t, ": ", $p->query("SELECT COUNT(*) FROM ".$t)->fetchColumn(), PHP_EOL; }' "$DB"
+
+# 8. Rebuild caches, leave maintenance mode, restart workers.
+php "$APP/artisan" optimize:clear
+php "$APP/artisan" config:cache
+php "$APP/artisan" route:cache
+php "$APP/artisan" view:cache
+php "$APP/artisan" up
+sudo systemctl start noc-scheduler.timer noc-queue   # VPS only
+```
+
+If verification fails or the data is wrong, roll back before deleting `$OLD`:
+
+```bash
+mv -- "$DB" "$DB.failed-restore-$STAMP"
+mv -- "$OLD" "$DB"
+rm -f -- "$DB-wal" "$DB-shm" "$DB-journal"
+chmod 640 "$DB"
+php "$APP/artisan" optimize:clear
+php "$APP/artisan" up
 sudo systemctl start noc-scheduler.timer noc-queue   # VPS only
 ```
 
 Restoring into a fresh SQLite file preserves server and sample counts (covered
 by `tests/Feature/Ops/BackupTest.php`). The backup does **not** contain
 `APP_KEY`. Use the same `APP_KEY` as when it was taken, or agent tokens
-(HMAC-keyed) and Telegram/two-factor secrets become invalid. If the key is
-lost, issue new agent tokens from each server's Token page and re-enter the
-Telegram bot token.
+(HMAC-keyed) and encrypted secrets become invalid. If the key is lost:
+
+- issue new agent tokens from each server's Token page;
+- re-enter the Telegram bot token in `/settings/alerts`;
+- reset two-factor for affected users so they can enroll again (Fortify's
+  encrypted secret and recovery codes are unreadable) and purge their
+  sessions:
+  ```bash
+  php ~/noc/current/artisan tinker --execute="\Illuminate\Support\Facades\DB::table('users')->update(['two_factor_secret' => null, 'two_factor_recovery_codes' => null, 'two_factor_confirmed_at' => null]); \Illuminate\Support\Facades\DB::table('sessions')->delete();"
+  ```
+  On a file session driver, delete `~/noc/shared/storage/framework/sessions/*`
+  instead of the `sessions` table.
 
 ## PostgreSQL / TimescaleDB migration rehearsal
 
@@ -421,11 +561,12 @@ place.
      -e DB_PORT=5432 -e DB_DATABASE=noc \
      -e DB_USERNAME=postgres -e DB_PASSWORD=noc-rehearsal \
      <your-php-image-with-pdo_pgsql> \
-     php artisan test --filter='Ingest|Series|Alert|Prune|Backup'
+     php artisan test --filter='Ingest|Series|Alert|Prune'
    ```
-   At minimum cover the ingest, series, alert, retention, and backup suites.
-   Fix any driver-specific failure in the service layer, not with raw SQL in
-   controllers.
+   At minimum cover the ingest, series, alert, and retention suites. Do **not**
+   run `BackupTest` against Postgres: `noc:backup` is SQLite-only (`VACUUM
+   INTO`) and intentionally has no PostgreSQL path. Fix any driver-specific
+   failure in the service layer, not with raw SQL in controllers.
 6. **TimescaleDB (optional)**: on a TimescaleDB-enabled Postgres, convert
    `metric_samples` to a hypertable on `collected_at` (partition by
    `server_id` only if measurements justify it):
@@ -459,15 +600,19 @@ place.
 
 | Symptom | Check |
 | --- | --- |
-| Alerts are in-app only | Is the scheduler cron/timer running? `php artisan schedule:list`. Is `queue:work` finishing under 50 s? Check `storage/logs/laravel.log`. |
+| Alerts are in-app only | Is the scheduler cron/timer running? `php artisan schedule:list`. Is `queue:work` finishing under 50 s? Check `~/noc/shared/storage/logs/laravel.log`. |
 | Email `pending` forever | Queue worker not running, or `QUEUE_CONNECTION` points at a service that is down. Run `php artisan queue:work --stop-when-empty` once and read the error. |
 | Email `failed` | `MAIL_*` values, outbound port, provider app password, `MAIL_FROM_ADDRESS` domain. Use **Send test email** and read the delivery row. |
+| **Send test** still uses the old mailer | Production caches config: run `php artisan config:cache` after editing `.env` (or `php artisan optimize:clear` while troubleshooting). |
 | Telegram `failed` | Bot token, chat ID (negative for groups), bot is a member/admin, forum `message_thread_id` belongs to that chat, outbound HTTPS to `api.telegram.org`. |
+| Cron runs nothing / no error output | Use the absolute PHP 8.3+ CLI path in the cron line and redirect to a log file; `/dev/null` hides a wrong PHP binary or permission error. |
+| Two workers on a VPS | Set `QUEUE_SCHEDULED_WORKER=false` in `.env` and rebuild the config cache; `noc-queue.service` owns the only long-running worker. |
 | `database is locked` | Confirm `DB_JOURNAL_MODE=wal` and `DB_BUSY_TIMEOUT=5000`; keep the DB on local disk; do not run long manual queries during ingest. |
+| Restore looks stale though `integrity_check` is `ok` | The old `-wal`/`-shm` sidecars were not removed. Restore again using the runbook: move the DB aside, delete sidecars, then rename the temp copy. |
 | Deploy fails on manifest | `public/build/manifest.json` was not uploaded; build assets locally/CI and re-upload. Never run `npm run build` on the server. |
 | `noc:backup` says destination exists | Backups never overwrite. Choose a new timestamped path or move the old copy. |
 | Restored dashboard rejects agents | The backup was restored with a different `APP_KEY`; reissue tokens or restore the matching `.env`. |
-| 500 after deploy | `php artisan optimize:clear`, check file permissions on `storage/` and `bootstrap/cache/`, then `php artisan about`. |
+| 500 after deploy | `php artisan optimize:clear`, check file permissions on `~/noc/shared/storage` and `bootstrap/cache/`, then `php artisan about`. |
 
 See [`ops/shared-hosting/README.md`](ops/shared-hosting/README.md) for the
 shared-hosting layout and rollback, and [`ops/vps/`](ops/vps/) for the Nginx

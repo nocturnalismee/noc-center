@@ -1,5 +1,6 @@
 <?php
 
+use App\Console\QueueWorkerSchedule;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -11,7 +12,7 @@ Artisan::command('inspire', function () {
 /*
 | Alerting scheduler (spec §9.1, §9.4).
 |
-| Both entries use `withoutOverlapping()` and deliberately not `onOneServer()`:
+| These entries use `withoutOverlapping()` and deliberately not `onOneServer()`:
 | the dashboard is a single node, and a shared host without an atomic cache
 | lock must still run them. The lock TTL is shorter than the cadence so a
 | killed run cannot strand the key.
@@ -46,8 +47,7 @@ Schedule::command('noc:prune')
 // (spec §15.1/§15.3). `--stop-when-empty` and `--max-time=50` keep each run
 // below the one-minute cadence; `--tries=3` bounds retries and `--sleep=1`
 // avoids a busy loop while a job is still backing off. The lock TTL is two
-// minutes, longer than `--max-time` but short enough that a killed worker
-// cannot block the next tick forever. VPS deployments use systemd instead.
-Schedule::command('queue:work --stop-when-empty --max-time=50 --tries=3 --sleep=1')
-    ->everyMinute()
-    ->withoutOverlapping(2);
+// minutes: a run killed at 50 seconds blocks only the immediately next tick,
+// and the following tick can run again. VPS deployments run a systemd worker
+// and set `QUEUE_SCHEDULED_WORKER=false` so this entry is not registered.
+QueueWorkerSchedule::register(Schedule::getFacadeRoot());

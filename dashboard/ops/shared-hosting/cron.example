@@ -1,12 +1,23 @@
 # NOC dashboard scheduler for shared hosting (spec §15.1).
 #
-# Replace /home/ACCOUNT/noc with the absolute path to your deployment root.
-# `~` is NOT expanded in crontab, so use the absolute path.
+# Replace /home/ACCOUNT/noc with the absolute path to your deployment root and
+# /usr/local/bin/php with the PHP 8.3+ CLI binary (`command -v php` on the
+# host; shared hosts often use /usr/local/bin/php or /opt/cpanel/.../php).
+# `~` is NOT expanded in crontab, so use absolute paths.
 #
 # The schedule drains the queue too (`queue:work --stop-when-empty
 # --max-time=50 --tries=3 --sleep=1`, scheduled in routes/console.php), so the
 # same cron line covers alerts, rollups, retention, liveness, and email/
-# Telegram delivery. No supervisor is needed on shared hosting.
+# Telegram delivery. No supervisor is needed on shared hosting; leave
+# QUEUE_SCHEDULED_WORKER=true in .env.
+#
+# Redirect to a real log file (created by deploy.sh under shared storage) so a
+# PHP version or permission error is visible. Do not send schedule output to
+# /dev/null while installing.
+#
+# Create the directory first (deploy.sh does this, but the cron entry may be
+# installed before the first deploy):
+#   mkdir -p /home/ACCOUNT/noc/shared/storage/logs
 #
 # Install with `crontab -e` (one line):
-* * * * * cd /home/ACCOUNT/noc/current && php artisan schedule:run >> /dev/null 2>&1
+* * * * * cd /home/ACCOUNT/noc/current && /usr/local/bin/php artisan schedule:run >> /home/ACCOUNT/noc/shared/storage/logs/scheduler.log 2>&1

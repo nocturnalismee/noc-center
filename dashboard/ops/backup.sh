@@ -14,11 +14,19 @@
 # Retention is applied twice: `--retention-days` deletes copies older than N
 # days, then `--retention-count` keeps only the newest N copies. `0` disables
 # that rule. Both default to 14.
+#
+# The backup is first written to a unique hidden partial file and then renamed
+# into place, so a crashed run never leaves a timestamped file that looks
+# valid. Two runs in the same second still get distinct names.
 
 set -euo pipefail
 
+# Directories are 750 and files 640; the command re-asserts 0640 on the copy.
+umask 027
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ORIGINAL_PWD="$(pwd -P)"
 
 PHP_BIN="${PHP_BIN:-php}"
 BACKUP_DIR="${NOC_BACKUP_DIR:-$HOME/noc-backups}"
@@ -39,6 +47,11 @@ NOC_BACKUP_RETENTION_COUNT, PHP_BIN.
 EOF
 }
 
+die() {
+    echo "backup: $*" >&2
+    exit 1
+}
+
 require_integer() {
     local name="$1"
     local value="$2"
@@ -52,7 +65,7 @@ require_integer() {
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dest)
-            [[ $# -ge 2 ]] || { echo "backup: --dest needs a value" >&2; exit 2; }
+            [[ $# -ge 2 ]] || die "--dest needs a value"
             BACKUP_DIR="$2"
             shift 2
             ;;
@@ -61,7 +74,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --retention-days)
-            [[ $# -ge 2 ]] || { echo "backup: --retention-days needs a value" >&2; exit 2; }
+            [[ $# -ge 2 ]] || die "--retention-days needs a value"
             RETENTION_DAYS="$2"
             shift 2
             ;;
@@ -70,7 +83,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --retention-count)
-            [[ $# -ge 2 ]] || { echo "backup: --retention-count needs a value" >&2; exit 2; }
+            [[ $# -ge 2 ]] || die "--retention-count needs a value"
             RETENTION_COUNT="$2"
             shift 2
             ;;
@@ -93,27 +106,60 @@ done
 require_integer "retention-days" "$RETENTION_DAYS"
 require_integer "retention-count" "$RETENTION_COUNT"
 
-command -v "$PHP_BIN" >/dev/null 2>&1 || {
-    echo "backup: PHP binary '$PHP_BIN' not found (set PHP_BIN)" >&2
-    exit 1
-}
+command -v "$PHP_BIN" >/dev/null 2>&1 || die "PHP binary '$PHP_BIN' not found (set PHP_BIN)"
+
+# Resolve a relative destination against the caller's directory, not APP_DIR
+# (the script changes directory before invoking Artisan). A symlinked
+# destination is refused so the backup cannot be redirected off-site or into
+# the public tree by a planted link.
+case "$BACKUP_DIR" in
+    /*) ;;
+    *) BACKUP_DIR="$ORIGINAL_PWD/$BACKUP_DIR" ;;
+esac
+
+[[ -L "$BACKUP_DIR" ]] && die "destination is a symlink: $BACKUP_DIR"
 
 mkdir -p -- "$BACKUP_DIR"
 
+[[ -L "$BACKUP_DIR" ]] && die "destination is a symlink: $BACKUP_DIR"
+
+BACKUP_DIR="$(cd -- "$BACKUP_DIR" && pwd -P)"
+chmod 750 -- "$BACKUP_DIR" 2>/dev/null || true
+
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-target="$BACKUP_DIR/noc-$timestamp.sqlite"
+suffix="$(date -u +%N 2>/dev/null || true)"
+[[ -n "$suffix" ]] || suffix="$$"
+suffix="$suffix-$$-$RANDOM"
+
+target="$BACKUP_DIR/noc-$timestamp-$suffix.sqlite"
+partial="$BACKUP_DIR/.noc-$timestamp-$suffix.partial.sqlite"
 
 if [[ -e "$target" || -L "$target" ]]; then
-    echo "backup: destination already exists: $target" >&2
-    exit 1
+    die "destination already exists: $target"
 fi
 
-cd -- "$APP_DIR"
-"$PHP_BIN" artisan noc:backup --path="$target"
+cleanup_partial() {
+    if [[ -e "$partial" ]]; then
+        rm -f -- "$partial"
+    fi
+}
+trap cleanup_partial EXIT
 
-# Build the list once so the two retention rules cannot race each other.
+cd -- "$APP_DIR"
+"$PHP_BIN" artisan noc:backup --path="$partial"
+
+# The command wrote and verified the partial copy. Rename atomically; this is
+# the only step that exposes a file with the final timestamped name.
+mv -f -- "$partial" "$target"
+chmod 640 -- "$target" 2>/dev/null || true
+trap - EXIT
+
+echo "backup: complete: $target"
+
+# Retention only considers regular, non-hidden timestamped backups. Partial
+# files and symlinks are never deleted or counted.
 mapfile -d '' backups < <(
-    find "$BACKUP_DIR" -maxdepth 1 -type f -name 'noc-*.sqlite' -print0 | sort -z
+    find "$BACKUP_DIR" -maxdepth 1 -type f ! -type l ! -name '.*' -name 'noc-*.sqlite' -print0 | sort -z
 )
 
 if [[ "${#backups[@]}" -eq 0 ]]; then
@@ -123,9 +169,11 @@ fi
 if [[ "$RETENTION_DAYS" -gt 0 ]]; then
     cutoff="$(date -u -d "$RETENTION_DAYS days ago" +%s 2>/dev/null || true)"
 
-    if [[ -n "$cutoff" ]]; then
+    if [[ -z "$cutoff" ]]; then
+        echo "backup: cannot calculate the retention cutoff; skipping the age rule" >&2
+    else
         for file in "${backups[@]}"; do
-            [[ -f "$file" ]] || continue
+            [[ -f "$file" && ! -L "$file" ]] || continue
             modified="$(date -u -r "$file" +%s 2>/dev/null || true)"
             [[ -n "$modified" ]] || continue
 
@@ -137,16 +185,15 @@ if [[ "$RETENTION_DAYS" -gt 0 ]]; then
     fi
 fi
 
-# Refill the list, newest first (the timestamp suffix sorts lexicographically).
+# Refill the list, newest first (the timestamp/suffix sorts lexicographically).
 mapfile -d '' backups < <(
-    find "$BACKUP_DIR" -maxdepth 1 -type f -name 'noc-*.sqlite' -print0 | sort -zr
+    find "$BACKUP_DIR" -maxdepth 1 -type f ! -type l ! -name '.*' -name 'noc-*.sqlite' -print0 | sort -zr
 )
 
 if [[ "$RETENTION_COUNT" -gt 0 && "${#backups[@]}" -gt "$RETENTION_COUNT" ]]; then
     for ((index = RETENTION_COUNT; index < ${#backups[@]}; index++)); do
+        [[ -f "${backups[$index]}" && ! -L "${backups[$index]}" ]] || continue
         rm -f -- "${backups[$index]}"
         echo "backup: removed over-count ${backups[$index]}"
     done
 fi
-
-echo "backup: complete: $target"
