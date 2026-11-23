@@ -3,6 +3,7 @@
 use App\Http\Controllers\ServerSeriesController;
 use App\Http\Controllers\StoredSnapshotController;
 use App\Http\Controllers\TokenRevealController;
+use App\Livewire\Activity\Index as ActivityIndex;
 use App\Livewire\Alerts\Index as AlertsIndex;
 use App\Livewire\Alerts\Show as AlertsShow;
 use App\Livewire\Dashboard;
@@ -11,6 +12,10 @@ use App\Livewire\Servers\Edit;
 use App\Livewire\Servers\Show;
 use App\Livewire\Servers\Tokens;
 use App\Livewire\Servers\Waiting;
+use App\Livewire\Settings\AlertSettings;
+use App\Livewire\Settings\Index as SettingsIndex;
+use App\Livewire\Settings\Profile;
+use App\Livewire\Settings\Users;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/dashboard');
@@ -32,4 +37,11 @@ Route::middleware('auth')->group(function () {
 
     Route::livewire('/alerts', AlertsIndex::class)->name('alerts.index');
     Route::livewire('/alerts/{alert}', AlertsShow::class)->name('alerts.show');
+
+    Route::livewire('/settings', SettingsIndex::class)->name('settings.index');
+    Route::livewire('/settings/profile', Profile::class)->name('settings.profile');
+    Route::livewire('/settings/users', Users::class)->name('settings.users');
+    Route::livewire('/settings/alerts', AlertSettings::class)->name('settings.alerts');
+
+    Route::livewire('/activity', ActivityIndex::class)->name('activity.index');
 });

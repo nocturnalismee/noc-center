@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Builders\AuditEventBuilder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Query\Builder;
 use LogicException;
 
@@ -65,5 +66,14 @@ class AuditEvent extends Model
     public function delete()
     {
         throw new LogicException('Audit events are append-only and cannot be deleted.');
+    }
+
+    /**
+     * The actor who caused the event. Null when the account was deleted;
+     * `audit_events.user_id` is nulled by the foreign key in that case.
+     */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'user_id');
     }
 }

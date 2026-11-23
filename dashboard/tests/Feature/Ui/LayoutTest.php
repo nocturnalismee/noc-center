@@ -35,8 +35,7 @@ class LayoutTest extends TestCase
             '/alerts',
             '/activity',
             '/settings',
-            '/users',
-            '/audit-log',
+            '/settings/users',
         ] as $path) {
             $response->assertSee('href="'.$path.'"', false);
         }

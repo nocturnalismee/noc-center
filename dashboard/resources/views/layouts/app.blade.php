@@ -93,15 +93,21 @@
                             <span class="sidebar-label">Settings</span>
                         </a>
 
-                        <a href="/users" @if (request()->is('users*')) aria-current="page" @endif class="nav-link" title="Users" aria-label="Users">
-                            <x-heroicon-o-users class="h-5 w-5 shrink-0" />
-                            <span class="sidebar-label">Users</span>
-                        </a>
+                        @auth
+                            @if (auth()->user()->isAdmin())
+                                <a href="/settings/users" @if (request()->is('settings/users*')) aria-current="page" @endif class="nav-link" title="Users" aria-label="Users">
+                                    <x-heroicon-o-users class="h-5 w-5 shrink-0" />
+                                    <span class="sidebar-label">Users</span>
+                                </a>
+                            @endif
 
-                        <a href="/audit-log" @if (request()->is('audit-log*')) aria-current="page" @endif class="nav-link" title="Audit log" aria-label="Audit log">
-                            <x-heroicon-o-clipboard-document-list class="h-5 w-5 shrink-0" />
-                            <span class="sidebar-label">Audit log</span>
-                        </a>
+                            @if (auth()->user()->canOperate())
+                                <a href="/activity" @if (request()->is('activity*')) aria-current="page" @endif class="nav-link" title="Audit log" aria-label="Audit log">
+                                    <x-heroicon-o-clipboard-document-list class="h-5 w-5 shrink-0" />
+                                    <span class="sidebar-label">Audit log</span>
+                                </a>
+                            @endif
+                        @endauth
                     </div>
                 </div>
             </nav>
