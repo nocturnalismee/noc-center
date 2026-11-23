@@ -123,6 +123,71 @@ function togglePassword(button) {
     button.setAttribute('aria-label', reveal ? 'Hide password' : 'Show password');
 }
 
+function copyStatus(message) {
+    const status = document.getElementById('copy-status');
+
+    if (status) {
+        status.textContent = message;
+    }
+}
+
+async function copyText(text) {
+    if (window.isSecureContext && navigator.clipboard?.writeText) {
+        try {
+            await navigator.clipboard.writeText(text);
+
+            return true;
+        } catch (error) {
+            // Fall through to the selection-based fallback.
+        }
+    }
+
+    const helper = document.createElement('textarea');
+
+    helper.value = text;
+    helper.setAttribute('readonly', '');
+    helper.style.position = 'fixed';
+    helper.style.top = '0';
+    helper.style.opacity = '0';
+    document.body.appendChild(helper);
+    helper.select();
+
+    let copied = false;
+
+    try {
+        copied = document.execCommand('copy');
+    } catch (error) {
+        copied = false;
+    }
+
+    helper.remove();
+
+    return copied;
+}
+
+async function copyFrom(button) {
+    const target = document.getElementById(button.dataset.copyTarget);
+
+    if (!target) {
+        return;
+    }
+
+    const copied = await copyText(target.textContent.trim());
+
+    copyStatus(copied ? 'Copied to clipboard.' : 'Copy failed. Select the text and copy it manually.');
+
+    if (!copied) {
+        return;
+    }
+
+    const label = button.textContent;
+
+    button.textContent = 'Copied';
+    window.setTimeout(() => {
+        button.textContent = label;
+    }, 1500);
+}
+
 document.addEventListener('click', (event) => {
     const target = event.target;
 
@@ -154,6 +219,13 @@ document.addEventListener('click', (event) => {
 
     if (passwordButton) {
         togglePassword(passwordButton);
+        return;
+    }
+
+    const copyButton = target.closest('[data-copy-target]');
+
+    if (copyButton) {
+        copyFrom(copyButton);
     }
 });
 

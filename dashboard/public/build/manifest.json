@@ -98,7 +98,7 @@
     ]
   },
   "resources/css/app.css": {
-    "file": "assets/app-CLjY-JoQ.css",
+    "file": "assets/app-DsSvbfJN.css",
     "name": "app",
     "names": [
       "app.css"
@@ -107,7 +107,7 @@
     "isEntry": true
   },
   "resources/js/app.js": {
-    "file": "assets/app-C15zzZ-Y.js",
+    "file": "assets/app-o9OrqMvc.js",
     "name": "app",
     "src": "resources/js/app.js",
     "isEntry": true,

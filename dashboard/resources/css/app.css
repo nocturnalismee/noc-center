@@ -272,6 +272,14 @@
         box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 18%, transparent);
     }
 
+    .field-area {
+        height: auto;
+        min-height: 84px;
+        padding: 10px 12px;
+        line-height: 1.5;
+        resize: vertical;
+    }
+
     .field-label {
         display: block;
         margin-bottom: 6px;
