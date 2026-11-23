@@ -66,7 +66,9 @@ class SendAlertNotification implements ShouldQueue
     public function middleware(): array
     {
         return [
-            (new WithoutOverlapping(self::lockKey($this->alertId, $this->channel, $this->event)))->releaseAfter(30),
+            (new WithoutOverlapping(self::lockKey($this->alertId, $this->channel, $this->event)))
+                ->releaseAfter(30)
+                ->expireAfter(300),
         ];
     }
 

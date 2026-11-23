@@ -188,6 +188,7 @@ class AlertNotifier
             Alert::query()->whereKey($alert->getKey())->update([
                 'notification_count' => DB::raw('notification_count + 1'),
                 'last_notified_at' => $now,
+                'updated_at' => $now,
             ]);
 
             $alert->forceFill([
