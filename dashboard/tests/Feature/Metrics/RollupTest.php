@@ -382,20 +382,23 @@ class RollupTest extends TestCase
         );
 
         $this->artisan('noc:rollup')
-            ->expectsOutputToContain('300s: 1 bucket(s)')
-            ->expectsOutputToContain('3600s: 1 bucket(s)')
+            // The command's window is its widest level's (1d: 11-21 00:00 →
+            // 11-23 00:00), applied to every level in the chain.
+            ->expectsOutputToContain('300s: 2 bucket(s)')
+            ->expectsOutputToContain('3600s: 2 bucket(s)')
             ->expectsOutputToContain('86400s: 1 bucket(s)')
             ->assertSuccessful();
 
-        // The command re-upserts the seeded 11-22 5m/1h buckets (inside its
-        // windows) and adds today's 11:00 buckets. The 11-22 day bucket is
-        // outside the 1d window, so it stays as seeded.
+        // Seeded: 11-22 5m, 11-22 1h, 11-22 1d. The run re-upserts those and
+        // adds today's 11:00 5m and 1h. The 11-21 day bucket is not built: its
+        // only hourly bucket (the hand-seeded 10:00) sat in 11-22.
         $this->assertSame(2, MetricRollup::query()->where('resolution_seconds', 300)->count());
         $this->assertSame(2, MetricRollup::query()->where('resolution_seconds', 3600)->count());
         $this->assertSame(1, MetricRollup::query()->where('resolution_seconds', 86400)->count());
-        $this->assertSame(0, MetricRollup::query()->where('resolution_seconds', 86400)->where('bucket_start', '2026-11-23 00:00:00')->count());
-        $this->assertSame('2026-11-23 11:00:00', MetricRollup::query()
-            ->where('resolution_seconds', 300)->orderByDesc('bucket_start')->first()->bucket_start->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame(1, MetricRollup::query()
+            ->where('resolution_seconds', 300)
+            ->where('bucket_start', '2026-11-23 11:00:00')
+            ->count());
         $this->assertSame('2026-11-22 00:00:00', MetricRollup::query()
             ->where('resolution_seconds', 86400)->sole()->bucket_start->utc()->format('Y-m-d H:i:s'));
     }
@@ -508,19 +511,329 @@ class RollupTest extends TestCase
         }
     }
 
+    // ------------------------------------------------------------------
+    // Date range parsing
+    // ------------------------------------------------------------------
+
+    public function test_the_command_accepts_every_documented_timestamp_form(): void
+    {
+        $server = $this->server();
+
+        // One sample per 5m bucket across the same calendar window; every
+        // equivalent spelling of the range must select it.
+        $this->sample($server, '2026-11-20 05:00:00', ['cpu_usage_pct' => 10]);
+
+        $forms = [
+            ['2026-11-20', '2026-11-21'],
+            ['2026-11-20 04:00', '2026-11-20 06:00'],
+            ['2026-11-20 04:00:00', '2026-11-20 06:00:00'],
+            ['2026-11-20T04:00', '2026-11-20T06:00'],
+            ['2026-11-20T04:00:00', '2026-11-20T06:00:00'],
+            ['2026-11-20T04:00Z', '2026-11-20T06:00Z'],
+            ['2026-11-20T04:00:00Z', '2026-11-20T06:00:00Z'],
+            ['2026-11-20T04:00:00.5Z', '2026-11-20T06:00:00.5Z'],
+            ['2026-11-19T04:00:00.123456Z', '2026-11-20T06:00:00.123456Z'],
+        ];
+
+        foreach ($forms as [$from, $to]) {
+            MetricRollup::query()->delete();
+
+            $this->artisan('noc:rollup', [
+                '--resolution' => '300',
+                '--from' => $from,
+                '--to' => $to,
+            ])->assertSuccessful();
+
+            $bucket = MetricRollup::query()->sole();
+            $this->assertSame(
+                '2026-11-20 05:00:00',
+                $bucket->bucket_start->utc()->format('Y-m-d H:i:s'),
+                sprintf('Range [%s, %s) did not select 05:00.', $from, $to),
+            );
+        }
+    }
+
+    public function test_the_command_accepts_a_leap_day_and_converts_offsets_to_utc(): void
+    {
+        $server = $this->server();
+
+        // 23:00 is itself a bucket edge, so a neighbour sample would add a
+        // second bucket; one sample inside the leap day keeps the assert exact.
+        $this->sample($server, '2024-02-28 23:00:00', ['cpu_usage_pct' => 10]);
+        $this->sample($server, '2024-02-29 05:00:00', ['cpu_usage_pct' => 20]);
+        $this->sample($server, '2024-03-01 00:00:00', ['cpu_usage_pct' => 30]);
+
+        $this->artisan('noc:rollup', [
+            '--resolution' => '300',
+            '--from' => '2024-02-29',
+            '--to' => '2024-03-01',
+        ])->assertSuccessful();
+
+        $this->assertSame('2024-02-29 05:00:00', MetricRollup::query()->sole()->bucket_start->utc()->format('Y-m-d H:i:s'));
+
+        // +07:00 12:00 == 05:00 UTC: a one-offset range selects the same bucket.
+        $this->artisan('noc:rollup', [
+            '--resolution' => '300',
+            '--from' => '2024-02-29T12:00:00+07:00',
+            '--to' => '2024-02-29T12:05:00+07:00',
+        ])->assertSuccessful();
+
+        $this->assertSame(1, MetricRollup::query()->count());
+    }
+
+    public function test_the_command_rejects_invalid_timestamps_without_a_stack_trace(): void
+    {
+        $this->server();
+
+        $invalid = [
+            '2026-02-31',            // April 31 etc. do not exist
+            '2026-13-01',
+            '2026-11-20junk',        // trailing junk
+            '2026-11-20T25:00:00Z',
+            '2026-11-20T04:00:00Zjunk',
+            '2025-02-29',            // not a leap year
+            ' 2026-11-20',
+            'yesterday',
+        ];
+
+        foreach ($invalid as $value) {
+            $this->artisan('noc:rollup', ['--from' => $value, '--to' => '2026-11-21T00:00:00Z'])
+                ->expectsOutputToContain('--from must be a valid UTC date')
+                ->assertFailed();
+
+            $this->artisan('noc:rollup', ['--from' => '2026-11-20T00:00:00Z', '--to' => $value])
+                ->expectsOutputToContain('--to must be a valid UTC date')
+                ->assertFailed();
+        }
+
+        $this->assertSame(0, MetricRollup::query()->count());
+    }
+
+    public function test_the_command_requires_both_range_options_together(): void
+    {
+        $this->server();
+
+        $this->artisan('noc:rollup', ['--from' => '2026-11-20T04:00:00Z'])
+            ->expectsOutputToContain('both --from and --to are required')
+            ->assertFailed();
+
+        $this->artisan('noc:rollup', ['--to' => '2026-11-20T06:00:00Z'])
+            ->expectsOutputToContain('both --from and --to are required')
+            ->assertFailed();
+
+        // Also when combined with an otherwise valid resolution.
+        $this->artisan('noc:rollup', ['--resolution' => '300', '--from' => '2026-11-20T04:00:00Z'])
+            ->expectsOutputToContain('both --from and --to are required')
+            ->assertFailed();
+    }
+
+    public function test_the_command_rejects_a_range_whose_start_is_not_before_its_end(): void
+    {
+        $this->server();
+
+        $this->artisan('noc:rollup', [
+            '--from' => '2026-11-20T06:00:00Z',
+            '--to' => '2026-11-20T06:00:00Z',
+        ])->expectsOutputToContain('--from must be before --to')->assertFailed();
+
+        $this->artisan('noc:rollup', [
+            '--from' => '2026-11-20T07:00:00Z',
+            '--to' => '2026-11-20T06:00:00Z',
+        ])->expectsOutputToContain('--from must be before --to')->assertFailed();
+    }
+
+    // ------------------------------------------------------------------
+    // Cascading coarse rollups
+    // ------------------------------------------------------------------
+
+    public function test_selecting_an_hourly_rollup_also_rebuilds_its_five_minute_source(): void
+    {
+        $server = $this->server();
+
+        $this->sample($server, '2026-11-23 11:00:00', ['cpu_usage_pct' => 10]);
+        $this->sample($server, '2026-11-23 11:05:00', ['cpu_usage_pct' => 20]);
+
+        // A late sample lands after the hour has begun but before this run.
+        $this->sample($server, '2026-11-23 11:55:00', ['cpu_usage_pct' => 60]);
+
+        $this->artisan('noc:rollup', ['--resolution' => '3600'])
+            ->assertSuccessful();
+
+        // 1h must exist even though 5m was never computed by a previous run.
+        $hour = MetricRollup::query()->where('resolution_seconds', 3600)->sole();
+        $this->assertSame(3, $hour->samples);
+        $this->assertEqualsWithDelta(90.0, $hour->cpu_usage_sum, 0.001);
+
+        // The 5m level was rebuilt first, so the hour is weighted from
+        // complete 5m data (including the late sample).
+        $this->assertSame(3, MetricRollup::query()->where('resolution_seconds', 300)->count());
+    }
+
+    public function test_selecting_a_daily_rollup_cascades_through_hourly_to_five_minute(): void
+    {
+        $server = $this->server();
+
+        $this->sample($server, '2026-11-22 10:00:00', ['cpu_usage_pct' => 10]);
+        $this->sample($server, '2026-11-22 10:30:00', ['cpu_usage_pct' => 30]);
+
+        $this->artisan('noc:rollup', ['--resolution' => '86400'])
+            ->assertSuccessful();
+
+        $day = MetricRollup::query()->where('resolution_seconds', 86400)->sole();
+        $this->assertSame(2, $day->samples);
+        $this->assertEqualsWithDelta(40.0, $day->cpu_usage_sum, 0.001);
+        $this->assertEqualsWithDelta(20.0, $day->cpu_usage_sum / $day->samples, 0.001);
+    }
+
+    public function test_selecting_the_five_minute_rollup_alone_writes_no_coarse_buckets(): void
+    {
+        $server = $this->server();
+
+        $this->sample($server, '2026-11-23 11:00:00', ['cpu_usage_pct' => 10]);
+
+        $this->artisan('noc:rollup', ['--resolution' => '300'])
+            ->expectsOutputToContain('300s: 1 bucket(s)')
+            ->doesntExpectOutputToContain('3600s:')
+            ->assertSuccessful();
+
+        $this->assertSame([300], MetricRollup::query()->pluck('resolution_seconds')->unique()->values()->all());
+    }
+
+    // ------------------------------------------------------------------
+    // Completed-bucket boundary (review I1/I2 rejected: pinned behaviour)
+    // ------------------------------------------------------------------
+
+    public function test_a_bucket_completed_exactly_at_now_is_written(): void
+    {
+        // now == 12:05:00, so the clamp is not applied (`lastExclusive == now`)
+        // and 12:00–12:05 is already complete.
+        Carbon::setTestNow('2026-11-23 12:05:00');
+
+        $server = $this->server();
+        $this->sample($server, '2026-11-23 12:00:30', ['cpu_usage_pct' => 10]);
+
+        $this->service()->rollup(
+            $server,
+            300,
+            CarbonImmutable::parse('2026-11-23 12:00:00', 'UTC'),
+            CarbonImmutable::parse('2026-11-23 12:10:00', 'UTC'),
+        );
+
+        $this->assertSame('2026-11-23 12:00:00', MetricRollup::query()->sole()->bucket_start->utc()->format('Y-m-d H:i:s'));
+    }
+
+    public function test_a_bucket_completed_inside_a_longer_window_is_written_when_now_is_mid_bucket(): void
+    {
+        // now == 12:05:30: the clamp is `bucketStart(now)` exclusive, i.e.
+        // buckets `< 12:05`, which still includes the completed 12:00 bucket.
+        Carbon::setTestNow('2026-11-23 12:05:30');
+
+        $server = $this->server();
+        $this->sample($server, '2026-11-23 12:00:30', ['cpu_usage_pct' => 10]);
+        $this->sample($server, '2026-11-23 12:05:10', ['cpu_usage_pct' => 20]);
+
+        $this->service()->rollup(
+            $server,
+            300,
+            CarbonImmutable::parse('2026-11-23 12:00:00', 'UTC'),
+            CarbonImmutable::parse('2026-11-23 12:10:00', 'UTC'),
+        );
+
+        $bucket = MetricRollup::query()->sole();
+        $this->assertSame('2026-11-23 12:00:00', $bucket->bucket_start->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame(1, $bucket->samples);
+    }
+
+    public function test_the_guard_clamps_to_the_bucket_start_exclusive_not_the_window_end(): void
+    {
+        $server = $this->server();
+        $this->sample($server, '2026-11-23 12:00:30', ['cpu_usage_pct' => 10]);
+        $this->sample($server, '2026-11-23 12:04:30', ['cpu_usage_pct' => 20]);
+
+        // now == 12:04:30 is still inside 12:00–12:05, so neither sample's
+        // bucket is complete yet.
+        Carbon::setTestNow('2026-11-23 12:04:30');
+
+        $this->service()->rollup(
+            $server,
+            300,
+            CarbonImmutable::parse('2026-11-23 12:00:00', 'UTC'),
+            CarbonImmutable::parse('2026-11-23 12:10:00', 'UTC'),
+        );
+
+        $this->assertSame(0, MetricRollup::query()->count());
+
+        // One second later the bucket is complete: the clamp excludes only
+        // buckets starting at or after 12:05.
+        Carbon::setTestNow('2026-11-23 12:05:30');
+
+        $this->service()->rollup(
+            $server,
+            300,
+            CarbonImmutable::parse('2026-11-23 12:00:00', 'UTC'),
+            CarbonImmutable::parse('2026-11-23 12:10:00', 'UTC'),
+        );
+
+        $bucket = MetricRollup::query()->sole();
+        $this->assertSame('2026-11-23 12:00:00', $bucket->bucket_start->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame(2, $bucket->samples);
+    }
+
+    // ------------------------------------------------------------------
+    // Server scope
+    // ------------------------------------------------------------------
+
+    public function test_inactive_servers_are_rolled_up_but_soft_deleted_servers_are_not(): void
+    {
+        $inactive = $this->server();
+        $inactive->forceFill(['is_active' => false])->save();
+
+        $deleted = $this->server();
+        $deleted->delete();
+
+        $this->sample($inactive, '2026-11-23 11:55:00', ['cpu_usage_pct' => 10]);
+        $this->sample($deleted, '2026-11-23 11:55:00', ['cpu_usage_pct' => 20]);
+
+        $this->artisan('noc:rollup', ['--resolution' => '300'])->assertSuccessful();
+
+        $this->assertSame(1, MetricRollup::query()->count());
+        $this->assertSame($inactive->getKey(), MetricRollup::query()->sole()->server_id);
+    }
+
     public function test_the_rollup_command_is_scheduled_every_five_minutes(): void
     {
         $schedule = $this->app->make(Schedule::class);
 
         $events = array_values(array_filter(
             $schedule->events(),
-            static fn (Event $event): bool => str_contains($event->command ?? '', 'noc:rollup'),
+            // Exact command match: the shell line ends in `noc:rollup]` or a
+            // quoted `'noc:rollup'`, never a longer lookalike.
+            static fn (Event $event): bool => self::isRollupEvent($event),
         ));
 
         $this->assertCount(1, $events);
         $this->assertSame('*/5 * * * *', $events[0]->expression);
         $this->assertTrue($events[0]->withoutOverlapping);
+        // Strictly below the 5-minute cadence so a killed run cannot strand it.
+        $this->assertSame(4, $events[0]->expiresAt);
         $this->assertFalse($events[0]->onOneServer);
+    }
+
+    public function test_the_schedule_assertion_does_not_match_a_lookalike_command(): void
+    {
+        // Guard against a prefix match that would also accept
+        // `noc:rollup-backfill` or `noc:rollupX`.
+        $schedule = $this->app->make(Schedule::class);
+        $schedule->command('noc:rollup-extra-test')->everyFiveMinutes();
+
+        $events = array_values(array_filter(
+            $schedule->events(),
+            // Exact command match: the shell line ends in `noc:rollup]` or a
+            // quoted `'noc:rollup'`, never a longer lookalike.
+            static fn (Event $event): bool => self::isRollupEvent($event),
+        ));
+
+        $this->assertCount(1, $events);
     }
 
     public function test_the_command_is_idempotent_like_the_service(): void
@@ -530,16 +843,79 @@ class RollupTest extends TestCase
         $this->sample($server, '2026-11-23 11:55:00', ['cpu_usage_pct' => 10]);
 
         $this->artisan('noc:rollup', ['--resolution' => '300'])->assertSuccessful();
+
+        // The upsert on the unique key preserves the original `created_at` and
+        // advances `updated_at`, so a rerun is visibly a replacement.
+        $first = MetricRollup::query()->sole();
+        $createdAt = $first->getRawOriginal('created_at');
+        $this->assertNotNull($createdAt);
+
+        Carbon::setTestNow('2026-11-23 12:05:00');
         $this->artisan('noc:rollup', ['--resolution' => '300'])->assertSuccessful();
 
         $bucket = MetricRollup::query()->sole();
         $this->assertSame(1, $bucket->samples);
         $this->assertEqualsWithDelta(10.0, $bucket->cpu_usage_sum, 0.001);
+        $this->assertSame($createdAt, $bucket->getRawOriginal('created_at'));
+        $this->assertNotSame($createdAt, $bucket->getRawOriginal('updated_at'));
+        $this->assertSame('2026-11-23 12:05:00', $bucket->updated_at->utc()->format('Y-m-d H:i:s'));
+    }
+
+    public function test_bucket_alignment_floors_negative_epoch_timestamps(): void
+    {
+        $server = $this->server();
+
+        // 1969-12-31 23:59:59 is -1 epoch, shared by no following bucket at
+        // minute resolution; 23:57:30 is -150s and must floor to 23:55.
+        $this->sample($server, '1969-12-31 23:57:30', ['cpu_usage_pct' => 10]);
+        $this->sample($server, '1969-12-31 23:59:59', ['cpu_usage_pct' => 20]);
+
+        Carbon::setTestNow('1970-01-01 01:00:00');
+
+        $this->service()->rollup(
+            $server,
+            300,
+            CarbonImmutable::parse('1969-12-31 23:00:00', 'UTC'),
+            CarbonImmutable::parse('1970-01-01 00:00:00', 'UTC'),
+        );
+
+        // 23:57:30 (epoch -150) and 23:59:59 (epoch -1) both floor to -300,
+        // i.e. the 23:55 bucket: a truncating intdiv() would push the second
+        // sample into a 23:59 bucket instead.
+        $this->assertSame([
+            '1969-12-31 23:55:00',
+        ], MetricRollup::query()->orderBy('bucket_start')->get()
+            ->map(fn (MetricRollup $r): string => $r->bucket_start->utc()->format('Y-m-d H:i:s'))
+            ->all());
+
+        $this->assertSame(
+            -300,
+            $this->service()->bucketStart(CarbonImmutable::createFromTimestamp(-150, 'UTC'), 300)->getTimestamp(),
+        );
+        $this->assertSame(
+            -300,
+            $this->service()->bucketStart(CarbonImmutable::createFromTimestamp(-1, 'UTC'), 300)->getTimestamp(),
+        );
+        $this->assertSame(
+            0,
+            $this->service()->bucketStart(CarbonImmutable::createFromTimestamp(0, 'UTC'), 300)->getTimestamp(),
+        );
     }
 
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
+
+    /**
+     * Match the scheduled `noc:rollup` entry exactly.
+     *
+     * Laravel stores the shell line as `... 'artisan' noc:rollup`; a longer
+     * command such as `noc:rollup-x` must not match.
+     */
+    private static function isRollupEvent(Event $event): bool
+    {
+        return preg_match('/[\'"]?noc:rollup[\'"]?(?![[:alnum:]_:.-])/', (string) $event->command) === 1;
+    }
 
     private function service(): RollupService
     {

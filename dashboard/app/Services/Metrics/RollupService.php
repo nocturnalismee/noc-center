@@ -135,6 +135,12 @@ class RollupService
 
     /**
      * Epoch-aligned bucket start for a timestamp.
+     *
+     * `intdiv()` truncates toward zero, so a bare `intdiv($epoch, $r)` would
+     * round a pre-1970 instant (negative epoch) *up* to the next boundary.
+     * The `((epoch % r) + r) % r` double modulo maps the PHP remainder into
+     * `[0, r)` for both signs, which makes the expression a true floor:
+     * `-150` → `-300`, `-1` → `-1` (=floor(-1/300)*300), `0` → `0`.
      */
     public function bucketStart(CarbonImmutable $at, int $resolutionSeconds): CarbonImmutable
     {

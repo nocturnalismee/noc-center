@@ -5,19 +5,23 @@ namespace App\Console\Commands;
 use App\Models\Server;
 use App\Services\Metrics\RollupService;
 use Carbon\CarbonImmutable;
+use Carbon\Exceptions\InvalidFormatException;
 use Illuminate\Console\Command;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 
 /**
  * Build the 5m/1h/1d rollups (spec §7.6, §11).
  *
- * Resolutions always run in dependency order — `5m` from raw samples, `1h`
- * from `5m`, `1d` from `1h` — so a `--backfill-days` run rebuilds the whole
- * chain for that window before each coarser level reads it.
+ * Every selected level also rebuilds its prerequisites, so
+ * `--resolution=86400` runs 300 → 3600 → 86400 and `--resolution=3600` runs
+ * 300 → 3600. Prerequisites therefore read a finer level that is current
+ * instead of a stale one. `300` stays 5m-only.
  *
- * Default (scheduled) ranges cover the last completed buckets only: 12 × 5m,
- * 3 × 1h, and 2 × 1d. `RollupService` skips the incomplete current bucket, so
- * the range endpoints are generous rather than exact.
+ * A run's window is the widest selected level's own default window, so the
+ * 5m prerequisite of an hourly run covers the same hours the hour does
+ * (12 × 5m, 3 × 1h, 2 × 1d completed buckets). `RollupService` skips the
+ * incomplete current bucket, so the endpoints are generous rather than exact.
  */
 class RollupMetrics extends Command
 {
@@ -60,7 +64,16 @@ class RollupMetrics extends Command
             return self::FAILURE;
         }
 
-        $explicit = $this->option('from') !== null || $this->option('to') !== null;
+        $hasFrom = $this->option('from') !== null;
+        $hasTo = $this->option('to') !== null;
+
+        if ($hasFrom !== $hasTo) {
+            $this->error('both --from and --to are required to run an explicit range.');
+
+            return self::FAILURE;
+        }
+
+        $explicit = $hasFrom;
         $from = $explicit ? $this->parseTimestamp('from') : null;
         $to = $explicit ? $this->parseTimestamp('to') : null;
 
@@ -77,16 +90,29 @@ class RollupMetrics extends Command
         $explicitFrom = $from;
         $explicitTo = $to;
 
-        /** @var array<int, int> $total buckets written per resolution */
+        // Every selected level also rebuilds its prerequisites, so
+        // `--resolution=86400` runs 300 → 3600 → 86400 and `--resolution=3600`
+        // runs 300 → 3600. A coarser bucket then reads a finer level that is
+        // current, never a stale one. `300` stays 5m-only.
+        $chain = $this->withPrerequisites($resolutions);
+
+        /** @var array<int, int> $total buckets written per selected resolution */
         $total = array_fill_keys($resolutions, 0);
 
-        $this->pageServers($server, function (Server $server) use ($rollups, $resolutions, $now, $backfillDays, $explicit, $explicitFrom, $explicitTo, &$total): void {
-            foreach ($resolutions as $resolution) {
+        $this->pageServers($server, function (Server $server) use ($rollups, $chain, $resolutions, $now, $backfillDays, $explicit, $explicitFrom, $explicitTo, &$total): void {
+            // The widest selected level sets the window for its prerequisites.
+            $widest = max($chain);
+
+            foreach ($chain as $resolution) {
                 [$from, $to] = $explicit
                     ? [$explicitFrom, $explicitTo]
-                    : $this->defaultRange($now, $resolution, (int) $backfillDays);
+                    : $this->defaultRange($now, $widest, (int) $backfillDays);
 
-                $total[$resolution] = ($total[$resolution] ?? 0) + $rollups->rollup($server, $resolution, $from, $to);
+                $written = $rollups->rollup($server, $resolution, $from, $to);
+
+                if (in_array($resolution, $resolutions, true)) {
+                    $total[$resolution] += $written;
+                }
             }
         });
 
@@ -120,6 +146,30 @@ class RollupMetrics extends Command
                 $callback($server);
             }
         }, 'id', 'id');
+    }
+
+    /**
+     * Expand the selected resolutions with their prerequisites, in order.
+     *
+     * `300` stays 5m-only; `3600` becomes `300, 3600`; `86400` becomes
+     * `300, 3600, 86400`.
+     *
+     * @param  list<int>  $resolutions
+     * @return list<int>
+     */
+    private function withPrerequisites(array $resolutions): array
+    {
+        $chain = [RollupService::FIVE_MINUTES];
+
+        if (in_array(RollupService::HOUR, $resolutions, true) || in_array(RollupService::DAY, $resolutions, true)) {
+            $chain[] = RollupService::HOUR;
+        }
+
+        if (in_array(RollupService::DAY, $resolutions, true)) {
+            $chain[] = RollupService::DAY;
+        }
+
+        return $chain;
     }
 
     /**
@@ -199,33 +249,81 @@ class RollupMetrics extends Command
         return $server;
     }
 
+    /**
+     * Parse a `--from`/`--to` value as an absolute UTC instant.
+     *
+     * Laravel enables Carbon strict mode, so a mismatched format throws
+     * `InvalidFormatException` instead of returning `false`; every attempt is
+     * therefore caught. The matching is explicit rather than `Carbon::parse()`
+     * so relative words ("yesterday"), trailing junk, and overflowed dates
+     * fail instead of being guessed at or silently shifted.
+     *
+     * Accepted: `YYYY-MM-DD`, `YYYY-MM-DD HH:MM[:SS]`, `YYYY-MM-DDTHH:MM[:SS]`,
+     * each with optional fractional seconds and an optional `Z`/`±HH:MM`
+     * offset. Values without an offset are UTC.
+     */
     private function parseTimestamp(string $option): ?CarbonImmutable
     {
         $value = (string) $this->option($option);
 
-        // A format list matches on prefix only; reject trailing junk first.
-        if (! preg_match('/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/', $value)) {
-            $this->error(sprintf('--%s must be a UTC ISO-8601 timestamp.', $option));
-
-            return null;
+        if (! preg_match(
+            '/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?(\.\d{1,6})?(Z|[+-]\d{2}:?\d{2})?)?$/',
+            $value,
+            $parts,
+        )) {
+            return $this->invalidTimestamp($option);
         }
 
-        $parsed = null;
-        foreach (['Y-m-d\TH:i:sP', 'Y-m-d\TH:iP', 'Y-m-d\TH:i', 'Y-m-d H:i:s', 'Y-m-d H:i', 'Y-m-d'] as $format) {
-            $candidate = CarbonImmutable::createFromFormat($format, $value, 'UTC');
-            if ($candidate !== false) {
-                $parsed = $candidate;
+        // Trailing unmatched groups are absent from the match array, and a
+        // short form like `2026-11-20` leaves `''` placeholders: both fall back.
+        [, $year, $month, $day] = $parts;
+        $hour = ($parts[4] ?? '') ?: '00';
+        $minute = ($parts[5] ?? '') ?: '00';
+        $second = ($parts[6] ?? '') ?: '00';
 
-                break;
+        if (! checkdate((int) $month, (int) $day, (int) $year)
+            || (int) $hour > 23 || (int) $minute > 59 || (int) $second > 59) {
+            return $this->invalidTimestamp($option);
+        }
+
+        $offset = ($parts[8] ?? '') ?: '';
+
+        try {
+            $parsed = CarbonImmutable::createFromFormat(
+                '!Y-m-d H:i:s',
+                sprintf('%s-%s-%s %s:%s:%s', $year, $month, $day, $hour, $minute, $second),
+                'UTC',
+            );
+        } catch (InvalidFormatException|InvalidArgumentException) {
+            return $this->invalidTimestamp($option);
+        }
+
+        // `checkdate()`, the range checks above, and `!` with a fixed format
+        // make this exact; the guard keeps a Carbon change from slipping by.
+        if (! $parsed instanceof CarbonImmutable) {
+            return $this->invalidTimestamp($option);
+        }
+
+        if ($offset !== '' && $offset !== 'Z') {
+            // "12:00+07:00" is 05:00 UTC: subtract the offset.
+            $sign = $offset[0] === '-' ? -1 : 1;
+            $digits = str_replace(':', '', substr($offset, 1));
+            $offsetSeconds = $sign * ((int) substr($digits, 0, 2) * 3600 + (int) substr($digits, 2, 2) * 60);
+
+            if (abs($offsetSeconds) >= 24 * 3600) {
+                return $this->invalidTimestamp($option);
             }
+
+            $parsed = $parsed->subSeconds($offsetSeconds);
         }
 
-        if ($parsed === null) {
-            $this->error(sprintf('--%s must be a UTC ISO-8601 timestamp.', $option));
+        return $parsed;
+    }
 
-            return null;
-        }
+    private function invalidTimestamp(string $option): ?CarbonImmutable
+    {
+        $this->error(sprintf('--%s must be a valid UTC date: YYYY-MM-DD, YYYY-MM-DD HH:MM[:SS], or YYYY-MM-DDTHH:MM[:SS][.sss][Z|±HH:MM].', $option));
 
-        return $parsed->utc();
+        return null;
     }
 }
