@@ -56,6 +56,35 @@ class HeadersTest extends TestCase
         $this->assertStringContainsString('window.livewireScriptConfig', $html);
     }
 
+    public function test_every_inline_script_on_the_dashboard_carries_the_csp_nonce(): void
+    {
+        $user = User::factory()->create();
+
+        $response = $this->actingAs($user)->get('/dashboard');
+        $nonce = $this->cspNonce($response);
+        $html = (string) $response->getContent();
+
+        preg_match_all('/<script\b(?<attributes>[^>]*)>(?<body>.*?)<\/script>/is', $html, $matches, PREG_SET_ORDER);
+
+        $this->assertNotEmpty($matches, 'The dashboard rendered no script tags.');
+
+        $inlineScripts = 0;
+
+        foreach ($matches as $match) {
+            $this->assertStringContainsString(
+                'nonce="'.$nonce.'"',
+                $match['attributes'],
+                'A dashboard script tag is missing the CSP nonce.',
+            );
+
+            if (preg_match('/\bsrc\s*=/i', $match['attributes']) !== 1) {
+                $inlineScripts++;
+            }
+        }
+
+        $this->assertGreaterThanOrEqual(2, $inlineScripts, 'Expected the bootstrap script and the Livewire script config.');
+    }
+
     public function test_the_livewire_script_config_carries_the_same_nonce_as_the_header(): void
     {
         $response = $this->get('/login');

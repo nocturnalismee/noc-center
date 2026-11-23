@@ -332,6 +332,21 @@
         display: none;
     }
 
+    .sidebar-footer-avatar {
+        display: none;
+        height: 32px;
+        width: 32px;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-control);
+        background: var(--surface-2);
+        color: var(--text);
+        font-size: 11px;
+        font-weight: 500;
+    }
+
     .dark .theme-icon-sun,
     [data-theme='dark'] .theme-icon-sun {
         display: block;
@@ -364,7 +379,73 @@
         justify-content: center;
     }
 
+    html[data-sidebar='collapsed'] .sidebar-footer {
+        padding-inline: 8px;
+    }
+
+    html[data-sidebar='collapsed'] .sidebar nav {
+        padding-inline: 8px;
+    }
+
+    html[data-sidebar='collapsed'] .sidebar-header {
+        justify-content: center;
+    }
+
+    html[data-sidebar='collapsed'] .sidebar-footer-chevron {
+        display: none;
+    }
+
+    html[data-sidebar='collapsed'] .sidebar-footer-avatar {
+        display: flex;
+    }
+
     html[data-sidebar='collapsed'] .nav-link {
+        width: 40px;
+        justify-content: center;
+        padding-inline: 0;
+    }
+}
+
+/* 768-1023px always uses the 64px icon rail, regardless of localStorage. */
+@media (min-width: 768px) and (max-width: 1023px) {
+    .app-shell {
+        grid-template-columns: 64px minmax(0, 1fr);
+    }
+
+    .sidebar {
+        align-items: center;
+    }
+
+    .sidebar-label,
+    .sidebar-group-label,
+    .sidebar-brand-copy,
+    .sidebar-footer-copy,
+    .sidebar-footer-chevron {
+        display: none;
+    }
+
+    .sidebar-brand,
+    .sidebar-footer {
+        justify-content: center;
+    }
+
+    .sidebar-footer {
+        padding-inline: 8px;
+    }
+
+    .sidebar nav {
+        padding-inline: 8px;
+    }
+
+    .sidebar-header {
+        justify-content: center;
+    }
+
+    .sidebar-footer-avatar {
+        display: flex;
+    }
+
+    .nav-link {
         width: 40px;
         justify-content: center;
         padding-inline: 0;

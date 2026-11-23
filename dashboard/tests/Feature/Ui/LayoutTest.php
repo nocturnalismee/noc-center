@@ -42,6 +42,11 @@ class LayoutTest extends TestCase
         }
 
         $response->assertSee('aria-current="page"', false);
+
+        foreach (['Dashboard', 'Servers', 'Alerts', 'Activity', 'Settings', 'Users', 'Audit log'] as $label) {
+            $response->assertSee('aria-label="'.$label.'"', false);
+        }
+
         $response->assertSee('data-sidebar-toggle', false);
         $response->assertSee('data-sidebar-open', false);
         $response->assertSee('data-theme-toggle', false);
@@ -80,6 +85,10 @@ class LayoutTest extends TestCase
             'online' => 'Online',
             'warning' => 'Warning',
             'critical' => 'Critical',
+            'stale' => 'Stale',
+            'offline' => 'Offline',
+            'never' => 'Never seen',
+            'never_seen' => 'Never seen',
             'unknown' => 'Unknown',
         ];
 
@@ -118,6 +127,87 @@ class LayoutTest extends TestCase
         $this->assertStringContainsString('No server has reported yet.', $html);
         $this->assertStringContainsString('href="/servers/create"', $html);
         $this->assertStringContainsString('Add server', $html);
+    }
+
+    public function test_the_tablet_rail_is_forced_and_the_collapse_control_is_hidden(): void
+    {
+        $css = (string) file_get_contents(resource_path('css/app.css'));
+
+        $this->assertMatchesRegularExpression(
+            '/@media \(min-width: 768px\) and \(max-width: 1023px\) \{\n(?<block>.*?)\n\}/s',
+            $css,
+            'The 768-1023px forced-rail media query is missing.',
+        );
+
+        preg_match('/@media \(min-width: 768px\) and \(max-width: 1023px\) \{\n(?<block>.*?)\n\}/s', $css, $matches);
+        $block = $matches['block'];
+
+        $this->assertStringContainsString('grid-template-columns: 64px minmax(0, 1fr)', $block);
+
+        foreach ([
+            '.sidebar-label',
+            '.sidebar-group-label',
+            '.sidebar-brand-copy',
+            '.sidebar-footer-copy',
+        ] as $selector) {
+            $this->assertMatchesRegularExpression(
+                '/'.preg_quote($selector, '/').'[^{]*\{[^}]*display: none/',
+                $block,
+                $selector.' is not hidden in the forced rail.',
+            );
+        }
+
+        $this->assertMatchesRegularExpression('/\.nav-link \{[^}]*justify-content: center/', $block);
+
+        $view = (string) file_get_contents(resource_path('views/layouts/app.blade.php'));
+
+        $this->assertMatchesRegularExpression(
+            '/<div class="sidebar-collapse [^"]*\bhidden\b[^"]*\blg:block\b/',
+            $view,
+            'The collapse control must be hidden below lg.',
+        );
+        $this->assertMatchesRegularExpression('/<button[^>]*data-sidebar-toggle[^>]*>/s', $view);
+    }
+
+    public function test_the_content_gutter_is_sixteen_pixels_below_1024(): void
+    {
+        $view = (string) file_get_contents(resource_path('views/layouts/app.blade.php'));
+
+        preg_match('/<main\b[^>]*class="(?<class>[^"]*)"/s', $view, $main);
+        preg_match('/<footer\b[^>]*class="(?<class>[^"]*)"/s', $view, $footer);
+
+        foreach (['main' => $main['class'], 'footer' => $footer['class']] as $element => $classes) {
+            $tokens = preg_split('/\s+/', $classes);
+
+            $this->assertContains('px-4', $tokens, $element.' must use the 16px gutter by default.');
+            $this->assertContains('lg:px-6', $tokens, $element.' must use the 24px gutter from 1024px.');
+            $this->assertContains('xl:px-8', $tokens, $element.' must use the 32px gutter from 1280px.');
+            $this->assertNotContains('md:px-6', $tokens, $element.' must not force 24px at 768px.');
+        }
+    }
+
+    public function test_the_sidebar_footer_never_reduces_to_a_lone_chevron(): void
+    {
+        $view = (string) file_get_contents(resource_path('views/layouts/app.blade.php'));
+
+        $this->assertStringContainsString('sidebar-footer-avatar', $view);
+        $this->assertStringContainsString('sidebar-footer-chevron', $view);
+
+        $css = (string) file_get_contents(resource_path('css/app.css'));
+
+        $this->assertMatchesRegularExpression(
+            '/\.sidebar-footer-avatar \{[^}]*display: none/',
+            $css,
+            'The avatar must be hidden in the expanded sidebar.',
+        );
+        $this->assertMatchesRegularExpression(
+            "/html\\[data-sidebar='collapsed'\\] \\.sidebar-footer-chevron \\{[^}]*display: none/",
+            $css,
+        );
+        $this->assertMatchesRegularExpression(
+            "/html\\[data-sidebar='collapsed'\\] \\.sidebar-footer-avatar \\{[^}]*display: flex/",
+            $css,
+        );
     }
 
     public function test_the_sign_in_screen_renders_inside_the_guest_layout(): void

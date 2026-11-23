@@ -10,6 +10,7 @@
         'stale' => ['label' => 'Stale', 'colour' => 'text-warning', 'dot' => 'bg-warning'],
         'offline' => ['label' => 'Offline', 'colour' => 'text-critical', 'dot' => 'bg-critical'],
         'never' => ['label' => 'Never seen', 'colour' => 'text-unknown', 'dot' => 'bg-unknown'],
+        'never_seen' => ['label' => 'Never seen', 'colour' => 'text-unknown', 'dot' => 'bg-unknown'],
         'unknown' => ['label' => 'Unknown', 'colour' => 'text-unknown', 'dot' => 'bg-unknown'],
         'acknowledged' => ['label' => 'Acknowledged', 'colour' => 'text-text-sub', 'dot' => null],
     ];

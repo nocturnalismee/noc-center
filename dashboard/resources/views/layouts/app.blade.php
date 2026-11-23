@@ -33,7 +33,7 @@
 
     <div class="app-shell">
         <aside id="sidebar" class="sidebar" aria-label="Primary" tabindex="-1">
-            <div class="flex h-16 items-center justify-between gap-2 border-b border-divider px-4">
+            <div class="sidebar-header flex h-16 items-center justify-between gap-2 border-b border-divider px-4">
                 <a href="/dashboard" class="sidebar-brand flex min-w-0 items-center gap-3" aria-label="NOC Center dashboard">
                     <span class="flex h-5 items-end gap-[2px]" aria-hidden="true">
                         <span class="h-2.5 w-[3px] rounded-[1px] bg-text"></span>
@@ -62,22 +62,22 @@
                     <p class="sidebar-group-label px-2 pb-2 text-[9px] font-medium uppercase tracking-[0.1em] text-text-muted">Fleet</p>
 
                     <div class="flex flex-col gap-0.5">
-                        <a href="/dashboard" @if (request()->is('dashboard')) aria-current="page" @endif class="nav-link" title="Dashboard">
+                        <a href="/dashboard" @if (request()->is('dashboard')) aria-current="page" @endif class="nav-link" title="Dashboard" aria-label="Dashboard">
                             <x-heroicon-o-squares-2x2 class="h-5 w-5 shrink-0" />
                             <span class="sidebar-label">Dashboard</span>
                         </a>
 
-                        <a href="/servers" @if (request()->is('servers*')) aria-current="page" @endif class="nav-link" title="Servers">
+                        <a href="/servers" @if (request()->is('servers*')) aria-current="page" @endif class="nav-link" title="Servers" aria-label="Servers">
                             <x-heroicon-o-server-stack class="h-5 w-5 shrink-0" />
                             <span class="sidebar-label">Servers</span>
                         </a>
 
-                        <a href="/alerts" @if (request()->is('alerts*')) aria-current="page" @endif class="nav-link" title="Alerts">
+                        <a href="/alerts" @if (request()->is('alerts*')) aria-current="page" @endif class="nav-link" title="Alerts" aria-label="Alerts">
                             <x-heroicon-o-bell-alert class="h-5 w-5 shrink-0" />
                             <span class="sidebar-label">Alerts</span>
                         </a>
 
-                        <a href="/activity" @if (request()->is('activity*')) aria-current="page" @endif class="nav-link" title="Activity">
+                        <a href="/activity" @if (request()->is('activity*')) aria-current="page" @endif class="nav-link" title="Activity" aria-label="Activity">
                             <x-heroicon-o-signal class="h-5 w-5 shrink-0" />
                             <span class="sidebar-label">Activity</span>
                         </a>
@@ -88,17 +88,17 @@
                     <p class="sidebar-group-label px-2 pb-2 text-[9px] font-medium uppercase tracking-[0.1em] text-text-muted">Admin</p>
 
                     <div class="flex flex-col gap-0.5">
-                        <a href="/settings" @if (request()->is('settings*')) aria-current="page" @endif class="nav-link" title="Settings">
+                        <a href="/settings" @if (request()->is('settings*')) aria-current="page" @endif class="nav-link" title="Settings" aria-label="Settings">
                             <x-heroicon-o-cog-6-tooth class="h-5 w-5 shrink-0" />
                             <span class="sidebar-label">Settings</span>
                         </a>
 
-                        <a href="/users" @if (request()->is('users*')) aria-current="page" @endif class="nav-link" title="Users">
+                        <a href="/users" @if (request()->is('users*')) aria-current="page" @endif class="nav-link" title="Users" aria-label="Users">
                             <x-heroicon-o-users class="h-5 w-5 shrink-0" />
                             <span class="sidebar-label">Users</span>
                         </a>
 
-                        <a href="/audit-log" @if (request()->is('audit-log*')) aria-current="page" @endif class="nav-link" title="Audit log">
+                        <a href="/audit-log" @if (request()->is('audit-log*')) aria-current="page" @endif class="nav-link" title="Audit log" aria-label="Audit log">
                             <x-heroicon-o-clipboard-document-list class="h-5 w-5 shrink-0" />
                             <span class="sidebar-label">Audit log</span>
                         </a>
@@ -114,6 +114,11 @@
                         'operator' => 'Operator',
                         default => 'Viewer',
                     };
+                    $initials = collect(preg_split('/\s+/', trim($user->name)))
+                        ->filter()
+                        ->take(2)
+                        ->map(fn (string $part) => mb_strtoupper(mb_substr($part, 0, 1)))
+                        ->implode('');
                 @endphp
 
                 <div class="sidebar-footer flex items-center justify-between gap-2 border-t border-divider px-4 py-3">
@@ -122,11 +127,13 @@
                         <p class="truncate text-[10px] leading-4 text-text-muted">{{ $role }}</p>
                     </div>
 
-                    <x-heroicon-o-chevron-down class="h-4 w-4 shrink-0 text-text-muted" />
+                    <span class="sidebar-footer-avatar" title="{{ $user->name }}" aria-hidden="true">{{ $initials }}</span>
+
+                    <x-heroicon-o-chevron-down class="sidebar-footer-chevron h-4 w-4 shrink-0 text-text-muted" />
                 </div>
             @endauth
 
-            <div class="border-t border-divider p-3">
+            <div class="sidebar-collapse hidden border-t border-divider p-3 lg:block">
                 <button
                     type="button"
                     data-sidebar-toggle
@@ -227,7 +234,7 @@
                 </div>
             </header>
 
-            <main id="main" tabindex="-1" class="flex-1 px-4 py-6 md:px-6 xl:px-8">
+            <main id="main" tabindex="-1" class="flex-1 px-4 py-6 lg:px-6 xl:px-8">
                 @hasSection('content')
                     @yield('content')
                 @else
@@ -235,7 +242,7 @@
                 @endif
             </main>
 
-            <footer class="flex flex-wrap items-center justify-between gap-2 border-t border-divider px-4 py-4 text-[9px] text-text-muted md:px-6 xl:px-8">
+            <footer class="flex flex-wrap items-center justify-between gap-2 border-t border-divider px-4 py-4 text-[9px] text-text-muted lg:px-6 xl:px-8">
                 <p>NOC Center {{ $appVersion ?? 'v1.0.0' }} · UTC in storage · Asia/Jakarta display</p>
                 <p>Internal operations console</p>
             </footer>
