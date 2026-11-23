@@ -3,21 +3,142 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\ServerToken;
+use App\Services\Ingest\StoreSample;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
+use JsonException;
 
 class IngestController extends Controller
 {
     /**
-     * Acknowledge an agent sample.
-     *
-     * The request has already passed the body-size, rate-limit and bearer
-     * token middleware. Payload validation and storage belong to a later
-     * task; this endpoint only confirms receipt.
+     * `application/json` followed by the end of the type or by a `;`
+     * parameter list. The middleware accepts a slightly looser form and only
+     * runs before authentication, so the controller re-checks the type rather
+     * than trusting it (R36.1).
      */
-    public function __invoke(): JsonResponse
+    private const JSON_MEDIA_TYPE = '/\Aapplication\/json(?:\s*;\s*(?:[^;,"\s]+\s*=\s*(?:"[^"]*"|[^;,"\s]*)\s*)?)*\z/i';
+
+    public function __construct(private readonly StoreSample $samples)
     {
-        return response()
-            ->json(['status' => 'accepted'], 202)
+        //
+    }
+
+    /**
+     * Validate and store an agent sample.
+     *
+     * Status codes (spec §8):
+     * - 202 accepted, including an idempotent retry of the same sample;
+     * - 400 invalid JSON or a malformed transport header;
+     * - 413 payload too large;
+     * - 415 unsupported media type;
+     * - 422 schema/business violations, with one structured error per field.
+     *
+     * Every response is `Cache-Control: no-store`.
+     */
+    public function __invoke(Request $request): JsonResponse
+    {
+        if (($error = $this->transportError($request)) !== null) {
+            return $this->error($error[0], $error[1]);
+        }
+
+        /** @var ServerToken $token */
+        $token = $request->attributes->get('noc_token');
+
+        try {
+            $this->samples->storeRaw($token, $this->body($request));
+        } catch (JsonException) {
+            return $this->error('invalid_json', 400);
+        } catch (ValidationException $exception) {
+            return $this->error('unprocessable_entity', 422, $exception->errors());
+        }
+
+        return $this->respond(['status' => 'accepted'], 202);
+    }
+
+    /**
+     * Checks the middleware already makes, repeated here so the controller's
+     * behaviour does not depend on them: a body over the limit is a 413, a
+     * non-JSON media type is a 415 (even for an empty body), and a
+     * non-numeric or negative `Content-Length` is a 400. A malformed header
+     * therefore never reaches validation and is never treated as valid
+     * (R36.2).
+     *
+     * @return array{0: string, 1: int}|null
+     */
+    private function transportError(Request $request): ?array
+    {
+        $contentLength = $request->headers->get('Content-Length');
+
+        if ($contentLength !== null) {
+            $trimmed = trim($contentLength);
+
+            if (preg_match('/\A\d+\z/', $trimmed) !== 1) {
+                return ['bad_request', 400];
+            }
+        }
+
+        $content = $request->getContent();
+
+        if (strlen($content) > (int) config('ingest.max_bytes')) {
+            return ['payload_too_large', 413];
+        }
+
+        if (! $this->isJson($request->headers->get('Content-Type'))) {
+            return ['unsupported_media_type', 415];
+        }
+
+        return null;
+    }
+
+    private function isJson(?string $contentType): bool
+    {
+        return $contentType !== null && preg_match(self::JSON_MEDIA_TYPE, $contentType) === 1;
+    }
+
+    /**
+     * The body exactly as sent. Symfony replaces an empty string with `null`,
+     * which would make a schema-invalid empty body look like malformed JSON;
+     * normalise it back to `''`.
+     */
+    private function body(Request $request): string
+    {
+        return (string) $request->getContent();
+    }
+
+    /**
+     * @param  array<string, list<string>>  $errors
+     */
+    private function error(string $error, int $status, array $errors = []): JsonResponse
+    {
+        $body = $errors === [] ? ['error' => $error] : ['errors' => $errors];
+
+        return $this->respond($body, $status);
+    }
+
+    /**
+     * Serialise a response body with a substitution fallback.
+     *
+     * The message bag quotes offending values, and PHP accepts invalid UTF-8
+     * inside a JSON string, so echoing one back could make `json_encode()`
+     * fail. Substitute the bad bytes and keep the structured error instead of
+     * turning a rejected payload into a 500.
+     *
+     * @param  array<string, mixed>  $body
+     */
+    private function respond(array $body, int $status): JsonResponse
+    {
+        $payload = json_encode($body, JSON_INVALID_UTF8_SUBSTITUTE);
+
+        if (! is_string($payload)) {
+            $payload = '{"error":"server_error"}';
+            $status = 500;
+        }
+
+        return (new JsonResponse)
+            ->setJson($payload)
+            ->setStatusCode($status)
             ->header('Cache-Control', 'no-store');
     }
 }

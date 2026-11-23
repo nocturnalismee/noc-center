@@ -25,6 +25,14 @@ class IngestAuthTest extends TestCase
 
     private const MAX_BYTES = 65_536;
 
+    /**
+     * A schema-v1 payload small enough to stay under the body limit.
+     *
+     * Since Task 7 the controller validates every body, so requests that are
+     * expected to pass the middleware must carry a valid payload.
+     */
+    private const MINIMAL_PAYLOAD = '{"schema_version":1,"agent":{"version":"0.1.0","id":"a","hostname":"web01","panel":"none","collected_at":"2026-11-22T12:00:00Z","interval_seconds":60},"system":{"os":{"name":"AlmaLinux","version":"9.4","kernel":"5.14.0"},"uptime_seconds":1},"metrics":{"cpu":{"usage_pct":1,"iowait_pct":0,"load1":0,"load5":0,"load15":0,"cores":1},"memory":{"total_bytes":0,"used_bytes":0,"used_pct":0},"swap":{"total_bytes":0,"used_bytes":0,"used_pct":0},"disk":{"root":{"total_bytes":0,"used_bytes":0,"used_pct":0,"inode_pct":0}},"network":{"rx_bytes_per_sec":0,"tx_bytes_per_sec":0},"processes":{"running":1,"blocked":0}},"panel_metrics":{},"extensions":{}}';
+
     private TokenService $tokens;
 
     protected function setUp(): void
@@ -172,7 +180,13 @@ class IngestAuthTest extends TestCase
         $server = $this->server();
         $plain = $this->issueToken($server);
 
-        $this->ingest('Bearer '.$plain, Str::repeat(' ', self::MAX_BYTES))
+        $prefix = substr(self::MINIMAL_PAYLOAD, 0, -1).',"padding":"';
+        $suffix = '"}';
+        $body = $prefix.Str::repeat('x', self::MAX_BYTES - strlen($prefix) - strlen($suffix)).$suffix;
+
+        $this->assertSame(self::MAX_BYTES, strlen($body));
+
+        $this->ingest('Bearer '.$plain, $body)
             ->assertStatus(202)
             ->assertExactJson(['status' => 'accepted']);
     }
@@ -182,7 +196,7 @@ class IngestAuthTest extends TestCase
         $server = $this->server();
         $plain = $this->issueToken($server);
 
-        $this->ingest('Bearer '.$plain, '{"schema_version":1}', 'text/plain')
+        $this->ingest('Bearer '.$plain, self::MINIMAL_PAYLOAD, 'text/plain')
             ->assertStatus(415)
             ->assertExactJson(['error' => 'unsupported_media_type']);
     }
@@ -192,7 +206,7 @@ class IngestAuthTest extends TestCase
         $server = $this->server();
         $plain = $this->issueToken($server);
 
-        $this->ingest('Bearer '.$plain, '{"schema_version":1}', 'application/json;charset=UTF-8')
+        $this->ingest('Bearer '.$plain, self::MINIMAL_PAYLOAD, 'application/json;charset=UTF-8')
             ->assertStatus(202)
             ->assertExactJson(['status' => 'accepted']);
     }
@@ -461,7 +475,7 @@ class IngestAuthTest extends TestCase
     {
         $plain = $this->issueToken($this->server());
 
-        $this->ingest('Bearer '.$plain, '{"schema_version":1}', 'APPLICATION/JSON; charset=utf-8')
+        $this->ingest('Bearer '.$plain, self::MINIMAL_PAYLOAD, 'APPLICATION/JSON; charset=utf-8')
             ->assertStatus(202)
             ->assertExactJson(['status' => 'accepted']);
     }
@@ -470,12 +484,15 @@ class IngestAuthTest extends TestCase
     {
         $plain = $this->issueToken($this->server());
 
-        $this->ingest('Bearer '.$plain, '{"schema_version":1}', 'application/json-patch+json')
+        $this->ingest('Bearer '.$plain, self::MINIMAL_PAYLOAD, 'application/json-patch+json')
             ->assertStatus(415)
             ->assertExactJson(['error' => 'unsupported_media_type']);
 
-        // An empty body with a non-JSON type stays pass-through (R32f).
-        $this->ingest('Bearer '.$plain, '', 'text/plain')->assertStatus(202);
+        // Task 7 resolves R32f: every ingest body is validated, so an empty
+        // body with a non-JSON type is now a 415 instead of a pass-through.
+        $this->ingest('Bearer '.$plain, '', 'text/plain')
+            ->assertStatus(415)
+            ->assertExactJson(['error' => 'unsupported_media_type']);
     }
 
     /**
@@ -519,7 +536,7 @@ class IngestAuthTest extends TestCase
             'unauthorized' => $this->ingest(null),
             'inactive_server' => $this->ingest('Bearer '.$inactive),
             'payload_too_large' => $this->ingest('Bearer '.$plain, Str::repeat('a', self::MAX_BYTES + 1)),
-            'unsupported_media_type' => $this->ingest('Bearer '.$plain, '{"a":1}', 'text/plain'),
+            'unsupported_media_type' => $this->ingest('Bearer '.$plain, self::MINIMAL_PAYLOAD, 'text/plain'),
             'rate_limited' => $this->rateLimitedResponse($plain),
         ];
 
@@ -617,7 +634,7 @@ class IngestAuthTest extends TestCase
 
     private function ingest(
         ?string $authorization,
-        string $body = '{"schema_version":1}',
+        string $body = self::MINIMAL_PAYLOAD,
         string $contentType = 'application/json',
     ): TestResponse {
         $server = [];
