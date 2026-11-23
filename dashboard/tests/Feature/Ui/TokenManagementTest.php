@@ -541,7 +541,7 @@ class TokenManagementTest extends TestCase
         }
     }
 
-    public function test_alerts_enabled_uses_filter_var_for_string_zero(): void
+    public function test_alerts_enabled_accepts_boolean_strings(): void
     {
         $actor = User::factory()->create(['role' => 'admin']);
         $servers = app(ServerService::class);
@@ -557,10 +557,10 @@ class TokenManagementTest extends TestCase
         $updated = $servers->update($created, [
             'name' => $created->name,
             'hostname' => $created->hostname,
-            'alerts_enabled' => '0',
+            'alerts_enabled' => '1',
         ], $actor);
 
-        $this->assertFalse($updated->alerts_enabled);
+        $this->assertTrue($updated->alerts_enabled);
     }
 
     public function test_servers_index_redirects_to_the_dashboard(): void

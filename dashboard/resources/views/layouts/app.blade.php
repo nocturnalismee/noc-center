@@ -209,8 +209,9 @@
                             type="button"
                             data-alert-sound-toggle
                             class="icon-button"
-                            aria-label="Mute alert sound"
+                            aria-label="Alert sound"
                             aria-pressed="true"
+                            title="Mute alert sound"
                         >
                             <span data-alert-sound-on>
                                 <x-heroicon-o-speaker-wave class="h-5 w-5" aria-hidden="true" />

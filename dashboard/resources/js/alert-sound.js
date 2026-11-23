@@ -1,5 +1,5 @@
 const STORAGE_KEY = 'noc-alert-sound';
-const DEFAULT_VOLUME = 0.55;
+const DEFAULT_VOLUME = 0.85;
 
 function isEnabled() {
     try {
@@ -39,10 +39,12 @@ export function initAlertSound() {
 
     let enabled = isEnabled();
     let unlocked = false;
+    let pending = false;
 
     const paint = () => {
         toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
-        toggle.setAttribute('aria-label', enabled ? 'Mute alert sound' : 'Unmute alert sound');
+        toggle.setAttribute('aria-label', 'Alert sound');
+        toggle.setAttribute('title', enabled ? 'Mute alert sound' : 'Unmute alert sound');
 
         if (onIcon) {
             onIcon.hidden = !enabled;
@@ -65,7 +67,8 @@ export function initAlertSound() {
 
         if (attempt && typeof attempt.catch === 'function') {
             attempt.catch(() => {
-                // Autoplay policy still blocked playback; the next gesture retries.
+                // Autoplay policy blocked playback; replay after the next gesture.
+                pending = true;
             });
         }
     };
@@ -87,6 +90,11 @@ export function initAlertSound() {
             audio.pause();
             audio.currentTime = 0;
             audio.muted = wasMuted;
+
+            if (pending && enabled) {
+                pending = false;
+                play();
+            }
         };
 
         if (attempt && typeof attempt.then === 'function') {

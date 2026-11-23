@@ -57,6 +57,7 @@ class Tokens extends Component
     {
         Gate::authorize('manageTokens', Server::class);
 
+        $this->statusMessage = null;
         $this->revokingTokenId = $tokenId;
         $this->revokeName = '';
         $this->resetErrorBag();
@@ -64,6 +65,7 @@ class Tokens extends Component
 
     public function cancelRevoke(): void
     {
+        $this->statusMessage = null;
         $this->revokingTokenId = null;
         $this->revokeName = '';
         $this->resetErrorBag();

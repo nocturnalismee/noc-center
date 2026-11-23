@@ -110,6 +110,7 @@ class Edit extends Component
     {
         Gate::authorize('delete', $this->server);
 
+        $this->statusMessage = null;
         $this->resetErrorBag();
 
         if (trim($this->deleteName) !== $this->server->name) {
@@ -128,7 +129,7 @@ class Edit extends Component
         $intervals = [10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
         $storedInterval = (int) $this->server->interval_seconds;
 
-        if (! in_array($storedInterval, $intervals, true)) {
+        if ($storedInterval > 0 && ! in_array($storedInterval, $intervals, true)) {
             $intervals[] = $storedInterval;
             sort($intervals);
         }

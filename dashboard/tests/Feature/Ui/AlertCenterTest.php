@@ -505,6 +505,7 @@ class AlertCenterTest extends TestCase
             ->assertSee('data-alert-sound-toggle', false)
             ->assertSee('data-alert-sound-on', false)
             ->assertSee('data-alert-sound-off', false)
+            ->assertSee('aria-label="Alert sound"', false)
             ->assertSee('aria-pressed="true"', false);
 
         $controller = (string) file_get_contents(resource_path('js/alert-sound.js'));
@@ -513,6 +514,7 @@ class AlertCenterTest extends TestCase
         $this->assertStringContainsString('noc-alert-sound', $controller);
         $this->assertStringContainsString('pointerdown', $controller);
         $this->assertStringContainsString('keydown', $controller);
+        $this->assertStringContainsString('pending', $controller);
 
         $app = (string) file_get_contents(resource_path('js/app.js'));
 
