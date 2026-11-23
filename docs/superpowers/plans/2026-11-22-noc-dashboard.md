@@ -425,12 +425,12 @@ git commit -m "feat(dashboard): detect resource, module, and security issues"
 **Interfaces:**
 - Migration renames `group_name` to `server_type` and adds nullable `provider` (100), `location` (100), `ip_address` (45), `label` (100), plus `alerts_enabled` boolean default `true`; indexes on `server_type`, `provider`, `location`, `alerts_enabled`. `down()` restores `group_name` and drops the new columns.
 - `Server` exposes the new attributes; casts include `alerts_enabled => bool`; `server_type` replaces `group_name` in fillable.
-- `ServerService::create()` and `update()` accept `server_type`, `provider`, `location`, `ip_address`, `label`, `alerts_enabled`; all are optional except `alerts_enabled` (default true). `ip_address` must validate as IPv4/IPv6 when present; text fields cap at their column length. None of the metadata is unique.
+- `ServerService::create()` accepts `server_type`, `provider`, `location`, `ip_address`, `label`, `alerts_enabled`; all are optional (metadata defaults to `null`, `alerts_enabled` to `true`). `update()` arrives in Task 19. `ip_address` must validate as IPv4/IPv6 when present; text fields cap at their column length. None of the metadata is unique.
 - Type is free text (examples `web`, `db`, `backup`, `shared hosting`, `vps`), not an enum. `label` is a single data-center/billing asset code such as `JHD-001`.
 
 - [ ] **Step 1: Write failing tests**
 
-Assert: migration renames the column and existing rows keep their values; defaults are `null` metadata and `alerts_enabled=true`; create/update persist every new field; invalid `ip_address` is rejected while IPv4 and IPv6 are accepted; overlength fields are rejected; `server_type` replaces `group_name` in mass assignment and serialization; schema test covers the four indexes.
+Assert: migration renames the column and existing rows keep their values; defaults are `null` metadata and `alerts_enabled=true`; create persists every new field; invalid `ip_address` is rejected while IPv4 and IPv6 are accepted; overlength fields are rejected; `server_type` replaces `group_name` in mass assignment and serialization; schema test covers the four indexes.
 
 - [ ] **Step 2: Implement and run**
 
