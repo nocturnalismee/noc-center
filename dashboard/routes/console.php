@@ -33,3 +33,11 @@ Schedule::command('noc:alert-reminders')
 Schedule::command('noc:rollup')
     ->everyFiveMinutes()
     ->withoutOverlapping(4);
+
+// Retention pruning (spec §7.11) runs at low traffic. Batches are bounded, so
+// the lock TTL only has to outlive a normal run and stay below the daily
+// cadence; a killed run must not strand the key for a whole day. No
+// `onOneServer()`: the dashboard is a single node without an atomic cache lock.
+Schedule::command('noc:prune')
+    ->dailyAt('03:30')
+    ->withoutOverlapping(60);
