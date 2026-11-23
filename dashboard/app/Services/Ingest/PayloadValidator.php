@@ -2,10 +2,13 @@
 
 namespace App\Services\Ingest;
 
+use App\Rules\JsonInteger;
+use App\Rules\JsonNumber;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Validation\Validator as ValidatorContract;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use JsonException;
 use stdClass;
@@ -26,15 +29,58 @@ use stdClass;
 class PayloadValidator
 {
     /**
-     * RFC 3339 with a mandatory offset: `Z` or `±hh:mm`.
+     * RFC 3339 with a mandatory offset: `Z`/`z` or `±hh:mm`. RFC 3339 is
+     * case-insensitive for `T` and `Z`, so both cases are accepted.
      */
-    public const COLLECTED_AT_PATTERN = '/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})\z/';
+    public const COLLECTED_AT_PATTERN = '/\A\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:[Zz]|[+-]\d{2}:\d{2})\z/';
 
     /**
      * Keys of `panel_metrics` and `extensions` (spec §8): a letter, then up to
      * 63 further letters, digits, dots, underscores or hyphens.
      */
     public const FLAT_MAP_KEY_PATTERN = '/\A[A-Za-z][A-Za-z0-9_.-]{0,63}\z/';
+
+    /**
+     * What a validation message calls each field. Laravel splits hyphenated
+     * attribute names (`agent.interval_seconds` → "agent.interval seconds"),
+     * so the readable name is supplied explicitly; keys stay dotted for
+     * machine-readable errors. All other names are left as the dotted path.
+     *
+     * @var array<string, string>
+     */
+    private const ATTRIBUTE_NAMES = [
+        'schema_version' => 'schema_version',
+        'agent.id' => 'agent.id',
+        'agent.hostname' => 'agent_hostname',
+        'agent.panel' => 'agent_panel',
+        'agent.version' => 'agent_version',
+        'agent.collected_at' => 'collected_at',
+        'agent.interval_seconds' => 'interval_seconds',
+        'system.os.name' => 'os_name',
+        'system.os.version' => 'os_version',
+        'system.os.kernel' => 'kernel',
+        'system.uptime_seconds' => 'uptime_seconds',
+        'metrics.cpu.usage_pct' => 'cpu_usage_pct',
+        'metrics.cpu.iowait_pct' => 'cpu_iowait_pct',
+        'metrics.cpu.load1' => 'load1',
+        'metrics.cpu.load5' => 'load5',
+        'metrics.cpu.load15' => 'load15',
+        'metrics.cpu.cores' => 'cpu_cores',
+        'metrics.memory.total_bytes' => 'memory_total_bytes',
+        'metrics.memory.used_bytes' => 'memory_used_bytes',
+        'metrics.memory.used_pct' => 'memory_used_pct',
+        'metrics.swap.total_bytes' => 'swap_total_bytes',
+        'metrics.swap.used_bytes' => 'swap_used_bytes',
+        'metrics.swap.used_pct' => 'swap_used_pct',
+        'metrics.disk.root.total_bytes' => 'disk_total_bytes',
+        'metrics.disk.root.used_bytes' => 'disk_used_bytes',
+        'metrics.disk.root.used_pct' => 'disk_used_pct',
+        'metrics.disk.root.inode_pct' => 'disk_inode_pct',
+        'metrics.network.rx_bytes_per_sec' => 'network_rx_bytes_per_sec',
+        'metrics.network.tx_bytes_per_sec' => 'network_tx_bytes_per_sec',
+        'metrics.processes.running' => 'processes_running',
+        'metrics.processes.blocked' => 'processes_blocked',
+    ];
 
     public const PANEL_PATTERN = '/\A[A-Za-z0-9][A-Za-z0-9_.-]*\z/';
 
@@ -52,10 +98,20 @@ class PayloadValidator
 
     /**
      * Payload positions that must be JSON objects, checked for the empty-list
-     * ambiguity. The flat maps are validated by {@see flatMapFailures()}.
+     * ambiguity and for lists in general. The per-key flat-map rules run
+     * separately in {@see flatMapFailures()}.
      */
-    private const OBJECT_POSITIONS = ['agent', 'system', 'system.os', 'metrics'];
+    private const OBJECT_POSITIONS = [
+        'agent', 'system', 'system.os', 'metrics', 'metrics.cpu', 'metrics.memory',
+        'metrics.swap', 'metrics.disk', 'metrics.disk.root', 'metrics.network',
+        'metrics.processes', 'panel_metrics', 'extensions',
+    ];
 
+    /**
+     * Spec §8: the deepest allowed document is depth 8. PHP's `json_decode()`
+     * `$depth` argument is the *maximum* level that may be decoded, so it is
+     * passed as `MAX_JSON_DEPTH + 1`: depth 8 decodes, depth 9 throws.
+     */
     private const MAX_JSON_DEPTH = 8;
 
     /**
@@ -74,13 +130,21 @@ class PayloadValidator
         $decoded = $this->decode($rawJson);
         $data = $this->toArray($decoded);
 
+        // A JSON list where an object belongs must be reported before Laravel
+        // sees it: a list under an `array` rule can raise a "Syntax error"
+        // from the rule parser instead of a field message.
+        $failures = $this->listFailures($decoded, $data);
+
+        if ($failures !== []) {
+            throw ValidationException::withMessages($failures);
+        }
+
         $validator = $this->validator($data);
 
         // Shape checks PHP's array rules cannot express: a key pattern, a
-        // per-key byte limit, the hard 128-key cap and the `[]` vs `{}`
-        // distinction. They are merged into the same bag as the rules above.
+        // per-key byte limit, the hard 128-key cap, and flat-map keys that
+        // must not echo client bytes. They merge into the same message bag.
         $failures = $this->flatMapFailures($decoded, $data);
-        $failures = $this->emptyListFailures($decoded, $failures);
 
         $validator->after(static function (ValidatorContract $validator) use ($failures): void {
             if ($failures !== []) {
@@ -107,10 +171,9 @@ class PayloadValidator
      */
     private function decode(string $rawJson): stdClass
     {
-        // Depth is enforced by `json_decode()` itself: level 8 describes a
-        // payload whose deepest value is at `metrics.disk.root.*`, so anything
-        // deeper (for example a nested map value) fails to decode.
-        $data = json_decode($rawJson, false, self::MAX_JSON_DEPTH, JSON_THROW_ON_ERROR);
+        // Depth is enforced by `json_decode()`; see `MAX_JSON_DEPTH` for why the
+        // argument is one past the allowed depth.
+        $data = json_decode($rawJson, false, self::MAX_JSON_DEPTH + 1, JSON_THROW_ON_ERROR);
 
         if (! is_object($data)) {
             throw new JsonException('The ingest payload must be a JSON object.');
@@ -150,15 +213,15 @@ class PayloadValidator
 
     private function validator(array $data): ValidatorContract
     {
-        return Validator::make($data, [
-            'schema_version' => ['required', 'integer', 'in:1'],
+        $validator = Validator::make($data, [
+            'schema_version' => ['required', new JsonInteger, 'in:1'],
             'agent' => ['required', 'array'],
             'agent.id' => ['required', 'string', 'max:64'],
             'agent.hostname' => ['required', 'string', 'max:253'],
             'agent.panel' => ['required', 'string', 'max:32', 'regex:'.self::PANEL_PATTERN],
             'agent.version' => ['sometimes', 'nullable', 'string', 'max:32'],
             'agent.collected_at' => ['required', 'string', 'date', 'regex:'.self::COLLECTED_AT_PATTERN],
-            'agent.interval_seconds' => ['required', 'integer', 'between:10,3600'],
+            'agent.interval_seconds' => ['required', 'integer', new JsonInteger, 'between:10,3600'],
 
             'system' => ['sometimes', 'nullable', 'array'],
             'system.os' => ['sometimes', 'nullable', 'array'],
@@ -166,40 +229,47 @@ class PayloadValidator
             'system.os.version' => ['sometimes', 'nullable', 'string', 'max:128'],
             'system.os.kernel' => ['sometimes', 'nullable', 'string', 'max:128'],
             // Agent-only and optional: `--dry-run` and older agents may omit it.
-            'system.uptime_seconds' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            'system.uptime_seconds' => ['sometimes', 'nullable', 'integer', new JsonInteger, 'min:0'],
 
             'metrics' => ['required', 'array'],
             'metrics.cpu' => ['required', 'array'],
-            'metrics.cpu.usage_pct' => ['required', 'numeric', 'between:0,100'],
-            'metrics.cpu.iowait_pct' => ['required', 'numeric', 'between:0,100'],
-            'metrics.cpu.load1' => ['required', 'numeric', 'min:0'],
-            'metrics.cpu.load5' => ['required', 'numeric', 'min:0'],
-            'metrics.cpu.load15' => ['required', 'numeric', 'min:0'],
-            'metrics.cpu.cores' => ['required', 'integer', 'between:1,1024'],
+            // Real JSON numbers only: `numeric` would accept `"12.5"` and store 0.
+            'metrics.cpu.usage_pct' => ['required', 'numeric', new JsonNumber, 'between:0,100'],
+            'metrics.cpu.iowait_pct' => ['required', 'numeric', new JsonNumber, 'between:0,100'],
+            'metrics.cpu.load1' => ['required', 'numeric', new JsonNumber, 'min:0'],
+            'metrics.cpu.load5' => ['required', 'numeric', new JsonNumber, 'min:0'],
+            'metrics.cpu.load15' => ['required', 'numeric', new JsonNumber, 'min:0'],
+            'metrics.cpu.cores' => ['required', 'integer', new JsonInteger, 'between:1,1024'],
             'metrics.memory' => ['required', 'array'],
-            'metrics.memory.total_bytes' => ['required', 'integer', 'min:0'],
-            'metrics.memory.used_bytes' => ['required', 'integer', 'min:0'],
-            'metrics.memory.used_pct' => ['required', 'numeric', 'between:0,100'],
+            'metrics.memory.total_bytes' => ['required', 'integer', new JsonInteger, 'min:0'],
+            'metrics.memory.used_bytes' => ['required', 'integer', new JsonInteger, 'min:0'],
+            'metrics.memory.used_pct' => ['required', 'numeric', new JsonNumber, 'between:0,100'],
             'metrics.swap' => ['required', 'array'],
-            'metrics.swap.total_bytes' => ['required', 'integer', 'min:0'],
-            'metrics.swap.used_bytes' => ['required', 'integer', 'min:0'],
-            'metrics.swap.used_pct' => ['required', 'numeric', 'between:0,100'],
+            'metrics.swap.total_bytes' => ['required', 'integer', new JsonInteger, 'min:0'],
+            'metrics.swap.used_bytes' => ['required', 'integer', new JsonInteger, 'min:0'],
+            'metrics.swap.used_pct' => ['required', 'numeric', new JsonNumber, 'between:0,100'],
             'metrics.disk' => ['required', 'array'],
             'metrics.disk.root' => ['required', 'array'],
-            'metrics.disk.root.total_bytes' => ['required', 'integer', 'min:0'],
-            'metrics.disk.root.used_bytes' => ['required', 'integer', 'min:0'],
-            'metrics.disk.root.used_pct' => ['required', 'numeric', 'between:0,100'],
-            'metrics.disk.root.inode_pct' => ['required', 'numeric', 'between:0,100'],
+            'metrics.disk.root.total_bytes' => ['required', 'integer', new JsonInteger, 'min:0'],
+            'metrics.disk.root.used_bytes' => ['required', 'integer', new JsonInteger, 'min:0'],
+            'metrics.disk.root.used_pct' => ['required', 'numeric', new JsonNumber, 'between:0,100'],
+            'metrics.disk.root.inode_pct' => ['required', 'numeric', new JsonNumber, 'between:0,100'],
             'metrics.network' => ['required', 'array'],
-            'metrics.network.rx_bytes_per_sec' => ['required', 'numeric', 'min:0'],
-            'metrics.network.tx_bytes_per_sec' => ['required', 'numeric', 'min:0'],
+            'metrics.network.rx_bytes_per_sec' => ['required', 'numeric', new JsonNumber, 'min:0'],
+            'metrics.network.tx_bytes_per_sec' => ['required', 'numeric', new JsonNumber, 'min:0'],
             'metrics.processes' => ['required', 'array'],
-            'metrics.processes.running' => ['required', 'integer', 'min:0'],
-            'metrics.processes.blocked' => ['required', 'integer', 'min:0'],
+            'metrics.processes.running' => ['required', 'integer', new JsonInteger, 'min:0'],
+            'metrics.processes.blocked' => ['required', 'integer', new JsonInteger, 'min:0'],
 
             'panel_metrics' => ['sometimes', 'nullable', 'array'],
             'extensions' => ['sometimes', 'nullable', 'array'],
         ]);
+
+        // Readable names keep the field keys dotted but drop the hyphen split
+        // that would render `interval_seconds` as "interval seconds".
+        $validator->setAttributeNames(self::ATTRIBUTE_NAMES);
+
+        return $validator;
     }
 
     /**
@@ -236,7 +306,9 @@ class PayloadValidator
                 $key = (string) $key;
 
                 if (preg_match(self::FLAT_MAP_KEY_PATTERN, $key) !== 1) {
-                    $failures[$map][] = 'The '.$map.' key ['.$key.'] must match '.self::FLAT_MAP_KEY_PATTERN.'.';
+                    // Never echo the raw key: only a control-stripped, length-
+                    // limited label reaches the response.
+                    $failures[$map][] = 'The '.$map.' key ['.$this->keyLabel($key).'] is not a valid metric key.';
 
                     continue;
                 }
@@ -259,21 +331,18 @@ class PayloadValidator
     }
 
     /**
-     * An empty JSON list (`[]`) and an empty object (`{}`) are the same after
-     * `toArray()`, so the required object positions are re-checked against the
-     * decoded tree: `"agent": []` is a shape error, `"agent": {}` is simply
-     * missing its required fields.
+     * Every position that must be a JSON object, checked against the decoded
+     * tree so a list (`[]` or `[…]`) is a shape error rather than a missing
+     * or malformed sub-tree. An empty list and an empty object are the same
+     * after `toArray()`, so this cannot be done on the converted array.
      *
-     * @param  array<string, list<string>>  $failures
      * @return array<string, list<string>>
      */
-    private function emptyListFailures(stdClass $decoded, array $failures): array
+    private function listFailures(stdClass $decoded, array $data): array
     {
-        foreach (self::OBJECT_POSITIONS as $position) {
-            if (isset($failures[$position])) {
-                continue;
-            }
+        $failures = [];
 
+        foreach (self::OBJECT_POSITIONS as $position) {
             $value = $decoded;
 
             foreach (explode('.', $position) as $segment) {
@@ -295,6 +364,19 @@ class PayloadValidator
     private function isList(mixed $value): bool
     {
         return is_array($value) && array_is_list($value);
+    }
+
+    /**
+     * A safe label for a client-supplied flat-map key. The key itself is
+     * never echoed: it may contain control bytes or invalid UTF-8, which must
+     * not reach the 422 body even as a substituted replacement character.
+     */
+    private function keyLabel(string $key): string
+    {
+        $visible = preg_replace('/[^\x20-\x7E]/', '', $key) ?? '';
+        $visible = Str::limit($visible, 32, '…');
+
+        return $visible === '' ? '(unnamed)' : $visible;
     }
 
     private function toPayload(array $data): IngestPayload

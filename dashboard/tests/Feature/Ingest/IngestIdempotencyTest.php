@@ -140,7 +140,7 @@ class IngestIdempotencyTest extends TestCase
         $this->assertSame(2, MetricSample::query()->distinct()->count('server_id'));
     }
 
-    public function test_a_concurrent_duplicate_insert_never_throws(): void
+    public function test_an_existing_duplicate_insert_never_throws(): void
     {
         [, $plain] = $this->serverWithToken();
         $body = $this->payloadJson();
@@ -148,9 +148,9 @@ class IngestIdempotencyTest extends TestCase
         $token = ServerToken::query()->sole();
         $store = $this->app->make(StoreSample::class);
 
-        // Simulate the competing request winning the unique index between the
-        // action's insert decision and its re-read: the row is written by
-        // someone else first, so the second insert is ignored.
+        // An equivalent row already exists (as if an earlier request had
+        // stored it): the second insert is ignored rather than throwing. This
+        // is not a true two-process race; it pins existing-duplicate behaviour.
         DB::table('metric_samples')->insert($this->rawSample($token->server_id, '2026-11-22 12:00:00'));
 
         try {

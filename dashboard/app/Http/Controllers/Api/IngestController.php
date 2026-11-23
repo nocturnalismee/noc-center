@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use JsonException;
+use Throwable;
 
 class IngestController extends Controller
 {
@@ -52,6 +53,13 @@ class IngestController extends Controller
             return $this->error('invalid_json', 400);
         } catch (ValidationException $exception) {
             return $this->error('unprocessable_entity', 422, $exception->errors());
+        } catch (Throwable $exception) {
+            // Never let an unhandled failure escape: the framework's renderer
+            // would answer 500 without `Cache-Control: no-store`, and its body
+            // can carry internals. Report it, answer a generic JSON 500.
+            report($exception);
+
+            return $this->error('server_error', 500);
         }
 
         return $this->respond(['status' => 'accepted'], 202);

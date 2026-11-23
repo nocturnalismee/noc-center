@@ -154,11 +154,19 @@ class PayloadValidationTest extends TestCase
             ->assertExactJson(['error' => 'invalid_json']);
     }
 
-    public function test_json_deeper_than_the_limit_is_rejected(): void
+    public function test_a_document_at_the_depth_limit_is_accepted(): void
     {
-        $deep = '{"schema_version":1,"agent":'.str_repeat('{"a":', 8).'1'.str_repeat('}', 8).'}';
+        // Spec §8: a maximum depth of 8 is allowed. `json_decode()`'s depth
+        // argument is the maximum allowed, so 8 must decode (not 400).
+        $this->ingestRaw($this->depthPayload(8))->assertStatus(202);
+    }
 
-        $this->ingestRaw($deep)->assertStatus(400)->assertExactJson(['error' => 'invalid_json']);
+    public function test_a_document_one_past_the_depth_limit_is_rejected(): void
+    {
+        // One level past the maximum is a protocol violation, not a schema one.
+        $this->ingestRaw($this->depthPayload(9))
+            ->assertStatus(400)
+            ->assertExactJson(['error' => 'invalid_json']);
     }
 
     public function test_an_empty_body_is_malformed_json(): void
@@ -173,6 +181,40 @@ class PayloadValidationTest extends TestCase
         $this->assertNoStore($response);
     }
 
+    public function test_lowercase_rfc3339_offsets_are_accepted(): void
+    {
+        // RFC 3339 permits lowercase `t` and `z`; the timestamps still clamp.
+        $body = $this->payload();
+        $body['agent']['collected_at'] = '2026-11-22t12:00:00z';
+
+        $this->ingest($body)->assertStatus(202);
+
+        $payload = $this->validator->validate($this->payloadJson($body));
+        $this->assertSame('2026-11-22 12:00:00', $payload->collectedAt->toDateTimeString());
+    }
+
+    public function test_flat_map_error_messages_never_echo_raw_control_characters(): void
+    {
+        // Keys are client-controlled: a control byte must not reach the 422
+        // body verbatim (nor as a substituted U+FFFD), only a safe label.
+        $body = $this->payload();
+        $body['panel_metrics'] = ["evil\u{0007}key" => 1];
+
+        $response = $this->ingestRaw($this->payloadJson($body));
+
+        $response->assertStatus(422);
+
+        $message = $response->json('errors.panel_metrics.0');
+
+        $this->assertIsString($message);
+        $this->assertStringNotContainsString("\u{0007}", $message);
+        $this->assertStringNotContainsString("\u{FFFD}", $message);
+        // Control bytes are stripped; the printable remainder is a short,
+        // bounded label rather than the raw key.
+        $this->assertStringContainsString('[evilkey]', $message);
+        $this->assertLessThanOrEqual(96, strlen($message));
+    }
+
     /**
      * @return array<string, array{0: array<string, mixed>, 1: string}>
      */
@@ -182,8 +224,17 @@ class PayloadValidationTest extends TestCase
             'missing schema_version' => [['schema_version' => null], 'schema_version'],
             'schema_version 2' => [['schema_version' => 2], 'schema_version'],
             'schema_version string' => [['schema_version' => '2'], 'schema_version'],
+            'schema_version numeric string 1' => [['schema_version' => '1'], 'schema_version'],
+            'schema_version true' => [['schema_version' => true], 'schema_version'],
             'missing agent' => [['agent' => null], 'agent'],
             'agent not an object' => [['agent' => 'web01'], 'agent'],
+            'agent list' => [['agent' => [['id' => 'web01']]], 'agent'],
+            'metrics list' => [['metrics' => [1, 2, 3]], 'metrics'],
+            'metrics scalar' => [['metrics' => 'nope'], 'metrics'],
+            'system list' => [['system' => ['os']], 'system'],
+            'cpu list' => [['metrics.cpu' => [1, 2]], 'metrics.cpu'],
+            'panel_metrics scalar' => [['panel_metrics' => 'flat'], 'panel_metrics'],
+            'extensions empty list' => [['extensions' => []], 'extensions'],
             'missing agent id' => [['agent.id' => null], 'agent.id'],
             'agent id too long' => [['agent.id' => Str::repeat('a', 65)], 'agent.id'],
             'missing hostname' => [['agent.hostname' => null], 'agent.hostname'],
@@ -198,10 +249,17 @@ class PayloadValidationTest extends TestCase
             'missing interval' => [['agent.interval_seconds' => null], 'agent.interval_seconds'],
             'interval below 10' => [['agent.interval_seconds' => 9], 'agent.interval_seconds'],
             'interval above 3600' => [['agent.interval_seconds' => 3601], 'agent.interval_seconds'],
+            'interval numeric string' => [['agent.interval_seconds' => '60'], 'agent.interval_seconds'],
+            'interval true' => [['agent.interval_seconds' => true], 'agent.interval_seconds'],
             'missing metrics' => [['metrics' => null], 'metrics'],
             'missing cpu usage' => [['metrics.cpu.usage_pct' => null], 'metrics.cpu.usage_pct'],
             'cpu usage above 100' => [['metrics.cpu.usage_pct' => 100.01], 'metrics.cpu.usage_pct'],
             'cpu usage negative' => [['metrics.cpu.usage_pct' => -1], 'metrics.cpu.usage_pct'],
+            'cpu usage numeric string' => [['metrics.cpu.usage_pct' => '12.5'], 'metrics.cpu.usage_pct'],
+            'load numeric string' => [['metrics.cpu.load1' => '0.5'], 'metrics.cpu.load1'],
+            'mem used pct numeric string' => [['metrics.memory.used_pct' => '50'], 'metrics.memory.used_pct'],
+            'net rx numeric string' => [['metrics.network.rx_bytes_per_sec' => '1'], 'metrics.network.rx_bytes_per_sec'],
+            'cpu usage true' => [['metrics.cpu.usage_pct' => true], 'metrics.cpu.usage_pct'],
             'iowait above 100' => [['metrics.cpu.iowait_pct' => 120], 'metrics.cpu.iowait_pct'],
             'load negative' => [['metrics.cpu.load1' => -0.1], 'metrics.cpu.load1'],
             'cores zero' => [['metrics.cpu.cores' => 0], 'metrics.cpu.cores'],
@@ -240,9 +298,6 @@ class PayloadValidationTest extends TestCase
         foreach ($replacement as $dotted => $value) {
             $this->assign($body, $dotted, $value);
         }
-
-        // Forced strings that PHP would coerce are covered by the dedicated
-        // test_the_validator_coerces_numeric_strings().
 
         $response = $this->ingestRaw($this->payloadJson($body));
 
@@ -504,19 +559,35 @@ class PayloadValidationTest extends TestCase
         return $prefix.Str::repeat('x', $padding).$suffix;
     }
 
-    public function test_the_validator_coerces_numeric_strings(): void
+    public function test_schema_version_must_be_the_json_integer_one(): void
     {
-        // Laravel's `integer`/`numeric` rules accept numeric strings; the strict
-        // types that matter (identity, maps, cores) are integer-validated. Recorded
-        // so nobody mistakes this for strict JSON typing.
+        // `1.0` is a JSON float: a PHP array cannot express it (it re-encodes
+        // as `1`), so the raw body is built by substitution.
+        $fixture = $this->payloadJson();
+        $float = str_replace('"schema_version":1', '"schema_version":1.0', $fixture);
+        $this->assertNotSame($fixture, $float);
+
+        $this->ingestRaw($float)
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['schema_version']);
+
+        // The canonical integer still passes.
+        $this->ingestRaw($fixture)->assertStatus(202);
+    }
+
+    public function test_core_metric_numbers_are_never_coerced_from_strings(): void
+    {
+        // `IngestPayload::metric()` keeps only real JSON numbers; a numeric
+        // string would otherwise be stored as 0.0 without anyone noticing.
         $body = $this->payload();
-        $body['agent']['interval_seconds'] = '60';
         $body['metrics']['cpu']['usage_pct'] = '12.5';
 
-        $payload = $this->validator->validate($this->payloadJson($body));
+        $this->ingestRaw($this->payloadJson($body))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['metrics.cpu.usage_pct']);
 
-        $this->assertSame(60, $payload->intervalSeconds);
-        $this->assertSame('12.5', $payload->metrics['cpu']['usage_pct']);
+        $payload = $this->validator->validate($this->payloadJson());
+        $this->assertSame(12.5, $payload->metric('cpu', 'usage_pct'));
     }
 
     public function test_an_unsupported_media_type_reaches_validation(): void
@@ -639,6 +710,28 @@ class PayloadValidationTest extends TestCase
             ->assertStatus(413);
     }
 
+    public function test_an_unhandled_storage_failure_is_a_no_store_json_500(): void
+    {
+        // Force a storage exception by removing the child table, so the detail
+        // insert fails after the sample row is written. The response must be a
+        // generic JSON 500 that is never cached and never leaks internals.
+        $plain = $this->issueToken();
+
+        DB::statement('DROP TABLE metric_details');
+
+        $response = $this->postBody($this->payloadJson(), 'application/json', $plain);
+
+        $response->assertStatus(500);
+        $response->assertExactJson(['error' => 'server_error']);
+        $this->assertNoStore($response, 'An unhandled 500 must never be cached.');
+
+        $body = $response->getContent();
+        $this->assertStringNotContainsString('metric_details', $body);
+        $this->assertStringNotContainsString('SQLSTATE', $body);
+        $this->assertStringNotContainsString('/app/', $body);
+        $this->assertStringNotContainsString('Stack trace', $body);
+    }
+
     public function test_oversized_payloads_are_not_stored(): void
     {
         $plain = $this->issueToken();
@@ -663,8 +756,8 @@ class PayloadValidationTest extends TestCase
         $errors = $response->json('errors');
 
         $this->assertSame(['schema_version', 'agent.interval_seconds', 'panel_metrics'], array_keys($errors));
-        $this->assertSame(['The selected schema version is invalid.'], $errors['schema_version']);
-        $this->assertSame(['The agent.interval seconds field must be between 10 and 3600.'], $errors['agent.interval_seconds']);
+        $this->assertSame(['The selected schema_version is invalid.'], $errors['schema_version']);
+        $this->assertSame(['The interval_seconds field must be between 10 and 3600.'], $errors['agent.interval_seconds']);
         $this->assertStringContainsString('bad key', $errors['panel_metrics'][0]);
         $this->assertSame(0, MetricSample::query()->count());
     }
@@ -736,6 +829,27 @@ class PayloadValidationTest extends TestCase
     /**
      * @return array<string, mixed>
      */
+    /**
+     * A payload whose `agent.depth` value sits at exactly `$level` JSON levels
+     * (the root object is level 1). `json_decode()`'s depth argument bounds
+     * exactly this number.
+     */
+    private function depthPayload(int $level): string
+    {
+        $body = $this->payload();
+        $value = 1;
+        $nested = 2;
+
+        while ($nested < $level) {
+            $value = ['level' => $value];
+            $nested++;
+        }
+
+        $body['agent']['depth'] = $value;
+
+        return $this->payloadJson($body);
+    }
+
     private function payload(): array
     {
         return [
