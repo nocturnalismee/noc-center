@@ -3,9 +3,7 @@
 use App\Http\Controllers\ServerSeriesController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', function () {
-    return view('welcome');
-});
+Route::redirect('/', '/dashboard');
 
 Route::middleware('auth')->group(function () {
     Route::view('/dashboard', 'dashboard-placeholder')->name('dashboard');

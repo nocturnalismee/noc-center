@@ -1,41 +1,52 @@
-<!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Reset your password — {{ config('app.name') }}</title>
-    @include('auth._styles')
-</head>
-<body>
-    <main>
-        <h1>Reset your password</h1>
+@extends('layouts.guest')
 
-        <p>Enter your email address and we will send you a link to reset your password.</p>
+@section('title', 'Reset your password — '.config('app.name'))
 
-        @if (session('status'))
-            <div class="status" role="status">{{ session('status') }}</div>
-        @endif
+@section('content')
+    <h1 class="text-[24px] font-semibold leading-8 tracking-[-0.01em] text-text">Reset your password</h1>
+    <p class="mt-1 text-[12.5px] text-text-sub">Enter your email address and we will send you a link to reset your password.</p>
 
-        @if ($errors->any())
-            <div class="alert" role="alert">
+    @if (session('status'))
+        <div class="mt-5 rounded-control border border-ok/40 bg-ok/5 px-3 py-2.5 text-[11px] text-ok" role="status">
+            {{ session('status') }}
+        </div>
+    @endif
+
+    @if ($errors->any())
+        <div class="mt-5 rounded-control border border-critical/40 bg-critical/5 px-3 py-2.5" role="alert">
+            <ul class="space-y-1 text-[11px] text-critical">
                 @foreach ($errors->all() as $error)
-                    <p>{{ $error }}</p>
+                    <li>{{ $error }}</li>
                 @endforeach
-            </div>
-        @endif
+            </ul>
+        </div>
+    @endif
 
-        <form method="POST" action="{{ route('password.email') }}">
-            @csrf
+    <form method="POST" action="{{ route('password.email') }}" class="mt-6 space-y-5">
+        @csrf
 
-            <p>
-                <label for="email">Email</label>
-                <input id="email" name="email" type="email" value="{{ old('email') }}" required autofocus autocomplete="username">
-            </p>
+        <div>
+            <label for="email" class="field-label">Email</label>
+            <input
+                id="email"
+                name="email"
+                type="email"
+                value="{{ old('email') }}"
+                required
+                autofocus
+                autocomplete="username"
+                class="field"
+                aria-describedby="{{ $errors->has('email') ? 'email-error' : '' }}"
+            >
+            @error('email')
+                <p id="email-error" class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+            @enderror
+        </div>
 
-            <button type="submit">Email password reset link</button>
-        </form>
+        <button type="submit" class="primary-button h-11 w-full">Email password reset link</button>
+    </form>
 
-        <p class="links"><a href="{{ route('login') }}">Back to sign in</a></p>
-    </main>
-</body>
-</html>
+    <p class="mt-6 border-t border-divider pt-5 text-[11.5px]">
+        <a href="{{ route('login') }}" class="text-focus hover:underline">Back to sign in</a>
+    </p>
+@endsection

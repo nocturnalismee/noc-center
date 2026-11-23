@@ -1,47 +1,74 @@
-<!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Choose a new password — {{ config('app.name') }}</title>
-    @include('auth._styles')
-</head>
-<body>
-    <main>
-        <h1>Choose a new password</h1>
+@extends('layouts.guest')
 
-        @if ($errors->any())
-            <div class="alert" role="alert">
+@section('title', 'Choose a new password — '.config('app.name'))
+
+@section('content')
+    <h1 class="text-[24px] font-semibold leading-8 tracking-[-0.01em] text-text">Choose a new password</h1>
+    <p class="mt-1 text-[12.5px] text-text-sub">Use at least eight characters and keep it unique to this console.</p>
+
+    @if ($errors->any())
+        <div class="mt-5 rounded-control border border-critical/40 bg-critical/5 px-3 py-2.5" role="alert">
+            <ul class="space-y-1 text-[11px] text-critical">
                 @foreach ($errors->all() as $error)
-                    <p>{{ $error }}</p>
+                    <li>{{ $error }}</li>
                 @endforeach
-            </div>
-        @endif
+            </ul>
+        </div>
+    @endif
 
-        <form method="POST" action="{{ route('password.update') }}">
-            @csrf
+    <form method="POST" action="{{ route('password.update') }}" class="mt-6 space-y-5">
+        @csrf
 
-            <input type="hidden" name="token" value="{{ old('token', request()->route('token')) }}">
+        <input type="hidden" name="token" value="{{ old('token', request()->route('token')) }}">
 
-            <p>
-                <label for="email">Email</label>
-                <input id="email" name="email" type="email" value="{{ old('email', request('email')) }}" required autofocus autocomplete="username">
-            </p>
+        <div>
+            <label for="email" class="field-label">Email</label>
+            <input
+                id="email"
+                name="email"
+                type="email"
+                value="{{ old('email', request('email')) }}"
+                required
+                autofocus
+                autocomplete="username"
+                class="field"
+            >
+            @error('email')
+                <p class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+            @enderror
+        </div>
 
-            <p>
-                <label for="password">New password</label>
-                <input id="password" name="password" type="password" required autocomplete="new-password">
-            </p>
+        <div>
+            <label for="password" class="field-label">New password</label>
+            <input
+                id="password"
+                name="password"
+                type="password"
+                required
+                autocomplete="new-password"
+                class="field"
+            >
+            @error('password')
+                <p class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+            @enderror
+        </div>
 
-            <p>
-                <label for="password_confirmation">Confirm new password</label>
-                <input id="password_confirmation" name="password_confirmation" type="password" required autocomplete="new-password">
-            </p>
+        <div>
+            <label for="password_confirmation" class="field-label">Confirm new password</label>
+            <input
+                id="password_confirmation"
+                name="password_confirmation"
+                type="password"
+                required
+                autocomplete="new-password"
+                class="field"
+            >
+        </div>
 
-            <button type="submit">Reset password</button>
-        </form>
+        <button type="submit" class="primary-button h-11 w-full">Reset password</button>
+    </form>
 
-        <p class="links"><a href="{{ route('login') }}">Back to sign in</a></p>
-    </main>
-</body>
-</html>
+    <p class="mt-6 border-t border-divider pt-5 text-[11.5px]">
+        <a href="{{ route('login') }}" class="text-focus hover:underline">Back to sign in</a>
+    </p>
+@endsection

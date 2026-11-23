@@ -21,6 +21,7 @@ use Illuminate\Auth\Events\Logout;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -38,6 +39,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        View::share('appVersion', 'v1.0.0');
+
         Gate::policy(Server::class, ServerPolicy::class);
         Gate::policy(ServerToken::class, ServerTokenPolicy::class);
         Gate::policy(Alert::class, AlertPolicy::class);

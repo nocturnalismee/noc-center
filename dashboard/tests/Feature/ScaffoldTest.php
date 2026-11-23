@@ -9,7 +9,7 @@ class ScaffoldTest extends TestCase
 {
     public function test_the_application_boots(): void
     {
-        $this->get('/')->assertOk();
+        $this->get('/')->assertRedirect('/dashboard');
     }
 
     public function test_the_php_wrapper_exists_and_is_executable(): void

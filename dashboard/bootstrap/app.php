@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\AuthenticateAgentToken;
 use App\Http\Middleware\EnsureIngestBodySize;
+use App\Http\Middleware\SecurityHeaders;
 use App\Http\Middleware\ThrottleIngest;
 use App\Http\Middleware\ThrottleIngestFailures;
 use Illuminate\Foundation\Application;
@@ -18,6 +19,10 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->redirectGuestsTo('/login');
+
+        $middleware->web(append: [
+            SecurityHeaders::class,
+        ]);
 
         $middleware->alias([
             'ingest.size' => EnsureIngestBodySize::class,
