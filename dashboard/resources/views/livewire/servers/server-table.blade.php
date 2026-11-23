@@ -1,4 +1,4 @@
-<div wire:poll.30s.visible class="rounded-panel border border-border bg-surface">
+<div wire:poll.30s.visible="pollRefresh" class="rounded-panel border border-border bg-surface">
     <div class="flex flex-wrap items-end justify-between gap-3 px-4 pt-3 lg:px-5">
         <nav class="flex min-w-0 gap-5 overflow-x-auto" aria-label="Filter servers by status">
             @foreach ([

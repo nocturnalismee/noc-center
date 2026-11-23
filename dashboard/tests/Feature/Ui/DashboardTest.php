@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Ui;
 
+use App\Livewire\Dashboard;
 use App\Livewire\Servers\ServerTable;
 use App\Models\Alert;
 use App\Models\Server;
@@ -300,6 +301,45 @@ class DashboardTest extends TestCase
             ->assertSee('No servers match these filters.')
             ->assertSee('Clear filters')
             ->assertDontSee('No servers yet.');
+    }
+
+    public function test_the_table_poll_refreshes_the_fleet_summary(): void
+    {
+        Livewire::test(ServerTable::class)
+            ->assertSeeHtml('wire:poll.30s.visible="pollRefresh"')
+            ->call('pollRefresh')
+            ->assertDispatched('fleet-summary-refresh');
+
+        $dashboard = Livewire::test(Dashboard::class)
+            ->assertSee('0/0');
+
+        $this->online('web-01');
+        Cache::forget(FleetSummary::CACHE_KEY);
+
+        $dashboard
+            ->dispatch('fleet-summary-refresh')
+            ->assertSee('1/1');
+    }
+
+    public function test_inconsistent_liveness_thresholds_follow_the_status_order(): void
+    {
+        $this->online('inconsistent', [
+            'last_seen_at' => now()->subMinutes(20),
+            'stale_after' => now()->addMinutes(5),
+            'offline_after' => now()->subMinutes(5),
+        ]);
+
+        $component = Livewire::test(ServerTable::class)
+            ->set('status', 'online')
+            ->assertSee('inconsistent')
+            ->set('status', 'offline')
+            ->assertDontSee('inconsistent');
+
+        $counts = $component->viewData('counts');
+
+        $this->assertSame(1, $counts['online']);
+        $this->assertSame(0, $counts['offline']);
+        $this->assertSame(1, $counts['all']);
     }
 
     private function online(string $name, array $attributes = []): Server

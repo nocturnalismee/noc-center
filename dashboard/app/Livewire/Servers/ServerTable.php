@@ -54,6 +54,11 @@ class ServerTable extends Component
         $this->resetPage();
     }
 
+    public function pollRefresh(): void
+    {
+        $this->dispatch('fleet-summary-refresh');
+    }
+
     public function sortBy(string $column): void
     {
         $allowed = ['hostname', 'name', 'cpu', 'memory', 'disk', 'load', 'status'];
@@ -261,7 +266,10 @@ class ServerTable extends Component
                 ->where(function (Builder $query) use ($now): void {
                     $query->whereNull('stale_after')
                         ->orWhereNull('offline_after')
-                        ->orWhere('offline_after', '<', $now);
+                        ->orWhere(function (Builder $query) use ($now): void {
+                            $query->where('offline_after', '<', $now)
+                                ->where('stale_after', '<', $now);
+                        });
                 }),
             'never' => $query->whereNull('last_seen_at'),
             default => null,
@@ -333,11 +341,15 @@ class ServerTable extends Component
                     THEN 1 ELSE 0 END), 0) AS stale_count,
                 COALESCE(SUM(CASE
                     WHEN last_seen_at IS NOT NULL
-                        AND (stale_after IS NULL OR offline_after IS NULL OR offline_after < ?)
+                        AND (
+                            stale_after IS NULL
+                            OR offline_after IS NULL
+                            OR (offline_after < ? AND stale_after < ?)
+                        )
                     THEN 1 ELSE 0 END), 0) AS offline_count,
                 COALESCE(SUM(CASE WHEN last_seen_at IS NULL THEN 1 ELSE 0 END), 0) AS never_count
                 SQL,
-                [$now, $now, $now, $now],
+                [$now, $now, $now, $now, $now],
             )
             ->first();
 
