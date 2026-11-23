@@ -2,7 +2,7 @@
 
 namespace App\Services\Ingest;
 
-use App\Enums\ServerHealth;
+use App\Issues\IssueDetector;
 use App\Models\MetricSample;
 use App\Models\Server;
 use App\Models\ServerToken;
@@ -21,8 +21,9 @@ use Illuminate\Validation\ValidationException;
  * never both insert and neither can raise a unique-constraint error.
  *
  * A duplicate still advances the server state (identity, latest metrics,
- * `last_seen_at`, thresholds) because the agent proved it is alive; only the
- * sample and its detail row are left untouched.
+ * `last_seen_at`, thresholds) because the agent proved it is alive; the
+ * sample, its detail row and the issue state derived from it keep the values
+ * stored by the first insert (`insertOrIgnore` does not update).
  */
 class StoreSample
 {
@@ -34,8 +35,10 @@ class StoreSample
 
     private const OFFLINE_MIN_SECONDS = 300;
 
-    public function __construct(private readonly PayloadValidator $validator)
-    {
+    public function __construct(
+        private readonly PayloadValidator $validator,
+        private readonly IssueDetector $issues,
+    ) {
         //
     }
 
@@ -67,7 +70,7 @@ class StoreSample
         // maps this to a 500) rather than dereferencing a null key.
         $server = $token->server ?? throw new ModelNotFoundException('The token has no server.');
 
-        [$created, $sample] = DB::transaction(function () use ($server, $token, $payload, $bytes, $hash): array {
+        [$created, $sample, $issues] = DB::transaction(function () use ($server, $token, $payload, $bytes, $hash): array {
             $now = CarbonImmutable::now('UTC');
 
             $inserted = MetricSample::query()->insertOrIgnore([
@@ -99,13 +102,23 @@ class StoreSample
             $this->updateServer($server, $payload);
             $this->touchToken($token);
 
-            return [$inserted > 0, $sample];
+            // Evaluated inside the transaction: the CPU/load history query
+            // must see the sample just inserted, and the issue state must be
+            // written atomically with the metrics that produced it.
+            $issues = $this->issues->detect($server, $sample, $payload->panelMetrics, $payload->extensions);
+
+            $server->forceFill([
+                'health' => $issues->health,
+                'issue_codes' => $issues->codes,
+            ])->save();
+
+            return [$inserted > 0, $sample, $issues];
         }, 1);
 
         $server->refresh();
         $sample->refresh();
 
-        return new IngestResult($created, $sample, $server);
+        return new IngestResult($created, $sample, $server, $issues);
     }
 
     /**
@@ -145,7 +158,8 @@ class StoreSample
      *
      * Optional identity fields are only overwritten when the agent reported
      * them, so a payload with `system` dropped keeps the stored OS details.
-     * Health and issue codes stay `ok`/`[]` until Task 8 supplies an issue set.
+     * Health and issue codes are written by the caller after detection, so
+     * this method leaves them untouched.
      */
     private function updateServer(Server $server, IngestPayload $payload): void
     {
@@ -162,8 +176,6 @@ class StoreSample
             'last_sample_at' => $payload->collectedAt,
             'stale_after' => $now->addSeconds($staleSeconds),
             'offline_after' => $now->addSeconds($offlineSeconds),
-            'health' => ServerHealth::Ok,
-            'issue_codes' => [],
             ...array_filter([
                 'os_name' => $payload->osName,
                 'os_version' => $payload->osVersion,

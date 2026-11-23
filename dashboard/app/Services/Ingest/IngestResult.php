@@ -2,6 +2,7 @@
 
 namespace App\Services\Ingest;
 
+use App\Issues\IssueSet;
 use App\Models\MetricSample;
 use App\Models\Server;
 
@@ -11,10 +12,11 @@ use App\Models\Server;
  * `created` is false when the `(server_id, collected_at)` key already existed:
  * the response is still a 202 and the server state was still advanced, but no
  * second sample or detail row was written. `sample` is the stored (or already
- * existing) sample and `server` is the refreshed server model.
+ * existing) sample, `server` is the refreshed server model, and `issues` is
+ * the issue set that was written to `servers.health`/`servers.issue_codes` in
+ * the same transaction.
  *
- * Task 8 adds `$issues` once `IssueSet` exists; until then the stored server
- * keeps `health = ok` and `issue_codes = []`.
+ * Creating alerts from this set is Task 9; ingest only persists the state.
  */
 final readonly class IngestResult
 {
@@ -22,6 +24,7 @@ final readonly class IngestResult
         public bool $created,
         public MetricSample $sample,
         public Server $server,
+        public IssueSet $issues,
     ) {
         //
     }
