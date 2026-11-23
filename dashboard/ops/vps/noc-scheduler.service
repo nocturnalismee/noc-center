@@ -1,0 +1,17 @@
+# NOC dashboard scheduler, invoked by noc-scheduler.timer every minute
+# (spec §15.2/§15.3). `schedule:run` is a one-shot command; the timer provides
+# the cadence. The application is read through the `current` symlink.
+
+[Unit]
+Description=NOC dashboard scheduler (one run)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/noc/current
+ExecStart=/usr/bin/env php /var/www/noc/current/artisan schedule:run --verbose
+TimeoutStartSec=300
+Environment=APP_ENV=production

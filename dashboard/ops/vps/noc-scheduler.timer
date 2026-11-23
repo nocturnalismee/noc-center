@@ -1,0 +1,20 @@
+# NOC dashboard scheduler timer: one `schedule:run` every minute
+# (spec §15.2). `Persistent=true` catches up one missed run after downtime;
+# the schedule itself is idempotent and uses withoutOverlapping().
+#
+# Install:
+#   sudo cp noc-scheduler.service noc-scheduler.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now noc-scheduler.timer
+
+[Unit]
+Description=Run the NOC dashboard scheduler every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=1s
+Persistent=true
+Unit=noc-scheduler.service
+
+[Install]
+WantedBy=timers.target

@@ -41,3 +41,13 @@ Schedule::command('noc:rollup')
 Schedule::command('noc:prune')
     ->dailyAt('03:30')
     ->withoutOverlapping(60);
+
+// Shared hosting has no supervisor: drain the queue from the scheduler instead
+// (spec §15.1/§15.3). `--stop-when-empty` and `--max-time=50` keep each run
+// below the one-minute cadence; `--tries=3` bounds retries and `--sleep=1`
+// avoids a busy loop while a job is still backing off. The lock TTL is two
+// minutes, longer than `--max-time` but short enough that a killed worker
+// cannot block the next tick forever. VPS deployments use systemd instead.
+Schedule::command('queue:work --stop-when-empty --max-time=50 --tries=3 --sleep=1')
+    ->everyMinute()
+    ->withoutOverlapping(2);

@@ -1,0 +1,34 @@
+# NOC dashboard queue worker (spec §15.2/§15.3).
+#
+# One long-running worker for email, Telegram, and other queued jobs. The
+# application is served from the `current` symlink so a deploy is picked up by
+# `systemctl restart noc-queue` (deploy.sh also calls `queue:restart`).
+#
+# Install:
+#   sudo cp noc-queue.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now noc-queue
+#
+# `MemoryMax=512M` matches the small-VPS budget; `Restart=always` recovers from
+# crashes and OOM kills.
+
+[Unit]
+Description=NOC dashboard queue worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/noc/current
+ExecStart=/usr/bin/env php /var/www/noc/current/artisan queue:work --sleep=1 --tries=3 --max-time=3600
+Restart=always
+RestartSec=5
+MemoryMax=512M
+KillSignal=SIGTERM
+TimeoutStopSec=90
+Environment=APP_ENV=production
+
+[Install]
+WantedBy=multi-user.target

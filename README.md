@@ -2,14 +2,33 @@
 
 Repository for the NOC monitoring stack.
 
-This stage contains **one deliverable**: the NOC monitoring **agent** under
-[`agent/`](agent/README.md) — a lightweight Bash collector that runs from a
-systemd timer, posts a schema-v1 JSON payload over HTTPS to a dashboard ingest
-endpoint, and ships with an installer, an uninstaller, systemd units, and a
-local mock endpoint for testing.
+It contains two deliverables:
 
-The dashboard, central database, alerting, and history storage are **out of
-scope** for this stage.
+- [`agent/`](agent/README.md) — a lightweight Bash collector that runs from a
+  systemd timer, posts a schema-v1 JSON payload over HTTPS to the dashboard
+  ingest endpoint, and ships with an installer, an uninstaller, systemd units,
+  and a local mock endpoint for testing.
+- [`dashboard/`](dashboard/README.md) — the Laravel + Blade/Livewire dashboard
+  for ingest, SQLite storage, alerting (in-app, SMTP, optional Telegram),
+  history, and deployment/backup operations.
+
+[`dashboard/README.md`](dashboard/README.md) is the install, environment,
+alert-channel, backup/restore, and PostgreSQL migration runbook. Shared-hosting
+scripts live in [`dashboard/ops/`](dashboard/ops/).
+
+## Quick start (dashboard)
+
+```bash
+cd dashboard
+cp .env.example .env
+./tools/php.sh php artisan key:generate
+./tools/php.sh php artisan migrate
+./tools/php.sh php artisan noc:create-admin
+./tools/php.sh php artisan test
+```
+
+Then install the agent on each monitored server. For a browser preview, see the
+port-publishing note in [`dashboard/README.md`](dashboard/README.md#local-development).
 
 ## Quick start (operator)
 
@@ -26,7 +45,8 @@ timers, troubleshooting, token rotation, and uninstall.
 ## Quick start (developer)
 
 ```bash
-bash tools/test-agent.sh        # every suite + static checks + end-to-end
+bash tools/test-agent.sh        # agent: suites + static checks + end-to-end
+cd dashboard && ./tools/test.sh # dashboard: Pint + Laravel test suite
 ```
 
 ## Repository layout
@@ -34,6 +54,7 @@ bash tools/test-agent.sh        # every suite + static checks + end-to-end
 | Path | Purpose |
 | --- | --- |
 | `agent/` | The agent: `collector.sh` core, `lib/`, `panels/`, `modules/`, `systemd/`, `config/`, installer and uninstaller. |
+| `dashboard/` | Laravel/Livewire dashboard: ingest, storage, alerts, history, UI, tests, and `ops/` deployment/backup files. See [`dashboard/README.md`](dashboard/README.md). |
 | `tools/tests/` | Unit and contract test suites for every part of the agent. |
 | `tools/test-agent.sh` | One command that runs every suite, `bash -n`, ShellCheck (if available), the non-panel acceptance dry run, and the mock end-to-end check. |
 | `tools/mock-ingest.py` | Local, loopback-only mock of `POST /api/v1/ingest` (Python 3 stdlib). Never used in production. |
