@@ -65,12 +65,13 @@ require_integer() {
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dest)
-            [[ $# -ge 2 ]] || die "--dest needs a value"
+            [[ $# -ge 2 && -n "$2" ]] || die "--dest needs a non-empty value"
             BACKUP_DIR="$2"
             shift 2
             ;;
         --dest=*)
             BACKUP_DIR="${1#*=}"
+            [[ -n "$BACKUP_DIR" ]] || die "--dest needs a non-empty value"
             shift
             ;;
         --retention-days)
@@ -197,3 +198,7 @@ if [[ "$RETENTION_COUNT" -gt 0 && "${#backups[@]}" -gt "$RETENTION_COUNT" ]]; th
         echo "backup: removed over-count ${backups[$index]}"
     done
 fi
+
+# A SIGKILL can leave a hidden partial. It is never a valid backup and is
+# excluded from retention, so clear old ones without touching a concurrent run.
+find "$BACKUP_DIR" -maxdepth 1 -type f ! -type l -name '.noc-*.partial.sqlite' -mtime +1 -delete 2>/dev/null || true

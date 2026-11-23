@@ -428,64 +428,104 @@ internally consistent while not being the backup you intended. Move the old
 database aside, delete the sidecars, then rename the verified temp copy into
 place. Keep the old file until the restored data is accepted.
 
+Run the block with a PHP 8.3+ CLI. Set `PHP_BIN` to the absolute path recorded
+during installation when the default CLI is older; `set -euo pipefail` stops at
+the first failure, including `artisan down` or a non-`ok` integrity result.
+
 ```bash
-APP=/home/ACCOUNT/noc/current
+set -euo pipefail
+PHP_BIN="${PHP_BIN:-/usr/local/bin/php}"
+APP=/home/ACCOUNT/noc/current          # adjust for the VPS path, /var/www/noc
 DB=/home/ACCOUNT/noc-data/noc.sqlite
 BK=/home/ACCOUNT/noc-backups/noc-2026-11-24.sqlite
-STAMP=$(date -u +%Y%m%dT%H%M%SZ)-$$
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 TMP="$DB.restore-$STAMP"
 OLD="$DB.before-restore-$STAMP"
+"$PHP_BIN" -r 'exit(PHP_VERSION_ID >= 80300 ? 0 : 1);' || {
+    echo "restore: $PHP_BIN is older than PHP 8.3" >&2; exit 1;
+}
 
 # 1. Verify the backup itself before touching the live database.
-php -r '$p=new PDO("sqlite:".$argv[1]); $p->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION); echo $p->query("PRAGMA integrity_check")->fetchColumn(), PHP_EOL;' "$BK"
+"$PHP_BIN" -r '$p=new PDO("sqlite:".$argv[1]); $p->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION); $r=$p->query("PRAGMA integrity_check")->fetchColumn(); if ($r !== "ok") { fwrite(STDERR, "backup integrity_check: $r\n"); exit(1); } echo "backup integrity_check: ok\n";' "$BK"
 
-# 2. Stop all writers. On shared hosting comment out the cron line and wait for
-#    a running schedule:run/queue:work to finish; on a VPS:
-sudo systemctl stop noc-queue noc-scheduler.timer
-# If maintenance mode alone is not trusted, also stop PHP-FPM briefly:
+# 2. Stop all writers. Shared hosting: comment out the cron line and wait for a
+#    running schedule:run/queue:work to finish. VPS: stop the timer, any
+#    currently active oneshot scheduler run, the queue worker, and PHP-FPM.
+#    Stopping the timer alone does not stop an already-running scheduler unit.
+# sudo systemctl stop noc-scheduler.timer noc-scheduler.service noc-queue
+# if systemctl is-active --quiet noc-scheduler.service; then
+#     echo "restore: scheduler is still running" >&2; exit 1
+# fi
 # sudo systemctl stop php8.4-fpm
 
 # 3. Put the web app in maintenance mode (503, no new requests reach SQLite).
-php "$APP/artisan" down
+"$PHP_BIN" "$APP/artisan" down
 
 # 4. Copy the backup to a TEMP file in the SAME directory as the database.
 #    Same filesystem makes the final step an atomic rename.
 cp -- "$BK" "$TMP"
 chmod 640 "$TMP"
 
-# 5. Move the live database aside (rollback path) and remove its sidecars.
-#    The -wal/-shm/-journal files belong to the OLD database and must not
-#    survive next to the restored main file.
+# 5. Move the live database and ALL of its sidecars aside. Sidecars belong to
+#    the old database; they must never sit next to the restored main file.
 mv -- "$DB" "$OLD"
-rm -f -- "$DB-wal" "$DB-shm" "$DB-journal"
+for suffix in -wal -shm -journal; do
+    if [[ -e "$DB$suffix" ]]; then
+        mv -- "$DB$suffix" "$OLD$suffix"
+    fi
+done
 
 # 6. Atomically move the verified copy into place.
 mv -- "$TMP" "$DB"
 chmod 640 "$DB"
 
-# 7. Check integrity AND the counts you expect from the backup output.
-php -r '$p=new PDO("sqlite:".$argv[1]); $p->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION); echo "integrity_check: ", $p->query("PRAGMA integrity_check")->fetchColumn(), PHP_EOL; foreach (["servers","metric_samples","alerts"] as $t) { echo $t, ": ", $p->query("SELECT COUNT(*) FROM ".$t)->fetchColumn(), PHP_EOL; }' "$DB"
+# 7. Check integrity AND the counts you expect from the backup output. A
+#    missing expected table makes this exit non-zero before the app resumes.
+"$PHP_BIN" -r '$p=new PDO("sqlite:".$argv[1]); $p->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION); $r=$p->query("PRAGMA integrity_check")->fetchColumn(); if ($r !== "ok") { fwrite(STDERR, "restore integrity_check: $r\n"); exit(1); } echo "integrity_check: ok\n"; foreach (["servers","metric_samples","alerts"] as $t) { echo $t, ": ", $p->query("SELECT COUNT(*) FROM ".$t)->fetchColumn(), PHP_EOL; }' "$DB"
 
 # 8. Rebuild caches, leave maintenance mode, restart workers.
-php "$APP/artisan" optimize:clear
-php "$APP/artisan" config:cache
-php "$APP/artisan" route:cache
-php "$APP/artisan" view:cache
-php "$APP/artisan" up
-sudo systemctl start noc-scheduler.timer noc-queue   # VPS only
+"$PHP_BIN" "$APP/artisan" optimize:clear
+"$PHP_BIN" "$APP/artisan" config:cache
+"$PHP_BIN" "$APP/artisan" route:cache
+"$PHP_BIN" "$APP/artisan" view:cache
+"$PHP_BIN" "$APP/artisan" up
+# VPS only:
+# sudo systemctl start noc-scheduler.timer noc-queue
+# Shared hosting: uncomment the schedule:run cron line again.
 ```
 
-If verification fails or the data is wrong, roll back before deleting `$OLD`:
+If verification fails or the data is wrong, roll back before deleting `$OLD`.
+Run this as its own block; the variables above are repeated on purpose:
 
 ```bash
+set -euo pipefail
+PHP_BIN="${PHP_BIN:-/usr/local/bin/php}"
+APP=/home/ACCOUNT/noc/current
+DB=/home/ACCOUNT/noc-data/noc.sqlite
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+OLD="$DB.before-restore-$STAMP"        # the value printed by the restore block
+"$PHP_BIN" "$APP/artisan" down
 mv -- "$DB" "$DB.failed-restore-$STAMP"
+for suffix in -wal -shm -journal; do
+    rm -f -- "$DB$suffix"
+done
 mv -- "$OLD" "$DB"
-rm -f -- "$DB-wal" "$DB-shm" "$DB-journal"
+for suffix in -wal -shm -journal; do
+    if [[ -e "$OLD$suffix" ]]; then
+        mv -- "$OLD$suffix" "$DB$suffix"
+    fi
+done
 chmod 640 "$DB"
-php "$APP/artisan" optimize:clear
-php "$APP/artisan" up
-sudo systemctl start noc-scheduler.timer noc-queue   # VPS only
+"$PHP_BIN" -r '$p=new PDO("sqlite:".$argv[1]); $p->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION); $r=$p->query("PRAGMA integrity_check")->fetchColumn(); if ($r !== "ok") { fwrite(STDERR, "rollback integrity_check: $r\n"); exit(1); } echo "rollback integrity_check: ok\n";' "$DB"
+"$PHP_BIN" "$APP/artisan" optimize:clear
+"$PHP_BIN" "$APP/artisan" up
+# VPS: sudo systemctl start noc-scheduler.timer noc-queue
+# Shared hosting: uncomment the schedule:run cron line again.
 ```
+
+The rollback preserves the old database's `-wal`/`-shm` sidecars, so committed
+pages that were only in the WAL are not lost. `chmod` and `$STAMP` use the same
+values printed by the restore block.
 
 Restoring into a fresh SQLite file preserves server and sample counts (covered
 by `tests/Feature/Ops/BackupTest.php`). The backup does **not** contain
@@ -498,10 +538,14 @@ by `tests/Feature/Ops/BackupTest.php`). The backup does **not** contain
   encrypted secret and recovery codes are unreadable) and purge their
   sessions:
   ```bash
-  php ~/noc/current/artisan tinker --execute="\Illuminate\Support\Facades\DB::table('users')->update(['two_factor_secret' => null, 'two_factor_recovery_codes' => null, 'two_factor_confirmed_at' => null]); \Illuminate\Support\Facades\DB::table('sessions')->delete();"
+  # one user
+  php ~/noc/current/artisan tinker --execute="\$email = 'admin@example.com'; \Illuminate\Support\Facades\DB::table('users')->where('email', \$email)->update(['two_factor_secret' => null, 'two_factor_recovery_codes' => null, 'two_factor_confirmed_at' => null]);"
+  # all users: omit the where('email', ...) clause
+  php ~/noc/current/artisan tinker --execute="\Illuminate\Support\Facades\DB::table('sessions')->delete();"  # database sessions
   ```
-  On a file session driver, delete `~/noc/shared/storage/framework/sessions/*`
-  instead of the `sessions` table.
+  On a file session driver delete `~/noc/shared/storage/framework/sessions/*`;
+  on Redis flush only the session keys or let them expire. These commands are
+  not audited automatically; record the recovery in the audit log if required.
 
 ## PostgreSQL / TimescaleDB migration rehearsal
 

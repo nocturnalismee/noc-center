@@ -141,6 +141,12 @@ mkdir -p -- \
     "$SHARED_STORAGE/framework/views" \
     "$SHARED_STORAGE/logs"
 
+# First deploy after this shared-storage change: migrate the currently live
+# release's real storage tree too, so its sessions/logs are not orphaned.
+if [[ -d "$APP_ROOT/current/storage" && ! -L "$APP_ROOT/current/storage" ]]; then
+    cp -a -n -- "$APP_ROOT/current/storage/." "$SHARED_STORAGE/"
+fi
+
 if [[ -L "$RELEASE_DIR/storage" ]]; then
     target="$(readlink -f -- "$RELEASE_DIR/storage")"
     [[ "$target" == "$SHARED_STORAGE" ]] || die \
@@ -160,7 +166,10 @@ mkdir -p -- \
     "$SHARED_STORAGE/framework/views" \
     "$SHARED_STORAGE/logs"
 
-chmod 750 -- "$SHARED_STORAGE" 2>/dev/null || true
+# `cp -a` preserves the source modes; normalise the whole shared tree so
+# sessions, caches, logs, and uploads stay private and group-readable.
+find "$SHARED_STORAGE" -type d -exec chmod 750 {} + 2>/dev/null || true
+find "$SHARED_STORAGE" -type f -exec chmod 640 {} + 2>/dev/null || true
 
 if [[ ! -f "$RELEASE_DIR/vendor/autoload.php" ]]; then
     command -v "$COMPOSER_BIN" >/dev/null 2>&1 || die \

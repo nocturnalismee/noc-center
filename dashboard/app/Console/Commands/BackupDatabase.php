@@ -94,9 +94,11 @@ class BackupDatabase extends Command
             $quoted = $connection->getPdo()->quote($path);
             $connection->statement('VACUUM INTO '.$quoted);
         } catch (Throwable $exception) {
-            // SQLite can leave a partial file when VACUUM INTO fails; never
-            // leave it behind looking like a usable backup.
-            $this->removeFailedCopy($path);
+            // Do not unlink here: if a racing process created the destination
+            // after our pre-check, VACUUM INTO fails with "output file already
+            // exists" and the file is not ours. SQLite removes its own partial
+            // output on most failures; a failed VACUUM never yields a file we
+            // are allowed to delete blindly.
             $this->error('Backup failed: '.$this->safe($exception->getMessage()));
 
             return self::FAILURE;

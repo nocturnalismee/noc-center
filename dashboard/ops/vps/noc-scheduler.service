@@ -16,6 +16,5 @@ ExecStart=/usr/bin/env php /var/www/noc/current/artisan schedule:run --verbose
 TimeoutStartSec=300
 Environment=APP_ENV=production
 # The scheduler must not start a second queue worker: noc-queue.service owns it.
-# Also set this in shared/.env before `config:cache`, because the cached config
-# is authoritative.
-Environment=QUEUE_SCHEDULED_WORKER=false
+# Set QUEUE_SCHEDULED_WORKER=false in shared/.env before `config:cache`; this
+# unit cannot override a value already baked into the config cache.
