@@ -808,10 +808,12 @@ git commit -m "feat(dashboard): add token lifecycle and alert center"
 ### Task 20: User management, settings, profile, and audit page
 
 **Files:**
-- Create: `dashboard/app/Livewire/Settings/{Users,UserForm,Profile,AlertSettings}.php`, `dashboard/app/Livewire/Activity/Index.php`, `dashboard/app/Http/Middleware/EnsurePasswordChanged.php`, views, `dashboard/tests/Feature/Ui/{UserManagementTest,SettingsTest,ActivityTest}.php`
-- Modify: `dashboard/bootstrap/app.php`, `dashboard/routes/web.php`, `dashboard/app/Providers/FortifyServiceProvider.php`
+- Create: `dashboard/app/Livewire/Settings/{Index,Users,UserForm,Profile,AlertSettings}.php`, `dashboard/app/Livewire/Activity/Index.php`, `dashboard/app/Http/Middleware/EnsurePasswordChanged.php`, `dashboard/resources/views/livewire/settings/{nav,index}.blade.php`, views, `dashboard/tests/Feature/Ui/{UserManagementTest,SettingsTest,ActivityTest}.php`
+- Modify: `dashboard/bootstrap/app.php`, `dashboard/routes/web.php`, `dashboard/app/Providers/FortifyServiceProvider.php`, `dashboard/resources/views/layouts/app.blade.php` (only if the settings nav needs a layout slot)
 
 **Interfaces:**
+- Produces: `Route::livewire('/settings', Settings\Index::class)` — an authenticated settings hub listing every configurable area with role-aware links: Profile, Security (2FA), Users (admin), Alerts (admin), and Activity (admin/operator). This is the sidebar Settings destination; no 404.
+- Produces: a shared settings sub-navigation partial so Profile, Security, Users, and Alerts pages can move between settings without returning to the sidebar.
 - Produces: `Route::livewire('/settings/users', Settings\Users::class)` admin-only create/edit role/deactivate/reset-password; last active admin cannot be demoted, deactivated, or deleted; passwords are hashed and `must_change_password=true` for admin-set passwords.
 - Produces: `Route::livewire('/settings/profile', Settings\Profile::class)` name/email/password/notify_email; changing email resets `email_verified_at` and requires the current password.
 - Produces: `Route::livewire('/settings/alerts', Settings\AlertSettings::class)` admin-only form with validated alert thresholds; SMTP status read from `config('mail.*')` (never the password); Telegram `enabled`, `chat_id`, `message_thread_id`, and write-only `bot_token` (stored via `set(..., isSecret: true)`, shown only as “Configured” with Replace/Clear); and Send test buttons for email/Telegram calling `AlertNotifier::sendTest()`. Changing Telegram settings audits `settings.updated`; Send test audits `alert_channel.tested` and is rate-limited by `alerts.test_rate_per_minute`.
@@ -840,16 +842,17 @@ git commit -m "feat(dashboard): add user management, settings, profile, and audi
 
 **Files:**
 - Create: `dashboard/app/Livewire/Settings/TwoFactor.php`, `dashboard/resources/views/livewire/settings/two-factor.blade.php`, `dashboard/tests/Feature/Ui/TwoFactorTest.php`
-- Modify: `dashboard/resources/views/auth/two-factor-challenge.blade.php`, `dashboard/config/fortify.php`
+- Modify: `dashboard/resources/views/auth/two-factor-challenge.blade.php`, `dashboard/config/fortify.php`, `dashboard/resources/views/livewire/settings/nav.blade.php` (Security link)
 
 **Interfaces:**
-- Produces: profile section to enable 2FA (QR SVG via the user's `twoFactorQrCodeSvg()`), confirm a 6-digit code, display recovery codes once, regenerate, and disable with password confirmation.
+- Produces: `Route::livewire('/settings/security', Settings\TwoFactor::class)` named `settings.security`, linked from the settings hub/sub-nav. **2FA is optional for every role** and never forced; a user may enable it, disable it (current password required), regenerate recovery codes, or leave it off and sign in with password only.
+- Produces: profile/security section to enable 2FA (QR SVG via the user's `twoFactorQrCodeSvg()`), confirm a 6-digit code, display recovery codes once, regenerate, and disable with password confirmation.
 - Produces: challenge page posting `code` or `recovery_code` to Fortify's `/two-factor-challenge`; rate-limited by the `two-factor` limiter.
 - Uses Fortify actions: `EnableTwoFactorAuthentication`, `ConfirmTwoFactorAuthentication`, `DisableTwoFactorAuthentication`, `GenerateNewRecoveryCodes`.
 
 - [ ] **Step 1: Write failing tests**
 
-Assert: enable creates a secret but 2FA is not active until confirmed; wrong code does not confirm; correct code activates; recovery codes are shown once and hashed/encrypted at rest; disable requires the current password; an active-2FA user is redirected to the challenge after login; a valid TOTP passes; a recovery code works once; viewer/user cannot enable 2FA for another user.
+Assert: enable creates a secret but 2FA is not active until confirmed; wrong code does not confirm; correct code activates; recovery codes are shown once and hashed/encrypted at rest; disable requires the current password; a user who never enables 2FA signs in normally and is **not** redirected to enrollment/challenge; an active-2FA user is redirected to the challenge after login; a valid TOTP passes; a recovery code works once; a user can disable 2FA from settings and then signs in with password only; viewer/user cannot enable 2FA for another user; no role is forced into 2FA.
 
 - [ ] **Step 2: Implement, run, and commit**
 
