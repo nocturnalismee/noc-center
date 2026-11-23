@@ -2,6 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Repository layout note (2026-11-24):** this plan was executed while the
+> dashboard lived in `dashboard/`. After acceptance it moved to the repository
+> root; paths below are the historical build-time paths. Current commands run
+> from the root.
+
 **Goal:** Build a Laravel 13 monitoring dashboard at `dashboard/` that receives the existing `noc-agent` schema-v1 payload, stores it in SQLite, and presents a multi-user, role-aware UI with alerts, charts, and token management.
 
 **Architecture:** One Laravel monolith: an API ingest endpoint writes one narrow sample row plus one detail row per check-in, then evaluates alerts; Blade + Livewire 4 pages read that data through indexed repositories and rollup tables. Ingest is synchronous and idempotent; rollups, liveness, retention, and email run from the scheduler. All frontend assets are prebuilt at development/CI time and deployed as static files, so production needs only PHP + SQLite + cron.

@@ -32,7 +32,7 @@ declare(strict_types=1);
  *   --timeout=10     per-request total timeout in seconds
  *   --connect-timeout=5
  *   --log=PATH       Laravel log to scan for new `database is locked` lines
- *                    (default: dashboard/storage/logs/laravel.log)
+ *                    (default: storage/logs/laravel.log)
  *
  * Exit codes:
  *   0  no 5xx responses, no connection errors, no `database is locked`
@@ -61,7 +61,7 @@ Usage: php tools/load-ingest.php --url=URL --fixture=PATH [--seconds=60]
   --timeout          Per-request total timeout in seconds (default 10)
   --connect-timeout  Per-request connection timeout in seconds (default 5)
   --log              Laravel log to scan for `database is locked` (default:
-                     dashboard/storage/logs/laravel.log)
+                     storage/logs/laravel.log)
 USAGE);
     exit(2);
 }
