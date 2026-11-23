@@ -1,6 +1,8 @@
 @extends('layouts.app')
 
-@section('title', 'Stored snapshot · '.$server->name.' · NOC Center')
+@section('title')
+    Stored snapshot · {{ $server->name }} · NOC Center
+@endsection
 
 @section('breadcrumb')
     <span>Fleet</span>

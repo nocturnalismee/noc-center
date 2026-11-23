@@ -10,10 +10,12 @@ use App\Models\AuditEvent;
 use App\Models\Server;
 use App\Models\ServerToken;
 use App\Models\User;
+use App\Services\Servers\ServerService;
 use App\Services\Tokens\TokenService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -82,15 +84,36 @@ class TokenManagementTest extends TestCase
 
     public function test_a_viewer_cannot_call_revoke(): void
     {
+        $operator = User::factory()->create(['role' => 'operator']);
         $viewer = User::factory()->create();
         $server = $this->server();
         $issued = app(TokenService::class)->issue($server);
 
+        $this->actingAs($operator);
+
+        $component = Livewire::test(Tokens::class, ['server' => $server])
+            ->call('startRevoke', $issued->token->getKey());
+
         $this->actingAs($viewer);
 
-        Livewire::test(Tokens::class, ['server' => $server])
-            ->call('startRevoke', $issued->token->getKey())
-            ->assertStatus(403);
+        $component->call('revoke')->assertStatus(403);
+    }
+
+    public function test_a_viewer_cannot_call_delete_server(): void
+    {
+        $operator = User::factory()->create(['role' => 'operator']);
+        $viewer = User::factory()->create();
+        $server = $this->server();
+
+        $this->actingAs($operator);
+
+        $component = Livewire::test(Edit::class, ['server' => $server]);
+
+        $this->actingAs($viewer);
+
+        $component->call('deleteServer')->assertStatus(403);
+
+        $this->assertNotSoftDeleted($server);
     }
 
     public function test_a_viewer_cannot_open_the_edit_form(): void
@@ -187,6 +210,13 @@ class TokenManagementTest extends TestCase
         $this->assertSame(0, AuditEvent::query()->where('action', 'token.revoked')->count());
 
         $component
+            ->set('revokeName', 'WEB-01')
+            ->call('revoke')
+            ->assertHasErrors(['revokeName']);
+
+        $this->assertNull($issued->token->fresh()->revoked_at);
+
+        $component
             ->set('revokeName', 'web-01')
             ->call('revoke')
             ->assertHasNoErrors()
@@ -220,6 +250,8 @@ class TokenManagementTest extends TestCase
         Livewire::test(Edit::class, ['server' => $server])
             ->assertSee('web-01')
             ->assertSet('hostname', 'web-01.nusantara.id')
+            ->assertSee('Disk almost full')
+            ->assertSee('Critical')
             ->set('name', 'web-01b')
             ->set('hostname', 'web-01b.nusantara.id')
             ->set('server_type', 'Application')
@@ -324,6 +356,19 @@ class TokenManagementTest extends TestCase
             'acknowledged_by' => $operator->getKey(),
         ]);
 
+        $this->delivery($open, 'email', 'opened', 'sent', [
+            'attempts' => 1,
+            'recipient_count' => 2,
+            'sent_at' => now()->subMinutes(8),
+            'last_attempt_at' => now()->subMinutes(8),
+        ]);
+        $this->delivery($acknowledged, 'email', 'opened', 'sent', [
+            'attempts' => 1,
+            'recipient_count' => 2,
+            'sent_at' => now()->subMinutes(4),
+            'last_attempt_at' => now()->subMinutes(4),
+        ]);
+
         $this->actingAs($operator);
 
         Livewire::test(Edit::class, ['server' => $server])
@@ -338,9 +383,17 @@ class TokenManagementTest extends TestCase
             $this->assertNull($alert->active_key);
             $this->assertSame('Alerts disabled for this server', $alert->resolution_note);
             $this->assertSame($operator->getKey(), $alert->resolved_by);
+
+            $resolved = AuditEvent::query()
+                ->where('action', 'alert.resolved')
+                ->where('target_id', $alert->getKey())
+                ->sole();
+
+            $this->assertFalse($resolved->meta_json['notified']);
         }
 
-        $this->assertSame(0, AlertDelivery::query()->count());
+        $this->assertSame(2, AlertDelivery::query()->where('event', 'opened')->count());
+        $this->assertSame(0, AlertDelivery::query()->where('event', 'resolved')->count());
 
         $disabled = AuditEvent::query()->where('action', 'server.alerts_disabled')->sole();
 
@@ -367,7 +420,18 @@ class TokenManagementTest extends TestCase
         $second = $tokens->issue($server);
         $tokens->revoke($second->token, $operator);
 
-        $alert = $this->alert($server, ['rule_key' => 'cpu_high']);
+        $alert = $this->alert($server, [
+            'rule_key' => 'cpu_high',
+            'status' => 'acknowledged',
+            'acknowledged_at' => now()->subMinutes(10),
+            'acknowledged_by' => $operator->getKey(),
+        ]);
+        $this->delivery($alert, 'email', 'opened', 'sent', [
+            'attempts' => 1,
+            'recipient_count' => 2,
+            'sent_at' => now()->subMinutes(10),
+            'last_attempt_at' => now()->subMinutes(10),
+        ]);
 
         $this->actingAs($operator);
 
@@ -394,7 +458,14 @@ class TokenManagementTest extends TestCase
         $this->assertSame('resolved', $alert->status->value);
         $this->assertSame('Server deleted', $alert->resolution_note);
         $this->assertNull($alert->active_key);
-        $this->assertSame(0, AlertDelivery::query()->count());
+        $this->assertSame(0, AlertDelivery::query()->where('event', 'resolved')->count());
+
+        $resolved = AuditEvent::query()
+            ->where('action', 'alert.resolved')
+            ->where('target_id', $alert->getKey())
+            ->sole();
+
+        $this->assertFalse($resolved->meta_json['notified']);
 
         $event = AuditEvent::query()->where('action', 'server.deleted')->sole();
 
@@ -402,6 +473,94 @@ class TokenManagementTest extends TestCase
         $this->assertSame((string) $server->getKey(), $event->target_id);
         $this->assertSame(1, $event->meta_json['revoked_count']);
         $this->assertSame(1, $event->meta_json['resolved_count']);
+    }
+
+    public function test_edit_includes_a_stored_interval_outside_the_fixed_list(): void
+    {
+        $operator = User::factory()->create(['role' => 'operator']);
+        $server = $this->server(['interval_seconds' => 45]);
+
+        $this->actingAs($operator)
+            ->get(route('servers.edit', $server))
+            ->assertOk()
+            ->assertSee('45 seconds');
+    }
+
+    public function test_edit_handles_a_legacy_null_issue_codes_row(): void
+    {
+        $operator = User::factory()->create(['role' => 'operator']);
+        $server = $this->server();
+
+        DB::table('servers')->where('id', $server->getKey())->update(['issue_codes' => null]);
+
+        $this->actingAs($operator)
+            ->get(route('servers.edit', $server->fresh()))
+            ->assertOk()
+            ->assertSee('Issue codes')
+            ->assertSee('None');
+    }
+
+    public function test_edit_clears_a_stale_success_message_when_save_fails(): void
+    {
+        $operator = User::factory()->create(['role' => 'operator']);
+        $server = $this->server();
+
+        $this->actingAs($operator);
+
+        $component = Livewire::test(Edit::class, ['server' => $server])
+            ->set('interval_seconds', '120')
+            ->call('save')
+            ->assertSee('Server updated.');
+
+        $component
+            ->set('interval_seconds', '9')
+            ->call('save')
+            ->assertHasErrors('interval_seconds')
+            ->assertDontSee('Server updated.');
+    }
+
+    public function test_server_titles_escape_a_malicious_name(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $name = '</title><meta http-equiv=refresh content=0>';
+        $server = $this->server(['name' => $name, 'hostname' => 'evil.nusantara.id']);
+
+        foreach ([
+            route('servers.show', $server) => e($name).' · NOC Center',
+            route('servers.edit', $server) => 'Edit '.e($name).' · NOC Center',
+            route('servers.tokens', $server) => 'Tokens · '.e($name).' · NOC Center',
+        ] as $url => $title) {
+            $response = $this->actingAs($admin)->get($url)->assertOk();
+            $html = (string) $response->getContent();
+
+            $this->assertMatchesRegularExpression(
+                '/<title>\s*'.preg_quote($title, '/').'\s*<\/title>/s',
+                $html,
+            );
+            $this->assertStringNotContainsString('</title><meta', $html);
+        }
+    }
+
+    public function test_alerts_enabled_uses_filter_var_for_string_zero(): void
+    {
+        $actor = User::factory()->create(['role' => 'admin']);
+        $servers = app(ServerService::class);
+
+        $created = $servers->create([
+            'name' => 'created-'.Str::lower(Str::ulid()),
+            'hostname' => 'created.nusantara.id',
+            'alerts_enabled' => '0',
+        ], $actor);
+
+        $this->assertFalse($created->alerts_enabled);
+
+        $updated = $servers->update($created, [
+            'name' => $created->name,
+            'hostname' => $created->hostname,
+            'alerts_enabled' => '0',
+        ], $actor);
+
+        $this->assertFalse($updated->alerts_enabled);
     }
 
     public function test_servers_index_redirects_to_the_dashboard(): void
@@ -451,6 +610,22 @@ class TokenManagementTest extends TestCase
             'first_seen_at' => now()->subMinutes(10),
             'last_seen_at' => now()->subMinute(),
             'notification_count' => 0,
+        ], $attributes));
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     */
+    private function delivery(Alert $alert, string $channel, string $event, string $status, array $attributes = []): AlertDelivery
+    {
+        return AlertDelivery::query()->create(array_merge([
+            'alert_id' => $alert->getKey(),
+            'channel' => $channel,
+            'event' => $event,
+            'status' => $status,
+            'recipient_count' => 0,
+            'attempts' => 0,
+            'error' => null,
         ], $attributes));
     }
 }

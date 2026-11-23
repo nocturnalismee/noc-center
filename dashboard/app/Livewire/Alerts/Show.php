@@ -10,7 +10,6 @@ use App\Enums\AlertStatus;
 use App\Models\Alert;
 use App\Models\AlertDelivery;
 use App\Models\User;
-use App\Support\MysqlQueryMasker;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -42,6 +41,8 @@ class Show extends Component
     {
         Gate::authorize('acknowledge', $this->alert);
 
+        $this->statusMessage = null;
+
         if ($this->alert->status !== AlertStatus::Open) {
             $this->statusMessage = 'Only an open alert can be acknowledged.';
 
@@ -62,21 +63,25 @@ class Show extends Component
     {
         Gate::authorize('resolve', $this->alert);
 
+        $this->statusMessage = null;
+
+        if ($this->alert->status === AlertStatus::Resolved) {
+            $this->statusMessage = 'This alert is already resolved.';
+
+            return;
+        }
+
         $this->note = trim($this->note);
 
         $this->validate([
             'note' => ['required', 'string', 'max:2000'],
         ]);
 
-        if ($this->alert->status === AlertStatus::Resolved) {
-            return;
-        }
-
         app(AlertEngine::class)->resolve($this->alert, auth()->user(), $this->note, true);
 
         $this->alert->refresh();
         $this->note = '';
-        $this->statusMessage = 'Alert resolved. A recovery message was queued for each configured channel.';
+        $this->statusMessage = 'Alert resolved. A recovery message was queued for each channel that actually opened this alert.';
     }
 
     public function render(): View
@@ -94,8 +99,8 @@ class Show extends Component
     }
 
     /**
-     * Flatten the stored context into escaped key/value rows, masking query
-     * text and redacting credentials recursively.
+     * Flatten the stored context into escaped key/value rows, redacting query
+     * text and credentials recursively.
      *
      * @return list<array{key: string, value: string}>
      */
@@ -145,12 +150,8 @@ class Show extends Component
 
     private function contextValue(mixed $value, bool $mask, bool $hide): string
     {
-        if ($hide) {
+        if ($hide || $mask) {
             return '[redacted]';
-        }
-
-        if ($mask) {
-            return is_string($value) ? (MysqlQueryMasker::mask($value) ?? '[redacted]') : '[redacted]';
         }
 
         return match (true) {
@@ -258,9 +259,7 @@ class Show extends Component
         return [
             'status' => ucfirst($delivery->status),
             'meta' => implode(' · ', array_filter([$attempts, $lastAttempt])),
-            'error' => $delivery->status === 'failed'
-                ? AlertErrorRedactor::redact($delivery->error)
-                : null,
+            'error' => AlertErrorRedactor::redact($delivery->error),
         ];
     }
 

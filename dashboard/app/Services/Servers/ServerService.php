@@ -79,7 +79,7 @@ class ServerService
             'location' => $validated['location'] ?? null,
             'ip_address' => $validated['ip_address'] ?? null,
             'label' => $validated['label'] ?? null,
-            'alerts_enabled' => (bool) ($validated['alerts_enabled'] ?? true),
+            'alerts_enabled' => filter_var($validated['alerts_enabled'] ?? true, FILTER_VALIDATE_BOOLEAN),
             'notes' => $validated['notes'] ?? null,
             'interval_seconds' => (int) ($validated['interval_seconds'] ?? 60),
             'health' => ServerHealth::Unknown,
@@ -157,7 +157,7 @@ class ServerService
             }
 
             if (array_key_exists('alerts_enabled', $validated)) {
-                $payload['alerts_enabled'] = (bool) $validated['alerts_enabled'];
+                $payload['alerts_enabled'] = filter_var($validated['alerts_enabled'], FILTER_VALIDATE_BOOLEAN);
             }
 
             $server->fill($payload)->save();

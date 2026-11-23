@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Services\AuditLogger;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 class TokenService
@@ -67,35 +68,37 @@ class TokenService
             throw new InvalidArgumentException('Rotation grace minutes must be zero or greater.');
         }
 
-        $previous = $this->currentToken($server);
+        return DB::transaction(function () use ($server, $graceMinutes, $actor): IssuedToken {
+            $previous = $this->currentToken($server);
 
-        $issued = $this->createToken(
-            $server,
-            $actor,
-            $previous?->label,
-            null,
-            $previous?->getKey(),
-        );
+            $issued = $this->createToken(
+                $server,
+                $actor,
+                $previous?->label,
+                null,
+                $previous?->getKey(),
+            );
 
-        if ($previous !== null) {
-            $graceExpiresAt = now()->addMinutes($graceMinutes);
-            $existingExpiry = $previous->expires_at;
+            if ($previous !== null) {
+                $graceExpiresAt = now()->addMinutes($graceMinutes);
+                $existingExpiry = $previous->expires_at;
 
-            $previous->expires_at = $existingExpiry !== null && $existingExpiry->lessThan($graceExpiresAt)
-                ? $existingExpiry
-                : $graceExpiresAt;
+                $previous->expires_at = $existingExpiry !== null && $existingExpiry->lessThan($graceExpiresAt)
+                    ? $existingExpiry
+                    : $graceExpiresAt;
 
-            $previous->save();
-        }
+                $previous->save();
+            }
 
-        $this->audit->log(
-            'token.rotated',
-            $issued->token,
-            $this->auditMeta($issued->token),
-            $actor?->id,
-        );
+            $this->audit->log(
+                'token.rotated',
+                $issued->token,
+                $this->auditMeta($issued->token),
+                $actor?->id,
+            );
 
-        return $issued;
+            return $issued;
+        });
     }
 
     /**
@@ -110,14 +113,16 @@ class TokenService
             return;
         }
 
-        $token->forceFill(['revoked_at' => now()])->save();
+        DB::transaction(function () use ($token, $actor): void {
+            $token->forceFill(['revoked_at' => now()])->save();
 
-        $this->audit->log(
-            'token.revoked',
-            $token,
-            $this->auditMeta($token),
-            $actor?->id,
-        );
+            $this->audit->log(
+                'token.revoked',
+                $token,
+                $this->auditMeta($token),
+                $actor?->id,
+            );
+        });
     }
 
     /**

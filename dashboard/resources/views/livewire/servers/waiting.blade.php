@@ -2,7 +2,9 @@
     class="mx-auto w-full max-w-[1000px]"
     @if ($polling) wire:poll.5s.visible="poll" @endif
 >
-    @section('title', 'Waiting for first sample · '.$server->name)
+    @section('title')
+        Waiting for first sample · {{ $server->name }}
+    @endsection
     @section('breadcrumb')
         <a href="{{ route('dashboard') }}" class="hover:text-text">Fleet</a>
         <span class="px-2 text-border-strong">/</span>

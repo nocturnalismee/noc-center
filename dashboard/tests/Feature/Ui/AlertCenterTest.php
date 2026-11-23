@@ -129,7 +129,7 @@ class AlertCenterTest extends TestCase
                 && $alerts->last()->title === 'Alert 06');
     }
 
-    public function test_detail_masks_query_text_and_redacts_credentials(): void
+    public function test_detail_redacts_query_text_and_credentials(): void
     {
         $viewer = User::factory()->create();
         $server = $this->server();
@@ -150,9 +150,9 @@ class AlertCenterTest extends TestCase
 
         $response->assertOk()
             ->assertSee('Context')
-            ->assertSee('SELECT * FROM users WHERE email = ?')
-            ->assertSee('SELECT password FROM accounts WHERE id = ?')
             ->assertSee('[redacted]')
+            ->assertDontSee('SELECT * FROM users WHERE email = ?')
+            ->assertDontSee('SELECT password FROM accounts WHERE id = ?')
             ->assertDontSee('secret@example.com')
             ->assertDontSee('abcdef')
             ->assertDontSee('123456:AAH-nested-secret')
@@ -161,6 +161,8 @@ class AlertCenterTest extends TestCase
         $html = (string) $response->getContent();
 
         $this->assertStringNotContainsString('AAH-', $html);
+        $this->assertStringNotContainsString('SELECT * FROM', $html);
+        $this->assertStringNotContainsString('DELETE FROM', $html);
         $this->assertStringNotContainsString("'abcdef'", $html);
     }
 
@@ -175,6 +177,7 @@ class AlertCenterTest extends TestCase
             'recipient_count' => 3,
             'last_attempt_at' => now()->subMinute(),
             'sent_at' => now()->subMinute(),
+            'error' => 'Delivered to 2 of 3 recipients.',
         ]);
 
         $response = $this->actingAs($viewer)->get(route('alerts.show', $alert));
@@ -186,6 +189,7 @@ class AlertCenterTest extends TestCase
             ->assertSee('Email')
             ->assertSee('Sent')
             ->assertSee('1 attempt')
+            ->assertSee('Delivered to 2 of 3 recipients.')
             ->assertSee('Telegram')
             ->assertSee('Not configured');
     }
@@ -270,6 +274,70 @@ class AlertCenterTest extends TestCase
         $this->assertSame((string) $alert->getKey(), $event->target_id);
     }
 
+    public function test_acknowledge_stops_reminders(): void
+    {
+        $operator = User::factory()->create(['role' => 'operator']);
+        $alert = $this->alert($this->server());
+
+        $this->delivery($alert, 'email', 'opened', 'sent', [
+            'attempts' => 1,
+            'sent_at' => now()->subHours(7),
+            'last_attempt_at' => now()->subHours(7),
+        ]);
+
+        $this->actingAs($operator);
+
+        Livewire::test(Show::class, ['alert' => $alert])->call('acknowledge')->assertHasNoErrors();
+
+        Carbon::setTestNow('2026-11-23 20:00:00');
+        $this->artisan('noc:alert-reminders')->assertSuccessful();
+
+        $delivery = AlertDelivery::query()->where('alert_id', $alert->getKey())->sole();
+
+        $this->assertSame(1, $delivery->attempts);
+        $this->assertSame('sent', $delivery->status);
+        $this->assertSame('acknowledged', $alert->fresh()->status->value);
+    }
+
+    public function test_resolve_on_an_already_resolved_alert_does_not_validate_the_note(): void
+    {
+        $operator = User::factory()->create(['role' => 'operator']);
+        $alert = $this->alert($this->server(), [
+            'status' => 'resolved',
+            'active_key' => null,
+            'resolved_at' => now()->subMinute(),
+            'resolution_note' => 'Issue cleared',
+        ]);
+
+        $this->actingAs($operator);
+
+        Livewire::test(Show::class, ['alert' => $alert])
+            ->set('note', '')
+            ->call('resolve')
+            ->assertHasNoErrors()
+            ->assertSee('This alert is already resolved.');
+
+        $this->assertSame(0, AuditEvent::query()->where('action', 'alert.resolved')->count());
+    }
+
+    public function test_a_failed_action_clears_the_previous_success_message(): void
+    {
+        $operator = User::factory()->create(['role' => 'operator']);
+        $alert = $this->alert($this->server());
+
+        $this->actingAs($operator);
+
+        $component = Livewire::test(Show::class, ['alert' => $alert])
+            ->call('acknowledge')
+            ->assertSee('Alert acknowledged.');
+
+        $component
+            ->set('note', '   ')
+            ->call('resolve')
+            ->assertHasErrors(['note' => 'required'])
+            ->assertDontSee('Alert acknowledged.');
+    }
+
     public function test_resolve_requires_a_note_and_records_the_actor(): void
     {
         $operator = User::factory()->create(['role' => 'operator']);
@@ -290,7 +358,8 @@ class AlertCenterTest extends TestCase
             ->set('note', 'Disk usage back under 85%.')
             ->call('resolve')
             ->assertHasNoErrors()
-            ->assertSee('Alert resolved.');
+            ->assertSee('Alert resolved.')
+            ->assertSee('that actually opened this alert');
 
         $alert->refresh();
 

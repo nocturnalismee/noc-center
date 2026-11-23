@@ -1,5 +1,7 @@
 <div class="mx-auto w-full max-w-[1440px]">
-    @section('title', $server->name.' · NOC Center')
+    @section('title')
+        {{ $server->name }} · NOC Center
+    @endsection
     @section('breadcrumb')
         <a href="{{ route('dashboard') }}" class="hover:text-text">Fleet</a>
         <span class="px-2 text-border-strong">/</span>

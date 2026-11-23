@@ -1,5 +1,7 @@
 <div class="mx-auto w-full max-w-[1440px]">
-    @section('title', $alert->title.' · NOC Center')
+    @section('title')
+        {{ $alert->title }} · NOC Center
+    @endsection
     @section('breadcrumb')
         <a href="{{ route('dashboard') }}" class="hover:text-text">Fleet</a>
         <span class="px-2 text-border-strong">/</span>
@@ -109,10 +111,10 @@
                                             @php($cell = $row[$event])
                                             <span @class([
                                                 'font-medium',
-                                                'text-ok' => $cell['status'] === 'Delivered',
+                                                'text-ok' => in_array($cell['status'], ['Delivered', 'Sent'], true),
                                                 'text-critical' => $cell['status'] === 'Failed',
                                                 'text-warning' => $cell['status'] === 'Pending',
-                                                'text-text-muted' => ! in_array($cell['status'], ['Delivered', 'Failed', 'Pending'], true),
+                                                'text-text-muted' => ! in_array($cell['status'], ['Delivered', 'Sent', 'Failed', 'Pending'], true),
                                             ])>{{ $cell['status'] }}</span>
 
                                             @if ($cell['meta'])
@@ -182,7 +184,7 @@
                             @enderror
 
                             <button type="submit" class="primary-button mt-3 w-full">Resolve alert</button>
-                            <p class="mt-1.5 text-[9px] text-text-muted">Sends one recovery message per channel that saw the alert.</p>
+                            <p class="mt-1.5 text-[9px] text-text-muted">Sends one recovery message per channel that actually opened this alert.</p>
                         </form>
                     @else
                         <p class="mt-3 border-t border-divider pt-3 text-[10px] text-text-sub">

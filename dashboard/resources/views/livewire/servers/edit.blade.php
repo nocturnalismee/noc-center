@@ -1,5 +1,7 @@
 <div class="mx-auto w-full max-w-[1440px]">
-    @section('title', 'Edit '.$server->name.' · NOC Center')
+    @section('title')
+        Edit {{ $server->name }} · NOC Center
+    @endsection
     @section('breadcrumb')
         <a href="{{ route('dashboard') }}" class="hover:text-text">Fleet</a>
         <span class="px-2 text-border-strong">/</span>
@@ -232,10 +234,11 @@
             <section aria-labelledby="state-heading">
                 <h2 id="state-heading" class="text-[13px] font-semibold text-text">State</h2>
                 <dl class="mt-3 border-t border-divider">
+                    @php($issues = $this->issueLabels())
                     @foreach ([
-                        ['Status', $server->status()->value],
-                        ['Health', $server->health->value],
-                        ['Issue codes', $server->issue_codes === [] ? 'None' : implode(', ', $server->issue_codes)],
+                        ['Status', $this->statusLabel()],
+                        ['Health', $this->healthLabel()],
+                        ['Issue codes', $issues === [] ? 'None' : implode(', ', $issues)],
                         ['Last seen', $server->last_seen_at ? $server->last_seen_at->timezone('Asia/Jakarta')->format('d M Y · H:i').' WIB' : 'Never seen'],
                     ] as $row)
                         <div class="flex items-baseline justify-between gap-4 border-b border-divider py-2.5">
