@@ -197,9 +197,7 @@
                         <x-heroicon-o-sun class="theme-icon-sun h-5 w-5" />
                     </button>
 
-                    <a href="/alerts" class="icon-button" aria-label="Notifications">
-                        <x-heroicon-o-bell class="h-5 w-5" />
-                    </a>
+                    <livewire:alerts.alert-bell />
 
                     @auth
                         @php
