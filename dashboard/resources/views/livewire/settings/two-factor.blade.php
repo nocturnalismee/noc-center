@@ -44,11 +44,11 @@
                         {{ $user->two_factor_confirmed_at?->timezone('Asia/Jakarta')->format('d M Y · H:i').' WIB' ?? '—' }}
                     </dd>
                 </div>
-                <div>
-                    <dt class="text-[8.5px] uppercase tracking-[0.08em] text-text-muted">Recovery codes remaining</dt>
-                    <dd class="mt-1 font-mono text-text">{{ $recoveryCodesRemaining }}</dd>
-                </div>
             </dl>
+
+            <p class="mt-4 text-[10px] leading-5 text-text-sub">
+                Recovery codes are stored. Regenerate them if you have used one.
+            </p>
 
             @if ($recoveryCodes !== [])
                 <div class="mt-6 border-y border-divider py-4" role="status" aria-labelledby="recovery-codes-heading">
@@ -84,11 +84,11 @@
                         autocomplete="current-password"
                         required
                         aria-required="true"
-                        @if ($passwordAction === 'regenerate' && $errors->has('current_password')) aria-invalid="true" @endif
+                        @if ($passwordAction === 'regenerate' && $errors->has('current_password')) aria-describedby="two-factor-regenerate-password-error" aria-invalid="true" @endif
                     >
                     @if ($passwordAction === 'regenerate')
                         @error('current_password')
-                            <p class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+                            <p id="two-factor-regenerate-password-error" class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
                         @enderror
                     @endif
                 </div>
@@ -115,11 +115,11 @@
                         autocomplete="current-password"
                         required
                         aria-required="true"
-                        @if ($passwordAction === 'disable' && $errors->has('current_password')) aria-invalid="true" @endif
+                        @if ($passwordAction === 'disable' && $errors->has('current_password')) aria-describedby="two-factor-disable-password-error" aria-invalid="true" @endif
                     >
                     @if ($passwordAction === 'disable')
                         @error('current_password')
-                            <p class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+                            <p id="two-factor-disable-password-error" class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
                         @enderror
                     @endif
                 </div>
@@ -165,11 +165,12 @@
                             autocomplete="one-time-code"
                             required
                             aria-required="true"
+                            aria-describedby="two-factor-code-help{{ $errors->has('code') ? ' two-factor-code-error' : '' }}"
                             @error('code') aria-invalid="true" @enderror
                         >
-                        <p class="mt-1.5 text-[9px] text-text-muted">6 digits from the authenticator app.</p>
+                        <p id="two-factor-code-help" class="mt-1.5 text-[9px] text-text-muted">6 digits from the authenticator app.</p>
                         @error('code')
-                            <p class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+                            <p id="two-factor-code-error" class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
                         @enderror
                     </div>
 
@@ -199,10 +200,34 @@
 
             <div class="mt-5 border-t border-divider pt-5">
                 <p class="max-w-[68ch] text-[10.5px] leading-5 text-text-sub">
-                    Enabling two-factor authentication adds a 6-digit code from an authenticator app after your password. You will receive eight single-use recovery codes in case the device is lost.
+                    Enabling two-factor authentication adds a 6-digit code from an authenticator app after your password. You will receive eight single-use recovery codes in case the device is lost. Your current password is required to start setup.
                 </p>
 
-                <button type="button" wire:click="enable" class="primary-button mt-5">Set up two-factor authentication</button>
+                <form wire:submit="enable" class="mt-5 max-w-[460px]">
+                    <div>
+                        <label for="two-factor-enable-password" class="field-label">
+                            Current password
+                            <span class="ml-1 inline-block h-[3px] w-[3px] rounded-full bg-critical align-middle" aria-hidden="true"></span>
+                        </label>
+                        <input
+                            id="two-factor-enable-password"
+                            type="password"
+                            wire:model="current_password"
+                            class="field"
+                            autocomplete="current-password"
+                            required
+                            aria-required="true"
+                            @if ($passwordAction === 'enable' && $errors->has('current_password')) aria-describedby="two-factor-enable-password-error" aria-invalid="true" @endif
+                        >
+                        @if ($passwordAction === 'enable')
+                            @error('current_password')
+                                <p id="two-factor-enable-password-error" class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+                            @enderror
+                        @endif
+                    </div>
+
+                    <button type="submit" class="primary-button mt-5">Set up two-factor authentication</button>
+                </form>
             </div>
         </section>
     @endif

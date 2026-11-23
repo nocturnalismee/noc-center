@@ -49,8 +49,11 @@ class TwoFactorTest extends TestCase
         $component = Livewire::test(TwoFactor::class)
             ->assertSee('Two-factor authentication')
             ->assertSee('optional')
+            ->assertSee('required to start setup')
+            ->set('current_password', 'password')
             ->call('enable')
-            ->assertHasNoErrors();
+            ->assertHasNoErrors()
+            ->assertSet('current_password', '');
 
         $user->refresh();
 
@@ -68,7 +71,11 @@ class TwoFactorTest extends TestCase
             ->assertSee('aria-label="QR code for the NOC Center authenticator entry"', false)
             ->set('code', '000000')
             ->call('confirm')
-            ->assertHasErrors('code');
+            ->assertHasErrors('code')
+            ->assertSee('id="two-factor-code"', false)
+            ->assertSee('aria-describedby="two-factor-code-help two-factor-code-error"', false)
+            ->assertSee('aria-invalid="true"', false)
+            ->assertSee('id="two-factor-code-error"', false);
 
         $this->assertNull($user->fresh()->two_factor_confirmed_at);
         $this->assertFalse($user->fresh()->hasEnabledTwoFactorAuthentication());
@@ -91,8 +98,8 @@ class TwoFactorTest extends TestCase
 
         $component
             ->assertSet('recoveryCodes', $recoveryCodes)
-            ->assertSee('Recovery codes remaining')
-            ->assertSeeHtml('>8</dd>');
+            ->assertSee('Recovery codes are stored. Regenerate them if you have used one.')
+            ->assertDontSee('Recovery codes remaining');
 
         foreach ($recoveryCodes as $recoveryCode) {
             $component->assertSee($recoveryCode);
@@ -127,6 +134,91 @@ class TwoFactorTest extends TestCase
 
         $this->assertNotSame($secret, $rawSecret);
         $this->assertStringNotContainsString($secret, $rawSecret);
+    }
+
+    public function test_two_factor_columns_are_hidden_and_not_mass_assignable(): void
+    {
+        $user = User::factory()->create();
+
+        $user->forceFill([
+            'two_factor_secret' => 'encrypted-secret-value',
+            'two_factor_recovery_codes' => 'encrypted-recovery-value',
+            'two_factor_confirmed_at' => now(),
+        ])->save();
+
+        $fresh = $user->fresh();
+        $array = $fresh->toArray();
+        $json = $fresh->toJson();
+
+        foreach (['two_factor_secret', 'two_factor_recovery_codes', 'two_factor_confirmed_at'] as $column) {
+            $this->assertArrayNotHasKey($column, $array);
+            $this->assertStringNotContainsString($column, $json);
+        }
+
+        $this->assertStringNotContainsString('encrypted-secret-value', $json);
+        $this->assertStringNotContainsString('encrypted-recovery-value', $json);
+
+        $target = User::factory()->create();
+        $target->fill([
+            'two_factor_secret' => 'leaked-secret',
+            'two_factor_recovery_codes' => 'leaked-codes',
+            'two_factor_confirmed_at' => now(),
+        ]);
+
+        $this->assertNull($target->two_factor_secret);
+        $this->assertNull($target->two_factor_recovery_codes);
+        $this->assertNull($target->two_factor_confirmed_at);
+
+        foreach (['two_factor_secret', 'two_factor_recovery_codes', 'two_factor_confirmed_at'] as $column) {
+            $this->assertNotContains($column, $target->getFillable());
+        }
+    }
+
+    public function test_enabling_requires_the_current_password_and_clears_it_on_every_attempt(): void
+    {
+        $user = User::factory()->create([
+            'email' => 'enable-password@example.com',
+            'password' => 'correct-horse-battery',
+        ]);
+
+        $this->actingAs($user);
+
+        $component = Livewire::test(TwoFactor::class)
+            ->assertSee('Current password')
+            ->assertSee('required to start setup');
+
+        $component
+            ->set('current_password', 'wrong-password')
+            ->call('enable')
+            ->assertHasErrors('current_password')
+            ->assertSet('current_password', '')
+            ->assertSee('id="two-factor-enable-password"', false)
+            ->assertSee('aria-describedby="two-factor-enable-password-error"', false)
+            ->assertSee('aria-invalid="true"', false)
+            ->assertSee('id="two-factor-enable-password-error"', false);
+
+        $this->assertNull($user->fresh()->two_factor_secret);
+        $this->assertFalse($user->fresh()->hasEnabledTwoFactorAuthentication());
+
+        $component
+            ->set('current_password', '   ')
+            ->call('enable')
+            ->assertHasErrors('current_password')
+            ->assertSet('current_password', '');
+
+        $this->assertNull($user->fresh()->two_factor_secret);
+
+        $component
+            ->set('current_password', 'correct-horse-battery')
+            ->call('enable')
+            ->assertHasNoErrors()
+            ->assertSet('current_password', '');
+
+        $user->refresh();
+
+        $this->assertNotNull($user->two_factor_secret);
+        $this->assertNull($user->two_factor_confirmed_at);
+        $this->assertFalse($user->hasEnabledTwoFactorAuthentication());
     }
 
     public function test_a_pending_setup_does_not_change_sign_in(): void
@@ -168,14 +260,20 @@ class TwoFactorTest extends TestCase
         $component = Livewire::test(TwoFactor::class)
             ->set('current_password', 'wrong-password')
             ->call('regenerate')
-            ->assertHasErrors('current_password');
+            ->assertHasErrors('current_password')
+            ->assertSet('current_password', '')
+            ->assertSee('id="two-factor-regenerate-password"', false)
+            ->assertSee('aria-describedby="two-factor-regenerate-password-error"', false)
+            ->assertSee('aria-invalid="true"', false)
+            ->assertSee('id="two-factor-regenerate-password-error"', false);
 
         $this->assertSame($oldCodes, $user->fresh()->recoveryCodes());
 
         $component
             ->set('current_password', 'correct-horse-battery')
             ->call('regenerate')
-            ->assertHasNoErrors();
+            ->assertHasNoErrors()
+            ->assertSet('current_password', '');
 
         $newCodes = $user->fresh()->recoveryCodes();
 
@@ -217,12 +315,19 @@ class TwoFactorTest extends TestCase
 
         $component = Livewire::test(TwoFactor::class)
             ->assertSee('Enabled')
-            ->assertSee('Recovery codes');
+            ->assertSee('Recovery codes')
+            ->assertDontSee('Recovery codes remaining')
+            ->assertSee('Recovery codes are stored. Regenerate them if you have used one.');
 
         $component
             ->set('current_password', 'wrong-password')
             ->call('disable')
-            ->assertHasErrors('current_password');
+            ->assertHasErrors('current_password')
+            ->assertSet('current_password', '')
+            ->assertSee('id="two-factor-disable-password"', false)
+            ->assertSee('aria-describedby="two-factor-disable-password-error"', false)
+            ->assertSee('aria-invalid="true"', false)
+            ->assertSee('id="two-factor-disable-password-error"', false);
 
         $this->assertTrue($user->fresh()->hasEnabledTwoFactorAuthentication());
         $this->assertNotNull($user->fresh()->two_factor_secret);
@@ -231,7 +336,8 @@ class TwoFactorTest extends TestCase
             ->set('current_password', 'correct-horse-battery')
             ->call('disable')
             ->assertHasNoErrors()
-            ->assertSet('recoveryCodes', []);
+            ->assertSet('recoveryCodes', [])
+            ->assertSet('current_password', '');
 
         $user->refresh();
 
@@ -349,8 +455,10 @@ class TwoFactorTest extends TestCase
         $this->actingAs($viewer);
 
         $component = Livewire::test(TwoFactor::class)
+            ->set('current_password', 'password')
             ->call('enable')
-            ->assertHasNoErrors();
+            ->assertHasNoErrors()
+            ->assertSet('current_password', '');
 
         $this->assertNotNull($viewer->fresh()->two_factor_secret);
         $this->assertNull($viewer->fresh()->two_factor_confirmed_at);

@@ -53,12 +53,23 @@ class TwoFactor extends Component
     {
         $this->resetValidation();
         $this->statusMessage = null;
-        $this->passwordAction = null;
+        $this->passwordAction = 'enable';
 
-        $action(auth()->user());
+        $user = auth()->user();
 
-        $this->code = '';
-        $this->statusMessage = 'Scan the QR code with an authenticator app, then enter the 6-digit code to finish setup.';
+        try {
+            if (! $this->confirmCurrentPassword($user->password)) {
+                return;
+            }
+
+            $action($user);
+
+            $this->code = '';
+            $this->passwordAction = null;
+            $this->statusMessage = 'Scan the QR code with an authenticator app, then enter the 6-digit code to finish setup.';
+        } finally {
+            $this->current_password = '';
+        }
     }
 
     public function confirm(ConfirmTwoFactorAuthentication $action): void
@@ -97,18 +108,21 @@ class TwoFactor extends Component
 
         $user = auth()->user();
 
-        if (! $this->confirmCurrentPassword($user->password)) {
-            return;
+        try {
+            if (! $this->confirmCurrentPassword($user->password)) {
+                return;
+            }
+
+            $action($user);
+
+            $user->refresh();
+
+            $this->recoveryCodes = $user->recoveryCodes();
+            $this->passwordAction = null;
+            $this->statusMessage = 'New recovery codes generated. Previous codes no longer work.';
+        } finally {
+            $this->current_password = '';
         }
-
-        $action($user);
-
-        $user->refresh();
-
-        $this->recoveryCodes = $user->recoveryCodes();
-        $this->current_password = '';
-        $this->passwordAction = null;
-        $this->statusMessage = 'New recovery codes generated. Previous codes no longer work.';
     }
 
     public function disable(DisableTwoFactorAuthentication $action): void
@@ -119,17 +133,20 @@ class TwoFactor extends Component
 
         $user = auth()->user();
 
-        if (! $this->confirmCurrentPassword($user->password)) {
-            return;
+        try {
+            if (! $this->confirmCurrentPassword($user->password)) {
+                return;
+            }
+
+            $action($user);
+
+            $this->recoveryCodes = [];
+            $this->code = '';
+            $this->passwordAction = null;
+            $this->statusMessage = 'Two-factor authentication is disabled. Password-only sign-in is active again.';
+        } finally {
+            $this->current_password = '';
         }
-
-        $action($user);
-
-        $this->recoveryCodes = [];
-        $this->code = '';
-        $this->current_password = '';
-        $this->passwordAction = null;
-        $this->statusMessage = 'Two-factor authentication is disabled. Password-only sign-in is active again.';
     }
 
     private function confirmCurrentPassword(string $hash): bool
@@ -158,9 +175,6 @@ class TwoFactor extends Component
             'enabled' => $enabled,
             'pending' => $pending,
             'qrCodeSvg' => $pending ? $user->twoFactorQrCodeSvg() : null,
-            'recoveryCodesRemaining' => $enabled && ! is_null($user->two_factor_recovery_codes)
-                ? count($user->recoveryCodes() ?? [])
-                : 0,
         ]);
     }
 }
