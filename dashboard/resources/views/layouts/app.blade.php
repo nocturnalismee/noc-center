@@ -197,6 +197,30 @@
                         <x-heroicon-o-sun class="theme-icon-sun h-5 w-5" />
                     </button>
 
+                    <div data-alert-sound class="flex items-center">
+                        <audio
+                            data-alert-sound-audio
+                            src="{{ asset('sounds/alert.wav') }}"
+                            preload="auto"
+                            hidden
+                        ></audio>
+
+                        <button
+                            type="button"
+                            data-alert-sound-toggle
+                            class="icon-button"
+                            aria-label="Mute alert sound"
+                            aria-pressed="true"
+                        >
+                            <span data-alert-sound-on>
+                                <x-heroicon-o-speaker-wave class="h-5 w-5" aria-hidden="true" />
+                            </span>
+                            <span data-alert-sound-off hidden>
+                                <x-heroicon-o-speaker-x-mark class="h-5 w-5" aria-hidden="true" />
+                            </span>
+                        </button>
+                    </div>
+
                     <livewire:alerts.alert-bell />
 
                     @auth

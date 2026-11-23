@@ -428,6 +428,108 @@ class AlertCenterTest extends TestCase
             ->assertSeeHtml('bg-critical');
     }
 
+    public function test_the_bell_does_not_chime_on_mount(): void
+    {
+        $this->alert($this->server());
+
+        Livewire::test(AlertBell::class)
+            ->assertViewHas('count', 1)
+            ->assertNotDispatched('alert-created');
+    }
+
+    public function test_the_bell_dispatches_when_a_new_open_alert_appears(): void
+    {
+        $server = $this->server();
+        $this->alert($server, ['rule_key' => 'cpu_high']);
+
+        $component = Livewire::test(AlertBell::class)
+            ->assertViewHas('count', 1)
+            ->assertNotDispatched('alert-created');
+
+        Carbon::setTestNow('2026-11-23 12:00:02');
+
+        $this->alert($server, ['rule_key' => 'disk_high']);
+
+        $component
+            ->call('refresh')
+            ->assertDispatched('alert-created')
+            ->assertViewHas('count', 2);
+    }
+
+    public function test_the_bell_does_not_dispatch_when_an_alert_is_acknowledged_or_resolved(): void
+    {
+        $server = $this->server();
+        $first = $this->alert($server, ['rule_key' => 'cpu_high']);
+
+        Carbon::setTestNow('2026-11-23 12:00:02');
+
+        $second = $this->alert($server, [
+            'rule_key' => 'disk_high',
+            'last_seen_at' => now()->addMinute(),
+        ]);
+
+        $component = Livewire::test(AlertBell::class)
+            ->assertViewHas('count', 2)
+            ->assertNotDispatched('alert-created');
+
+        $second->forceFill([
+            'status' => 'acknowledged',
+            'acknowledged_at' => now(),
+        ])->save();
+
+        $component
+            ->call('refresh')
+            ->assertNotDispatched('alert-created')
+            ->assertViewHas('count', 2);
+
+        $first->forceFill([
+            'status' => 'resolved',
+            'active_key' => null,
+            'resolved_at' => now(),
+        ])->save();
+
+        $component
+            ->call('refresh')
+            ->assertNotDispatched('alert-created')
+            ->assertViewHas('count', 1);
+    }
+
+    public function test_the_shell_includes_the_alert_sound_control_and_asset(): void
+    {
+        $response = $this->actingAs(User::factory()->create())->get('/dashboard');
+
+        $response->assertOk()
+            ->assertSee('data-alert-sound-audio', false)
+            ->assertSee('sounds/alert.wav', false)
+            ->assertSee('preload="auto"', false)
+            ->assertSee('data-alert-sound-toggle', false)
+            ->assertSee('data-alert-sound-on', false)
+            ->assertSee('data-alert-sound-off', false)
+            ->assertSee('aria-pressed="true"', false);
+
+        $controller = (string) file_get_contents(resource_path('js/alert-sound.js'));
+
+        $this->assertStringContainsString('alert-created', $controller);
+        $this->assertStringContainsString('noc-alert-sound', $controller);
+        $this->assertStringContainsString('pointerdown', $controller);
+        $this->assertStringContainsString('keydown', $controller);
+
+        $app = (string) file_get_contents(resource_path('js/app.js'));
+
+        $this->assertStringContainsString("from './alert-sound'", $app);
+        $this->assertStringContainsString('initAlertSound', $app);
+
+        $wav = public_path('sounds/alert.wav');
+
+        $this->assertFileExists($wav);
+        $this->assertGreaterThan(20000, filesize($wav));
+
+        $header = (string) file_get_contents($wav, false, null, 0, 12);
+
+        $this->assertSame('RIFF', substr($header, 0, 4));
+        $this->assertSame('WAVE', substr($header, 8, 4));
+    }
+
     public function test_the_detail_page_renders_timestamps_in_jakarta_time(): void
     {
         $viewer = User::factory()->create();

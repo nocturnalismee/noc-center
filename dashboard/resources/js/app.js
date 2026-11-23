@@ -2,6 +2,7 @@ import '@fontsource-variable/inter';
 import '@fontsource/jetbrains-mono/400.css';
 
 import { Alpine, Livewire } from '../../vendor/livewire/livewire/dist/livewire.esm';
+import { initAlertSound } from './alert-sound';
 import { initSeriesCharts } from './charts';
 
 window.Alpine = Alpine;
@@ -244,5 +245,11 @@ mobileQuery.addEventListener('change', (event) => {
 applyTheme(root.classList.contains('dark') ? 'dark' : 'light');
 applySidebar(root.getAttribute('data-sidebar') === 'collapsed' ? 'collapsed' : 'expanded');
 
-document.addEventListener('DOMContentLoaded', () => initSeriesCharts());
-document.addEventListener('livewire:navigated', () => initSeriesCharts());
+document.addEventListener('DOMContentLoaded', () => {
+    initSeriesCharts();
+    initAlertSound();
+});
+document.addEventListener('livewire:navigated', () => {
+    initSeriesCharts();
+    initAlertSound();
+});
