@@ -12,6 +12,8 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -116,6 +118,163 @@ class RollupTest extends TestCase
         $this->assertEqualsWithDelta(70.0, $bucket->disk_used_pct_min, 0.001);
         $this->assertEqualsWithDelta(80.0, $bucket->disk_used_pct_max, 0.001);
         $this->assertEqualsWithDelta(2.5, $bucket->load1_max, 0.001);
+    }
+
+    public function test_extended_metrics_are_summed_from_raw_samples(): void
+    {
+        $server = $this->server();
+
+        Carbon::setTestNow('2026-11-23 12:20:00');
+
+        $this->sample($server, '2026-11-23 12:00:00', [
+            'swap_used_pct' => 10.5, 'disk_inode_pct' => 20.25,
+            'processes_running' => 120, 'processes_blocked' => 2,
+        ]);
+        $this->sample($server, '2026-11-23 12:04:59', [
+            'swap_used_pct' => 4.5, 'disk_inode_pct' => 9.75,
+            'processes_running' => 80, 'processes_blocked' => 3,
+        ]);
+
+        $this->service()->rollup(
+            $server,
+            300,
+            CarbonImmutable::parse('2026-11-23 12:00:00', 'UTC'),
+            CarbonImmutable::parse('2026-11-23 12:05:00', 'UTC'),
+        );
+
+        $bucket = $this->rollups($server, 300)->sole();
+
+        $this->assertSame(2, $bucket->samples);
+        $this->assertEqualsWithDelta(15.0, $bucket->swap_used_pct_sum, 0.001);
+        $this->assertEqualsWithDelta(30.0, $bucket->disk_inode_pct_sum, 0.001);
+        $this->assertSame(200, $bucket->processes_running_sum);
+        $this->assertSame(5, $bucket->processes_blocked_sum);
+    }
+
+    public function test_extended_metric_sums_propagate_to_hourly_and_daily_rollups(): void
+    {
+        $server = $this->server();
+
+        // Two calendar days; 11-21 has two 5m buckets in two different hours.
+        $this->sample($server, '2026-11-21 00:00:00', [
+            'swap_used_pct' => 1.0, 'disk_inode_pct' => 2.0,
+            'processes_running' => 10, 'processes_blocked' => 1,
+        ]);
+        $this->sample($server, '2026-11-21 01:10:00', [
+            'swap_used_pct' => 3.0, 'disk_inode_pct' => 4.0,
+            'processes_running' => 20, 'processes_blocked' => 2,
+        ]);
+        $this->sample($server, '2026-11-22 10:00:00', [
+            'swap_used_pct' => 5.0, 'disk_inode_pct' => 6.0,
+            'processes_running' => 30, 'processes_blocked' => 3,
+        ]);
+
+        $from = CarbonImmutable::parse('2026-11-20 00:00:00', 'UTC');
+        $to = CarbonImmutable::parse('2026-11-23 00:00:00', 'UTC');
+        $this->service()->rollup($server, 300, $from, $to);
+        $this->service()->rollup($server, 3600, $from, $to);
+        $this->service()->rollup($server, 86400, $from, $to);
+
+        $hours = $this->rollups($server, 3600);
+        $this->assertSame(3, $hours->count());
+
+        $firstHour = $hours->first();
+        $this->assertEqualsWithDelta(1.0, $firstHour->swap_used_pct_sum, 0.001);
+        $this->assertEqualsWithDelta(2.0, $firstHour->disk_inode_pct_sum, 0.001);
+        $this->assertSame(10, $firstHour->processes_running_sum);
+        $this->assertSame(1, $firstHour->processes_blocked_sum);
+
+        $days = $this->rollups($server, 86400);
+        $this->assertSame(2, $days->count());
+
+        $firstDay = $days->first();
+        $this->assertSame(2, $firstDay->samples);
+        $this->assertEqualsWithDelta(4.0, $firstDay->swap_used_pct_sum, 0.001);
+        $this->assertEqualsWithDelta(6.0, $firstDay->disk_inode_pct_sum, 0.001);
+        $this->assertSame(30, $firstDay->processes_running_sum);
+        $this->assertSame(3, $firstDay->processes_blocked_sum);
+
+        $secondDay = $days->last();
+        $this->assertEqualsWithDelta(5.0, $secondDay->swap_used_pct_sum, 0.001);
+        $this->assertEqualsWithDelta(6.0, $secondDay->disk_inode_pct_sum, 0.001);
+        $this->assertSame(30, $secondDay->processes_running_sum);
+        $this->assertSame(3, $secondDay->processes_blocked_sum);
+    }
+
+    public function test_process_sums_stay_integers(): void
+    {
+        $server = $this->server();
+
+        $this->sample($server, '2026-11-23 11:55:00', ['processes_running' => 2, 'processes_blocked' => 0]);
+        $this->sample($server, '2026-11-23 11:56:00', ['processes_running' => 3, 'processes_blocked' => 1]);
+        $this->sample($server, '2026-11-23 11:57:00', ['processes_running' => 4, 'processes_blocked' => 1]);
+
+        $this->service()->rollup(
+            $server,
+            300,
+            CarbonImmutable::parse('2026-11-23 11:00:00', 'UTC'),
+            CarbonImmutable::parse('2026-11-23 12:00:00', 'UTC'),
+        );
+
+        $bucket = $this->rollups($server, 300)->sole();
+
+        $this->assertIsInt($bucket->processes_running_sum);
+        $this->assertIsInt($bucket->processes_blocked_sum);
+        $this->assertSame(9, $bucket->processes_running_sum);
+        $this->assertSame(2, $bucket->processes_blocked_sum);
+
+        $raw = DB::table('metric_rollups')->sole();
+        $this->assertSame(9, (int) $raw->processes_running_sum);
+        $this->assertSame(2, (int) $raw->processes_blocked_sum);
+    }
+
+    public function test_extended_metric_columns_exist_with_zero_defaults(): void
+    {
+        foreach ([
+            'swap_used_pct_sum',
+            'disk_inode_pct_sum',
+            'processes_running_sum',
+            'processes_blocked_sum',
+        ] as $column) {
+            $this->assertTrue(
+                Schema::hasColumn('metric_rollups', $column),
+                "metric_rollups.{$column} must exist.",
+            );
+        }
+
+        $server = $this->server();
+
+        // Insert every pre-existing required column but none of the new ones:
+        // the defaults must supply zero, so old rows stay readable.
+        DB::table('metric_rollups')->insert([
+            'server_id' => $server->getKey(),
+            'resolution_seconds' => 300,
+            'bucket_start' => '2026-11-23 11:55:00',
+            'samples' => 1,
+            'cpu_usage_sum' => 1,
+            'cpu_iowait_sum' => 0,
+            'mem_used_pct_sum' => 0,
+            'disk_used_pct_sum' => 0,
+            'load1_sum' => 0,
+            'net_rx_bps_sum' => 0,
+            'net_tx_bps_sum' => 0,
+            'cpu_usage_min' => 0,
+            'cpu_usage_max' => 0,
+            'mem_used_pct_min' => 0,
+            'mem_used_pct_max' => 0,
+            'disk_used_pct_min' => 0,
+            'disk_used_pct_max' => 0,
+            'load1_max' => 0,
+            'created_at' => '2026-11-23 12:00:00',
+            'updated_at' => '2026-11-23 12:00:00',
+        ]);
+
+        $row = DB::table('metric_rollups')->sole();
+
+        $this->assertEquals(0, $row->swap_used_pct_sum);
+        $this->assertEquals(0, $row->disk_inode_pct_sum);
+        $this->assertEquals(0, $row->processes_running_sum);
+        $this->assertEquals(0, $row->processes_blocked_sum);
     }
 
     public function test_hour_and_day_buckets_align_to_utc_boundaries(): void
@@ -1144,15 +1303,15 @@ class RollupTest extends TestCase
             'mem_used_pct' => $values['mem_used_pct'] ?? 0,
             'swap_total_bytes' => 0,
             'swap_used_bytes' => 0,
-            'swap_used_pct' => 0,
+            'swap_used_pct' => $values['swap_used_pct'] ?? 0,
             'disk_total_bytes' => 1000,
             'disk_used_bytes' => 0,
             'disk_used_pct' => $values['disk_used_pct'] ?? 0,
-            'disk_inode_pct' => 0,
+            'disk_inode_pct' => $values['disk_inode_pct'] ?? 0,
             'net_rx_bps' => $values['net_rx_bps'] ?? 0,
             'net_tx_bps' => $values['net_tx_bps'] ?? 0,
-            'processes_running' => 1,
-            'processes_blocked' => 0,
+            'processes_running' => $values['processes_running'] ?? 1,
+            'processes_blocked' => $values['processes_blocked'] ?? 0,
             'uptime_seconds' => 100,
             'payload_bytes' => 100,
         ]);

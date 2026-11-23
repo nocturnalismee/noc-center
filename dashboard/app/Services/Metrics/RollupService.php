@@ -58,7 +58,22 @@ class RollupService
         'cpu_iowait_sum' => ['cpu_iowait_sum', 'cpu_iowait_pct'],
         'mem_used_pct_sum' => ['mem_used_pct_sum', 'mem_used_pct'],
         'disk_used_pct_sum' => ['disk_used_pct_sum', 'disk_used_pct'],
+        'swap_used_pct_sum' => ['swap_used_pct_sum', 'swap_used_pct'],
+        'disk_inode_pct_sum' => ['disk_inode_pct_sum', 'disk_inode_pct'],
         'load1_sum' => ['load1_sum', 'load1'],
+    ];
+
+    /**
+     * Summed integer metrics: target column => [rollup source column, raw sample column].
+     *
+     * Process counts never average; their sums stay whole numbers like the
+     * network byte-rate sums.
+     *
+     * @var array<string, array{0: string, 1: string}>
+     */
+    private const INT_SUMS = [
+        'processes_running_sum' => ['processes_running_sum', 'processes_running'],
+        'processes_blocked_sum' => ['processes_blocked_sum', 'processes_blocked'],
     ];
 
     /**
@@ -162,7 +177,7 @@ class RollupService
         $aggregates = [];
 
         MetricSample::query()
-            ->select(['id', 'collected_at', 'cpu_usage_pct', 'cpu_iowait_pct', 'mem_used_pct', 'disk_used_pct', 'load1', 'net_rx_bps', 'net_tx_bps'])
+            ->select(['id', 'collected_at', 'cpu_usage_pct', 'cpu_iowait_pct', 'mem_used_pct', 'disk_used_pct', 'swap_used_pct', 'disk_inode_pct', 'load1', 'net_rx_bps', 'net_tx_bps', 'processes_running', 'processes_blocked'])
             ->where('server_id', $server->getKey())
             ->where('collected_at', '>=', $from)
             ->where('collected_at', '<', $to)
@@ -243,6 +258,10 @@ class RollupService
         $aggregate['net_rx_bps_sum'] += (int) $this->value($row, 'net_rx_bps_sum', 'net_rx_bps');
         $aggregate['net_tx_bps_sum'] += (int) $this->value($row, 'net_tx_bps_sum', 'net_tx_bps');
 
+        foreach (self::INT_SUMS as $target => [$rollupColumn, $sampleColumn]) {
+            $aggregate[$target] += (int) $this->value($row, $rollupColumn, $sampleColumn);
+        }
+
         foreach (self::EXTREMES as $target => [$side, $rollupColumn, $sampleColumn]) {
             $value = $this->value($row, $rollupColumn, $sampleColumn);
 
@@ -274,7 +293,7 @@ class RollupService
     private function round(array $aggregates): array
     {
         foreach ($aggregates as $bucket => &$aggregate) {
-            foreach (['cpu_usage', 'mem_used_pct', 'disk_used_pct'] as $metric) {
+            foreach (['cpu_usage', 'mem_used_pct', 'disk_used_pct', 'swap_used_pct', 'disk_inode_pct'] as $metric) {
                 $aggregate[$metric.'_sum'] = round($aggregate[$metric.'_sum'], self::PERCENT_SCALE);
             }
 
@@ -305,9 +324,13 @@ class RollupService
             'cpu_iowait_sum' => 0.0,
             'mem_used_pct_sum' => 0.0,
             'disk_used_pct_sum' => 0.0,
+            'swap_used_pct_sum' => 0.0,
+            'disk_inode_pct_sum' => 0.0,
             'load1_sum' => 0.0,
             'net_rx_bps_sum' => 0,
             'net_tx_bps_sum' => 0,
+            'processes_running_sum' => 0,
+            'processes_blocked_sum' => 0,
             'cpu_usage_min' => INF,
             'cpu_usage_max' => -INF,
             'mem_used_pct_min' => INF,
@@ -351,9 +374,13 @@ class RollupService
                     'cpu_iowait_sum',
                     'mem_used_pct_sum',
                     'disk_used_pct_sum',
+                    'swap_used_pct_sum',
+                    'disk_inode_pct_sum',
                     'load1_sum',
                     'net_rx_bps_sum',
                     'net_tx_bps_sum',
+                    'processes_running_sum',
+                    'processes_blocked_sum',
                     'cpu_usage_min',
                     'cpu_usage_max',
                     'mem_used_pct_min',
