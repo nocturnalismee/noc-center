@@ -240,7 +240,13 @@ tabel internal Laravel. Waktu disimpan UTC.
 
 - `id` ULID primary key.
 - `name` unique (label manusia), `hostname`, `panel` default `none`.
-- `group_name` nullable, `notes` nullable.
+- `server_type` nullable (tipe server: `backup`, `shared hosting`, `vps`,
+  `web`, dst.; nilai bebas, bukan enum), `notes` nullable.
+- `provider`, `location`, `label` nullable (metadata identifikasi; `label`
+  adalah kode aset/billing data center, mis. `JHD-001`).
+- `ip_address` nullable (IP utama, IPv4/IPv6, hanya identifikasi; bukan sumber
+  kebenaran koneksi agent).
+- `alerts_enabled` boolean default `true` (kontrol alert per server).
 - `os_name`, `os_version`, `kernel`, `agent_version` nullable.
 - `agent_uuid` nullable (UUID diagnostik dari agent; **tidak unique** karena
   clone VM bisa menduplikasi).
@@ -534,6 +540,9 @@ Aturan detail:
   ter-index.
 - Rule yang tidak punya data (module belum pernah jalan) tidak dianggap nol;
   tidak ada alert sampai data benar-benar ada.
+- Server dengan `alerts_enabled = false` dilewati oleh `AlertEngine` dan
+  scheduler liveness; ingest, penyimpanan sample, health, dan issue detection
+  tetap berjalan.
 - Alert baru membuat `active_key`; alert yang kondisinya hilang di-resolve
   otomatis. Acknowledge tidak menutup alert, tetapi menghentikan reminder.
 - Notifikasi keluar dikirim saat alert dibuka/reopen dan satu pesan recovery
@@ -589,6 +598,11 @@ penambahan channel tidak mengubah rule engine.
   alert aktif **tanpa mengirim recovery** karena penutupan bersifat
   administratif, bukan pemulihan kondisi.
 - Alert untuk server nonaktif tidak dibuat.
+- Menonaktifkan alert per server (`alerts_enabled = false`) menutup semua alert
+  aktif server itu secara administratif: tanpa recovery email/Telegram, dengan
+  catatan “Alerts disabled for this server”, dan audit mencatat jumlah alert
+  yang ditutup. Mengaktifkan kembali tidak membuka alert lama secara
+  retroaktif; alert baru dibuat pada evaluasi berikutnya.
 - Acknowledge menghentikan reminder email/Telegram sampai alert resolved;
   alert tetap terlihat sebagai acknowledged dan health server tetap mengikuti
   severity-nya.
@@ -684,7 +698,7 @@ ditampilkan Asia/Jakarta.
 | `/servers` | Full server list, filters, search, pagination. |
 | `/servers/create` | Two-step add-server wizard + one-time token reveal. |
 | `/servers/{server}` | Server detail: overview, performance, panel, modules, history, alerts. |
-| `/servers/{server}/edit` | Edit name/group/notes/interval. |
+| `/servers/{server}/edit` | Edit metadata (name, hostname, type, provider, location, IP, label), interval, alerts on/off, notes. |
 | `/servers/{server}/tokens` | Active/revoked tokens, rotate, revoke. |
 | `/alerts` | Alert center, filters, acknowledge/resolve. |
 | `/alerts/{alert}` | Alert detail, context, linked server, activity. |
@@ -700,19 +714,22 @@ ditampilkan Asia/Jakarta.
   - **Needs attention** (open critical/warning).
   - **Hot resources** (CPU/RAM/disk ≥ 90%).
   - **Data gaps** (stale/offline/never seen).
-- Server table columns: status, server (name, hostname, group), panel/version,
-  CPU %, RAM %, disk %, network RX/TX, load, uptime, last seen, issue badges.
+- Server table columns: status, server (name, hostname, type, label, IP),
+  panel/version, CPU %, RAM %, disk %, network RX/TX, load, uptime, last seen,
+  issue badges. Provider dan location tampil di detail, bukan kolom tabel.
 - Default sort: severity, then hostname. Sortable numeric columns.
 - Filters as chips with counts: All / Online / Stale / Offline / Never seen;
-  group, panel, “problems only”; search. State persisted in URL.
+  type, provider, location, panel, “problems only”; search by name, hostname,
+  IP, or label. State persisted in URL.
 - Sparklines: server-rendered inline SVG from 24 hourly points (CPU + disk),
   no JS, `role="img"` with text summary. Do not instantiate 25 charts.
 - Poll `wire:poll.30s.visible`; cache fleet summary 20 seconds.
 
 ### 12.3 Server detail
 
-Sticky header: name, hostname, group, status pill, last seen, agent version,
-panel, actions (Rotate token, Edit, View stored snapshot).
+Sticky header: name, hostname, type, provider/location, IP, label, status pill,
+last seen, agent version, panel, actions (Rotate token, Edit, View stored
+snapshot).
 
 KPI tiles: CPU, RAM, disk, load, network, processes, uptime.
 
@@ -735,8 +752,14 @@ summary + “View data table” for accessibility.
 
 ### 12.4 Add server and token
 
-Step 1: name (unique), optional hostname, group, check-in interval (default
-60, drives thresholds), panel = auto.
+Step 1 — tiga bagian:
+
+- **Identity**: name (unique, required), hostname (required), primary IP
+  (optional, IPv4/IPv6), label data center/billing (optional).
+- **Placement**: type (free text dengan saran nilai yang sudah ada; bukan
+  enum), provider (optional, free text), location (optional, free text).
+- **Collection**: check-in interval (default 60, drives thresholds), alerts
+  on/off (default on), notes (optional). Panel = auto.
 
 Step 2: generate token, store only hash + prefix, flash plaintext to session,
 redirect to one-time `no-store` reveal page. Show:

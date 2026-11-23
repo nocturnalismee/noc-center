@@ -22,6 +22,7 @@
 - UI copy is English only. Timestamps stored UTC, displayed in `Asia/Jakarta`.
 - Roles: `admin`, `operator`, `viewer`. No public registration. First admin via `php artisan noc:create-admin`.
 - Agent token format `noc_` + 43 base64url chars (32 random bytes), stored only as HMAC-SHA256 of the plaintext keyed by `APP_KEY`, plus an 8-char prefix. Plaintext is displayed exactly once.
+- Server metadata: `server_type` (free text: web, db, backup, shared hosting, vps), optional `provider`, `location`, `ip_address` (primary, identification only), and `label` (single data-center/billing code). `alerts_enabled` defaults to true; when false, alert evaluation and liveness skip the server and active alerts close without recovery.
 - Ingest: `POST /api/v1/ingest`, Bearer auth, body ≤ 65,536 bytes, schema_version 1, response `202` on success and on idempotent retry.
 - Idempotency key: unique `(server_id, collected_at)`. A duplicate returns 202 but never inserts a second sample/detail or double-counts rollups.
 - Status thresholds: `stale_after = last_seen_at + max(2.5 × interval, 150s)`, `offline_after = last_seen_at + max(5 × interval, 300s)`.
@@ -354,7 +355,7 @@ Accept the exact `agent/README.md` payload. Field rules:
 - `agent.id` string ≤ 64; `agent.hostname` string ≤ 253; `agent.panel` string ≤ 32 matching `^[A-Za-z0-9][A-Za-z0-9_.-]*$`; `agent.collected_at` RFC3339 parseable; `agent.interval_seconds` integer 10–3600.
 - `system.os.{name,version,kernel}` optional strings ≤ 128; `system.uptime_seconds` integer ≥ 0.
 - Every metric in the README example is required and numeric within bounds: percentages 0–100, bytes/seconds/uptime ≥ 0, load ≥ 0, cores 1–1024, processes ≥ 0.
-- `panel_metrics`/`extensions` required flat maps; keys match `^[A-Za-z][A-Za-z0-9_.-]{0,63}$`; values string|int|float|bool|null; at most 512 keys each; strings ≤ 1024 bytes; no nested arrays/objects. Note: the agent may omit these maps by dropping them on oversize — accept `{}`.
+- `panel_metrics`/`extensions` optional flat maps (the agent drops them on oversize): keys match `^[A-Za-z][A-Za-z0-9_.-]{0,63}$`; values string|int|float|bool|null; **at most 128 keys each**, reject over the cap (never truncate); strings ≤ 1024 bytes; no nested arrays/objects. Missing/empty → `[]`.
 - Malformed JSON → 400; wrong shape/ranges → 422; 65,537 bytes → 413.
 - `collected_at` more than 10 minutes in the past or future is clamped to `now ± 10 minutes`; `received_at` stays `now()`.
 
@@ -364,7 +365,7 @@ Assert: one sample + one detail + updated server fields; core columns mapped cor
 
 - [ ] **Step 3: Implement validation and storage**
 
-Use `Validator::make` with the exact rules above, then map to `IngestPayload`. Decode with `json_decode($raw, true, 8, JSON_THROW_ON_ERROR)`.
+Use `Validator::make` with the exact rules above, then map to `IngestPayload`. Decode with `json_decode($raw, true, 9, JSON_THROW_ON_ERROR)` so a depth-8 document is accepted and depth 9 is rejected (R37).
 
 `StoreSample` runs one short transaction: `MetricSample::insertOrIgnore([...])`; if affected, read the id by `(server_id, collected_at)` and insert `MetricDetail`; always update the server's identity, latest metric columns, `last_seen_at`, `last_sample_at`, thresholds, `health`, and `issue_codes`; touch `last_used_at`/`last_used_ip` only when `last_used_at` is null or older than one minute. Never perform HTTP, mail, or rollup work inside the transaction.
 
@@ -390,7 +391,7 @@ git commit -m "feat(dashboard): validate agent payloads and store idempotent sam
 
 **Interfaces:**
 - Produces: `IssueDetector::detect(Server $server, MetricSample $latest, array $panelMetrics, array $extensions): IssueSet`.
-- Produces: `IssueSet::$health` (`ServerHealth`), `::$codes` (`list<string>` of `AlertRule` values), `::$details` (`array<string, array{value: mixed, threshold: mixed}>`).
+- Produces: `IssueSet::$health` (`ServerHealth`), `::$codes` (`list<string>` of `AlertRule` values), `::$details` (`array<string, array{value: mixed, threshold: mixed, severity: 'warning'|'critical'}>`, R24).
 - Produces: `IssueDetector` reads thresholds through `SettingsRepository::get("alerts.{key}", config("alerts.{key}"))` so Task 20's settings page changes behavior.
 - Modifies: `StoreSample` now returns `IngestResult` with `::$issues`, and writes `health`/`issue_codes` from the detected set in the same transaction.
 - Rules: `cpu_high`, `memory_high`, `disk_high`, `inode_high`, `load_high`, `smart_failed`, `smart_warning`, `service_down`, `mysql_unreachable`, `quota_over`, `module_cache_stale`, `security_disabled`. `server_offline`/`server_stale` belong to Task 10. `security_disabled` runs only when `alerts.rules.security_disabled.enabled=true`; `service_down` is enabled by default.
@@ -415,6 +416,36 @@ git commit -m "feat(dashboard): detect resource, module, and security issues"
 
 ---
 
+### Task 8b: Server metadata and per-server alert toggle
+
+**Files:**
+- Create: `dashboard/database/migrations/*_add_server_metadata_and_alert_toggle.php`, `dashboard/tests/Feature/Servers/ServerMetadataTest.php`
+- Modify: `dashboard/app/Models/Server.php`, `dashboard/app/Services/Servers/ServerService.php`, `dashboard/tests/Feature/Servers/ServerServiceTest.php`, `dashboard/tests/Feature/Database/SchemaTest.php`
+
+**Interfaces:**
+- Migration renames `group_name` to `server_type` and adds nullable `provider` (100), `location` (100), `ip_address` (45), `label` (100), plus `alerts_enabled` boolean default `true`; indexes on `server_type`, `provider`, `location`, `alerts_enabled`. `down()` restores `group_name` and drops the new columns.
+- `Server` exposes the new attributes; casts include `alerts_enabled => bool`; `server_type` replaces `group_name` in fillable.
+- `ServerService::create()` and `update()` accept `server_type`, `provider`, `location`, `ip_address`, `label`, `alerts_enabled`; all are optional except `alerts_enabled` (default true). `ip_address` must validate as IPv4/IPv6 when present; text fields cap at their column length. None of the metadata is unique.
+- Type is free text (examples `web`, `db`, `backup`, `shared hosting`, `vps`), not an enum. `label` is a single data-center/billing asset code such as `JHD-001`.
+
+- [ ] **Step 1: Write failing tests**
+
+Assert: migration renames the column and existing rows keep their values; defaults are `null` metadata and `alerts_enabled=true`; create/update persist every new field; invalid `ip_address` is rejected while IPv4 and IPv6 are accepted; overlength fields are rejected; `server_type` replaces `group_name` in mass assignment and serialization; schema test covers the four indexes.
+
+- [ ] **Step 2: Implement and run**
+
+Run: `dashboard/tools/php.sh php artisan test --filter='ServerMetadataTest|ServerServiceTest|SchemaTest'`
+Expected: PASS.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add dashboard
+git commit -m "feat(dashboard): add server metadata and per-server alert toggle"
+```
+
+---
+
 ### Task 9: Alert engine, deduplication, and notification channels
 
 **Files:**
@@ -422,7 +453,8 @@ git commit -m "feat(dashboard): detect resource, module, and security issues"
 - Modify: `dashboard/app/Http/Controllers/Api/IngestController.php`, `dashboard/config/alerts.php`
 
 **Interfaces:**
-- Produces: `AlertEngine::evaluate(Server $server, IssueSet $issues): void` — opens or updates one alert per `(server, rule)`, resolves alerts whose rule disappeared, and sets `active_key = "{$server->id}:{$rule}"` only while open/acknowledged.
+- Produces: `AlertEngine::evaluate(Server $server, IssueSet $issues): void` — returns immediately when `$server->alerts_enabled` is false; otherwise opens or updates one alert per `(server, rule)`, resolves alerts whose rule disappeared, and sets `active_key = "{$server->id}:{$rule}"` only while open/acknowledged.
+- Produces: `AlertEngine::closeForDisabledAlerts(Server $server, User $actor): int` — resolves every open/acknowledged alert with `notify: false` and note `Alerts disabled for this server`, clears `active_key`, audits `server.alerts_disabled` with the closed count, and returns it. `ServerService::update()` calls it only on the `alerts_enabled` true→false transition. Re-enabling is not retroactive; the next evaluation may open new alerts.
 - Produces: `AlertEngine::resolve(Alert $alert, ?User $actor = null, ?string $note = null, bool $notify = true): void`; on the transition to resolved it calls `AlertNotifier::dispatch($alert, 'resolved')` exactly once when `$notify` is true. Administrative closes (server deletion) pass `$notify = false`.
 - Produces: `AlertEngine::acknowledge(Alert $alert, User $actor): void`; acknowledge stops reminders but does not resolve.
 - Produces: `AlertNotifier::dispatch(Alert $alert, string $event = 'opened'): void` — creates one `alert_deliveries` row per enabled external channel and event (`opened` or `resolved`), then dispatches a job after commit. For `resolved`, only channels that already have an `opened` row are eligible. In-app needs no delivery row because the alert row is the notification.
@@ -438,6 +470,8 @@ git commit -m "feat(dashboard): detect resource, module, and security issues"
 Assert: first evaluation opens exactly one alert; identical second evaluation updates `last_seen_at` and keeps one row; two different servers with the same rule get separate rows; condition disappearing resolves and sets `active_key=null`; acknowledge does not resolve; severity escalation updates severity; reminder sent once after 6 hours to an `open` alert and not before; acknowledging stops further reminders; resolving sends exactly one recovery per channel that had an `opened` delivery and a second resolve does not duplicate it; viewer receives no email; only active admin/operator users with `notify_email=1` receive email; email excludes token/query text; recovery text excludes the same secrets.
 
 Telegram: disabled channel makes no HTTP call; enabled but missing chat id is skipped; `Http::fake` receives `chat_id`; `message_thread_id` present when configured and absent when null/empty; HTML special characters are escaped; `429` with `retry_after=42` sets `next_retry_at` about 42 seconds ahead; a connection failure records a redacted error and never the bot token or full URL; one channel failing still lets the other send; in-app row still exists.
+
+Per-server toggle: `evaluate()` on an `alerts_enabled=false` server opens nothing and leaves existing rows untouched; disabling via `ServerService::update()` resolves every open/acknowledged alert without recovery deliveries and audits `server.alerts_disabled` with the count; re-enabling opens a fresh alert on the next evaluation.
 
 Delivery: dispatch creates one row per `(alert, channel, event)`; `attempts` increments; `sent` sets `sent_at`; `failed` respects backoff; resolving creates a `resolved` row while the `opened` row stays intact; ingest still returns 202 when the notifier throws (log and swallow after commit).
 
@@ -466,14 +500,14 @@ git commit -m "feat(dashboard): add deduplicated alerts with email, Telegram, an
 - Modify: `dashboard/routes/console.php`
 
 **Interfaces:**
-- Produces: `php artisan noc:evaluate-liveness` — evaluates every active server, opens `server_offline` (critical) or `server_stale` (warning), resolves the other, and refreshes `servers.health`. When stale escalates to offline, resolve stale with `notify: false`; when the server returns, resolve offline with recovery enabled.
+- Produces: `php artisan noc:evaluate-liveness` — evaluates every active server with `alerts_enabled=true`, opens `server_offline` (critical) or `server_stale` (warning), resolves the other, and refreshes `servers.health`. Servers with alerts disabled are skipped entirely (no new alerts, no resolutions). When stale escalates to offline, resolve stale with `notify: false`; when the server returns, resolve offline with recovery enabled.
 - Produces: `AlertEngine::refreshServerHealth(Server $server): void` — health is `critical` if any open/acknowledged alert is critical, `warning` if any is warning, `ok` when a sample exists, `unknown` when never seen.
 - Produces: schedule entry every minute with `withoutOverlapping()` (single node, no `onOneServer` requirement).
 - Produces: schedule entry for `noc:alert-reminders` every 5 minutes with `withoutOverlapping()`, so email/Telegram reminders and retries are independent of ingest.
 
 - [ ] **Step 1: Write failing tests**
 
-Freeze time. An `online` server gets no liveness alert; one exactly at `stale_after` is still online; just after it opens `server_stale`; just after `offline_after` it resolves stale without a recovery delivery and opens `server_offline`; when a sample arrives again, the next run resolves offline with one recovery per channel and restores `ok`/`warning` from remaining issues. A soft-deleted or inactive server gets no alert.
+Freeze time. An `online` server gets no liveness alert; one exactly at `stale_after` is still online; just after it opens `server_stale`; just after `offline_after` it resolves stale without a recovery delivery and opens `server_offline`; when a sample arrives again, the next run resolves offline with one recovery per channel and restores `ok`/`warning` from remaining issues. A soft-deleted, inactive, or `alerts_enabled=false` server gets no alert.
 
 - [ ] **Step 2: Implement and run**
 
@@ -573,10 +607,11 @@ git commit -m "feat(dashboard): add chart series repository and JSON endpoint"
 ### Task 14: UI foundation, design system, and security headers
 
 **Files:**
-- Create: `dashboard/resources/views/layouts/{app,guest}.blade.php`, `dashboard/resources/views/components/{status-pill,stat-card,empty-state,sparkline,icon}.blade.php`, `dashboard/resources/css/app.css`, `dashboard/resources/js/app.js`, `dashboard/app/Http/Middleware/SecurityHeaders.php`, `dashboard/app/Support/Sparkline.php`, `dashboard/tests/Feature/Ui/LayoutTest.php`, `dashboard/tests/Feature/Security/HeadersTest.php`
-- Modify: `dashboard/bootstrap/app.php`, `dashboard/app/Providers/AppServiceProvider.php`, `dashboard/.gitignore`, `dashboard/vite.config.js`
+- Create: `dashboard/resources/views/layouts/{app,guest}.blade.php`, `dashboard/resources/views/components/{status-pill,stat-card,empty-state,sparkline}.blade.php`, `dashboard/resources/css/app.css`, `dashboard/resources/js/app.js`, `dashboard/app/Http/Middleware/SecurityHeaders.php`, `dashboard/app/Support/Sparkline.php`, `dashboard/tests/Feature/Ui/LayoutTest.php`, `dashboard/tests/Feature/Security/HeadersTest.php`
+- Modify: `dashboard/composer.json`, `dashboard/bootstrap/app.php`, `dashboard/app/Providers/AppServiceProvider.php`, `dashboard/.gitignore`, `dashboard/vite.config.js`
 
 **Interfaces:**
+- Produces: Blade layout using `blade-ui-kit/blade-heroicons` `^2.0` (MIT, inline SVG, no JS/CDN) via `<x-heroicon-o-*>` / `<x-heroicon-s-*>` components for every UI icon; only the three-bar logo and the sparkline remain hand-written SVG. Icons inherit `currentColor`, default 16–20px with `stroke-width` 1.5.
 - Produces: layout with 240px sidebar, topbar, dark mode default, theme toggle persisted in `localStorage`, skip link, `aria-current` nav.
 - Produces: `GET /` redirects to `/dashboard`; authenticated `GET /dashboard` still renders the Task 2 placeholder until Task 15 replaces it.
 - Produces: Tailwind tokens `ok/warning/critical/unknown/accent`, Inter self-hosted with system fallback, tabular numerals, 13px tables.
@@ -631,12 +666,12 @@ git commit -m "feat(dashboard): add design system, layout, dark mode, and CSP he
 **Interfaces:**
 - Produces: `Route::livewire('/dashboard', Dashboard::class)` full-page Livewire 4 component with four summary cards (Online x/y, Needs attention, Hot resources, Data gaps), recent alerts count, and the server table.
 - Produces: `FleetSummary::cards(): array{total:int,online:int,attention:int,hot:int,gaps:int}` via one aggregate query cached 20s.
-- Produces: `ServerTable` with `#[Url]` properties `status`, `panel`, `group`, `q`, `sort`, `dir`, `problems`; 25 rows/page; `wire:poll.30s.visible`; one batched sparkline query per page.
+- Produces: `ServerTable` with `#[Url]` properties `status`, `panel`, `type`, `provider`, `location`, `q`, `sort`, `dir`, `problems`; 25 rows/page; `wire:poll.30s.visible`; one batched sparkline query per page.
 - Produces: `SparklineTest` for the pure SVG helper.
 
 - [ ] **Step 1: Write failing tests**
 
-Assert: cards match seeded data; status filter uses `stale_after`/`offline_after` and never-seen (`last_seen_at=null`); problems filter excludes `ok`; search matches name/hostname; panel/group filters; default sort is health severity then hostname; 30 servers paginate 25; query count for a 25-row page stays ≤ 10 (no N+1); empty database shows the add-server CTA.
+Assert: cards match seeded data; status filter uses `stale_after`/`offline_after` and never-seen (`last_seen_at=null`); problems filter excludes `ok`; search matches name/hostname/IP/label; panel/type/provider/location filters; default sort is health severity then hostname; 30 servers paginate 25; query count for a 25-row page stays ≤ 10 (no N+1); empty database shows the add-server CTA.
 
 - [ ] **Step 2: Implement, run, and commit**
 
@@ -711,7 +746,7 @@ git commit -m "feat(dashboard): render panel modules generically and add admin s
 - Modify: `dashboard/routes/web.php`
 
 **Interfaces:**
-- Produces: `Route::livewire('/servers/create', Create::class)` two-step wizard: step 1 name/hostname/group/interval/notes, step 2 review and submit.
+- Produces: `Route::livewire('/servers/create', Create::class)` two-step wizard: step 1 Identity (name, hostname, primary IP, label), Placement (type, provider, location), Collection (interval, alerts on/off, notes); step 2 review and submit.
 - Produces: on submit, one DB transaction creates the server and token, flashes `issued_token` (`server_id`, `plain`, `prefix`), and redirects to `GET /servers/{server}/token-reveal`.
 - Produces: `TokenRevealController::show()` pulls the flash, aborts 404 on missing/mismatched server, returns `no-store`, and shows the install commands with `config('app.url')`. A second visit or refresh shows 404/redirect, never the token.
 - Produces: `Route::livewire('/servers/{server}/waiting', Waiting::class)` polls every 5s for 10 minutes, then stops with troubleshooting commands.
@@ -719,7 +754,7 @@ git commit -m "feat(dashboard): render panel modules generically and add admin s
 
 - [ ] **Step 1: Write failing tests**
 
-Assert: viewer cannot open create/reveal/waiting; validation errors per step; successful submit stores only the hash; redirect target; reveal page contains the plaintext once, the install command, and `Cache-Control: no-store`; second GET does not contain the token; the token never appears in the Livewire HTML before the reveal; waiting page shows "Waiting for first check-in" and stops polling after 10 minutes.
+Assert: viewer cannot open create/reveal/waiting; validation errors per step (including invalid IPv4/IPv6); successful submit stores only the hash and persists name/hostname/IP/label/type/provider/location/interval/alerts/notes; redirect target; reveal page contains the plaintext once, the install command, and `Cache-Control: no-store`; second GET does not contain the token; the token never appears in the Livewire HTML before the reveal; waiting page shows "Waiting for first check-in" and stops polling after 10 minutes.
 
 - [ ] **Step 2: Implement, run, and commit**
 
@@ -741,7 +776,7 @@ git commit -m "feat(dashboard): add server wizard with one-time token reveal"
 
 **Interfaces:**
 - Produces: `Route::livewire('/servers/{server}/tokens', Tokens::class)` listing active/revoked tokens with prefix, created, last used, expiry/grace countdown; rotate → new plaintext via the reveal flow; revoke requires typing the server name.
-- Produces: `Route::livewire('/servers/{server}/edit', Edit::class)` admin+operator form for name, hostname, group, notes, interval; `ServerService::update(Server, array $attributes, ?User $actor = null)` audits `server.updated`.
+- Produces: `Route::livewire('/servers/{server}/edit', Edit::class)` admin+operator form for name, hostname, type, provider, location, IP, label, interval, alerts on/off, notes; `ServerService::update(Server, array $attributes, ?User $actor = null)` audits `server.updated` and closes alerts when alerts are switched off.
 - Produces: `ServerService::delete(Server $server, ?User $actor = null)` — soft-deletes, revokes every token, resolves every open alert with `AlertEngine::resolve(..., notify: false)`, audits `server.deleted`; metrics are retained until retention.
 - Produces: `Route::livewire('/alerts', Alerts\Index::class)` filters severity/status/server; `Route::livewire('/alerts/{alert}', Alerts\Show::class)` detail with safe context and a per-channel/per-event delivery panel (`In-app` always delivered; `Email`/`Telegram` × `Opened`/`Recovery` status, attempts, redacted error); acknowledge and resolve (note required) actions; `AlertBell` polls 30s and shows open+acknowledged count.
 - Audit actions: `token.rotated`, `token.revoked`, `alert.acknowledged`, `alert.resolved`, `server.updated`, `server.deleted`.
@@ -749,7 +784,7 @@ git commit -m "feat(dashboard): add server wizard with one-time token reveal"
 
 - [ ] **Step 1: Write failing tests**
 
-Assert: rotation shows the new plaintext once and old token works during grace then fails; revoke is immediate and requires the exact server name; edit updates name/group/interval and audits `server.updated`; delete soft-deletes, revokes tokens, resolves alerts without creating recovery deliveries, and audits `server.deleted`; viewer sees no action buttons and direct calls are forbidden; acknowledge does not resolve and stops reminders; resolve requires a note and sets `resolved_by`; bell count excludes resolved; filters work; alert detail never renders MySQL query text or the Telegram bot token; delivery panel shows `Not configured` when Telegram is disabled, `Failed` with a redacted error after a fake failure, and a separate `Recovery` row after resolve.
+Assert: rotation shows the new plaintext once and old token works during grace then fails; revoke is immediate and requires the exact server name; edit updates name/hostname/type/provider/location/IP/label/interval/alerts/notes and audits `server.updated`; turning alerts off closes open alerts without recovery; delete soft-deletes, revokes tokens, resolves alerts without creating recovery deliveries, and audits `server.deleted`; viewer sees no action buttons and direct calls are forbidden; acknowledge does not resolve and stops reminders; resolve requires a note and sets `resolved_by`; bell count excludes resolved; filters work; alert detail never renders MySQL query text or the Telegram bot token; delivery panel shows `Not configured` when Telegram is disabled, `Failed` with a redacted error after a fake failure, and a separate `Recovery` row after resolve.
 
 - [ ] **Step 2: Implement, run, and commit**
 

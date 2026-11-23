@@ -204,7 +204,10 @@ Maximum four series. No dual axes. Units live in the tick labels and legend.
 - Selected row: `selected` fill. Hover: `surface-3` (light) / `#1F1F1F`
   (dark).
 - Numeric columns right-aligned and monospace. Status column combines dot +
-  label. Server column has name (500) over hostname (8.5px mono, `text-muted`).
+  label. Server column has name (500) over hostname (8.5px mono, `text-muted`),
+  with `server_type` as a small secondary label, a `label` chip (asset code such
+  as JHD-001), and the primary IP in mono. Provider and location appear in the
+  detail view and filters, not as table columns.
 - Missing values are an em dash `—` in `text-muted`, never blank or `0`.
 - Below 768px the table becomes stacked cards; each card preserves status dot,
   name, hostname, and the three resource values.
@@ -228,6 +231,11 @@ Maximum four series. No dual axes. Units live in the tick labels and legend.
   text. Focus uses a 2px `focus` ring and does not shift layout.
 - Two-column grid at ≥768px, single column below. Long text uses a full-width
   textarea.
+- Server form sections: Identity (name, hostname, primary IP, label), Placement
+  (type, provider, location — free text with suggestions from existing values),
+  Collection (interval, alerts on/off, notes). The alerts toggle is on by
+  default and applies to this server only; turning it off closes its active
+  alerts without sending recovery messages.
 - Toggles: 36×20 track, 14px knob, `text` fill when on, `surface-2` when off.
 - Errors appear inline under the field in `crit` with an icon-free 9.5px line
   and `aria-describedby`.
