@@ -2,6 +2,7 @@ import '@fontsource-variable/inter';
 import '@fontsource/jetbrains-mono/400.css';
 
 import { Alpine, Livewire } from '../../vendor/livewire/livewire/dist/livewire.esm';
+import { initSeriesCharts } from './charts';
 
 window.Alpine = Alpine;
 
@@ -69,6 +70,8 @@ function applyTheme(theme) {
         button.setAttribute('aria-label', dark ? 'Switch to light theme' : 'Switch to dark theme');
         button.setAttribute('aria-pressed', dark ? 'true' : 'false');
     });
+
+    window.dispatchEvent(new CustomEvent('theme-changed', { detail: { theme } }));
 }
 
 function toggleTheme() {
@@ -168,3 +171,6 @@ mobileQuery.addEventListener('change', (event) => {
 
 applyTheme(root.classList.contains('dark') ? 'dark' : 'light');
 applySidebar(root.getAttribute('data-sidebar') === 'collapsed' ? 'collapsed' : 'expanded');
+
+document.addEventListener('DOMContentLoaded', () => initSeriesCharts());
+document.addEventListener('livewire:navigated', () => initSeriesCharts());
