@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Notifications\AlertTestNotification;
 use App\Services\AuditLogger;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Validation\ValidationException;
@@ -180,10 +181,19 @@ class AlertNotifier
         $delivery->forceFill($attributes)->save();
 
         if ($result->isSent()) {
+            // Atomic: a concurrent delivery for another channel of the same
+            // alert must not lose an increment through a read-modify-write.
+            // The count is per *sent message* (including a recovery), not per
+            // incident.
+            Alert::query()->whereKey($alert->getKey())->update([
+                'notification_count' => DB::raw('notification_count + 1'),
+                'last_notified_at' => $now,
+            ]);
+
             $alert->forceFill([
                 'notification_count' => $alert->notification_count + 1,
                 'last_notified_at' => $now,
-            ])->save();
+            ]);
         }
     }
 

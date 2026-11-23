@@ -120,7 +120,7 @@ class AlertEngine
 
             if (! $active) {
                 if ($existing !== null) {
-                    $this->resolve($existing);
+                    $this->resolve($existing, null, 'Issue cleared');
                 }
 
                 return null;

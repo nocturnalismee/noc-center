@@ -157,15 +157,18 @@ class AlertNotificationTest extends TestCase
         Queue::assertPushed(SendAlertNotification::class, 4);
     }
 
-    public function test_the_job_is_unique_per_alert_channel_and_event(): void
+    public function test_the_delivery_row_is_the_idempotency_key(): void
     {
+        // Fix round: `ShouldBeUnique` held a 300 s lock past completion and
+        // suppressed real retries. The unique `(alert_id, channel, event)` row
+        // is the idempotency key instead, and the job carries no lock.
         $alert = $this->openAlert('memory_high', 'critical');
         $job = new SendAlertNotification($alert->id, 'email', 'opened');
 
         $this->assertSame(3, $job->tries);
         $this->assertSame([30, 120, 300], $job->backoff());
-        $this->assertSame("alert:{$alert->id}:email:opened", $job->uniqueId());
-        $this->assertInstanceOf(ShouldBeUnique::class, $job);
+        $this->assertNotInstanceOf(ShouldBeUnique::class, $job);
+        $this->assertSame(1, AlertDelivery::query()->where('alert_id', $alert->id)->where('channel', 'email')->where('event', 'opened')->count());
     }
 
     public function test_attempts_increment_and_sent_sets_sent_at(): void

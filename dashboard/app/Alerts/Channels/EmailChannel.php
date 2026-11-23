@@ -2,6 +2,7 @@
 
 namespace App\Alerts\Channels;
 
+use App\Enums\UserRole;
 use App\Models\Alert;
 use App\Models\User;
 use App\Notifications\AlertOpened;
@@ -14,6 +15,15 @@ use Throwable;
  *
  * Recipients are active admin and operator users with `notify_email = true`.
  * The recipients are decided when the job runs, from the database.
+ *
+ * One notification is sent per recipient in a loop instead of a single
+ * `Notification::send($collection, …)`, so a failure for one mailbox (a
+ * rejected address, a full inbox) cannot prevent the others from receiving
+ * the message. The attempt is `sent` when at least one recipient succeeded —
+ * a retry after that would duplicate the message for the recipients who
+ * already got it — and `failed` only when every recipient failed. The
+ * partial-failure note is redacted, so it never carries an address or
+ * SMTP credential.
  */
 class EmailChannel implements AlertChannel
 {
@@ -36,7 +46,8 @@ class EmailChannel implements AlertChannel
         $recipients = User::query()
             ->where('is_active', true)
             ->where('notify_email', true)
-            ->whereIn('role', ['admin', 'operator'])
+            ->whereIn('role', [UserRole::Admin->value, UserRole::Operator->value])
+            ->orderBy('id')
             ->get();
 
         if ($recipients->isEmpty()) {
@@ -49,12 +60,26 @@ class EmailChannel implements AlertChannel
             default => throw new \InvalidArgumentException(sprintf('Unknown alert event [%s].', $event)),
         };
 
-        try {
-            Notification::send($recipients, $notification);
-        } catch (Throwable $exception) {
-            return DeliveryResult::failed(AlertErrorRedactor::fromThrowable($exception));
+        $sent = 0;
+        $lastError = null;
+
+        foreach ($recipients as $recipient) {
+            try {
+                Notification::send($recipient, $notification);
+                $sent++;
+            } catch (Throwable $exception) {
+                $lastError = AlertErrorRedactor::fromThrowable($exception);
+            }
         }
 
-        return DeliveryResult::sent($recipients->count());
+        if ($sent > 0) {
+            $note = $lastError === null
+                ? null
+                : sprintf('%d of %d recipients failed; last error: %s', $recipients->count() - $sent, $recipients->count(), $lastError);
+
+            return new DeliveryResult(DeliveryResult::SENT, $sent, $note);
+        }
+
+        return DeliveryResult::failed($lastError ?? 'No alert email could be delivered.');
     }
 }

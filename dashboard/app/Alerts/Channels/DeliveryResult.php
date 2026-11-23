@@ -29,9 +29,9 @@ final readonly class DeliveryResult
         //
     }
 
-    public static function sent(int $recipientCount): self
+    public static function sent(int $recipientCount, ?string $note = null): self
     {
-        return new self(self::SENT, $recipientCount);
+        return new self(self::SENT, $recipientCount, $note);
     }
 
     public static function failed(string $error, ?int $retryAfter = null): self

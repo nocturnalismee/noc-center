@@ -20,12 +20,13 @@ return [
     'test_rate_per_minute' => 3,
 
     /*
-    | How long a queued `SendAlertNotification` job stays "unique" for one
-    | `(alert, channel, event)`, in seconds. A duplicate queued inside this
-    | window is dropped; a failed job is retried through `retry_backoff_seconds`
-    | because the lock is released when the job starts running.
+    | How long a `pending` delivery row with no attempt at all (`last_attempt_at`
+    | is null) must be old before `noc:alert-reminders` re-queues it, in
+    | seconds. This recovers a job lost between dispatch and execution. It is
+    | not a retry backoff: retries use `retry_backoff_seconds` and the queue
+    | worker's own `$tries`/`backoff()`.
     */
-    'notification_unique_for' => 300,
+    'stuck_pending_after' => 300,
 
     /*
     | Base URL used in alert notifications. Every notification links to the

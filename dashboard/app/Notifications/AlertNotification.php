@@ -3,7 +3,6 @@
 namespace App\Notifications;
 
 use App\Models\Alert;
-use App\Models\User;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 use Symfony\Component\Mime\Email;
@@ -115,20 +114,4 @@ abstract class AlertNotification extends Notification
      * @return array<string, string>
      */
     abstract protected function attributes(): array;
-
-    /**
-     * The full set of recipients for one alert email.
-     *
-     * @return list<string>
-     */
-    public static function recipients(): array
-    {
-        return User::query()
-            ->where('is_active', true)
-            ->where('notify_email', true)
-            ->whereIn('role', ['admin', 'operator'])
-            ->orderBy('id')
-            ->pluck('email')
-            ->all();
-    }
 }

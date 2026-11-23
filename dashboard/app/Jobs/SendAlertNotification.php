@@ -3,36 +3,34 @@
 namespace App\Jobs;
 
 use App\Alerts\AlertNotifier;
+use App\Alerts\Channels\DeliveryResult;
+use App\Enums\AlertStatus;
 use App\Models\Alert;
 use App\Models\AlertDelivery;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\Job as JobContract;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Jobs\SyncJob;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 
 /**
  * One delivery attempt for one `(alert, channel, event)` (spec §9.4).
  *
- * Idempotent: the attempt updates the existing `alert_deliveries` row instead
- * of inserting. It is skipped when the row is missing or the alert has since
- * been acknowledged/resolved (a reminder is no longer owed); a `sent` row is
- * only re-attempted when the reminder window has elapsed.
+ * Idempotency lives in the `alert_deliveries` row (its unique
+ * `(alert_id, channel, event)` index and its `status`), never in a cache lock:
+ * the job deliberately does **not** implement `ShouldBeUnique`, because a
+ * post-completion unique lock of a few minutes would silently swallow a
+ * legitimate 30 s / 120 s requeue.
  *
- * `$tries = 3` with the configured 30/120/300 s backoff. A delivered attempt
- * never throws: `alert_deliveries` (status + `next_retry_at`) is the single
- * source of truth for retries, and `noc:alert-reminders` re-queues a row whose
- * retry is due. Throwing here would make the queue worker's own retry and the
- * row's backoff fight each other, and a `429 retry_after` must not burn the
- * three tries.
- *
- * Uniqueness is per `(alert_id, channel, event)` for
- * `alerts.notification_unique_for` seconds so a duplicate dispatch cannot
- * double-send; a failed job releases the lock when it starts running.
+ * A failed attempt throws {@see RetryDelivery} so the queue worker's `$tries`
+ * and `backoff()` retry the job for real. `sent` and `skipped` never throw,
+ * and neither do the early returns. The row keeps `next_retry_at` even after
+ * the last try, so `noc:alert-reminders` can pick the delivery up later.
  */
-class SendAlertNotification implements ShouldBeUnique, ShouldQueue
+class SendAlertNotification implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -59,16 +57,6 @@ class SendAlertNotification implements ShouldBeUnique, ShouldQueue
         return $backoff === [] ? [30, 120, 300] : $backoff;
     }
 
-    public function uniqueId(): string
-    {
-        return sprintf('alert:%s:%s:%s', $this->alertId, $this->channel, $this->event);
-    }
-
-    public function uniqueFor(): int
-    {
-        return max(0, (int) config('alerts.notification_unique_for', 300));
-    }
-
     /**
      * Serialise attempts for the same delivery row only, so one channel's
      * failure never blocks the other channel of the same alert.
@@ -78,8 +66,13 @@ class SendAlertNotification implements ShouldBeUnique, ShouldQueue
     public function middleware(): array
     {
         return [
-            (new WithoutOverlapping($this->uniqueId()))->releaseAfter(30),
+            (new WithoutOverlapping(self::lockKey($this->alertId, $this->channel, $this->event)))->releaseAfter(30),
         ];
+    }
+
+    public static function lockKey(string $alertId, string $channel, string $event): string
+    {
+        return sprintf('alert:%s:%s:%s', $alertId, $channel, $event);
     }
 
     public function handle(AlertNotifier $notifier): void
@@ -92,11 +85,11 @@ class SendAlertNotification implements ShouldBeUnique, ShouldQueue
 
         // A recovery is only owed once the alert is resolved; an `opened`
         // delivery (initial or reminder) belongs to an alert still firing.
-        if ($this->event === 'resolved' && $alert->status->value !== 'resolved') {
+        if ($this->event === 'resolved' && $alert->status !== AlertStatus::Resolved) {
             return;
         }
 
-        if ($this->event === 'opened' && $alert->status->value !== 'open') {
+        if ($this->event === 'opened' && $alert->status !== AlertStatus::Open) {
             return;
         }
 
@@ -110,11 +103,24 @@ class SendAlertNotification implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        if ($delivery->status === 'sent' && ! $this->reminderDue($delivery)) {
+        if ($delivery->status === DeliveryResult::SENT && ! $this->reminderDue($delivery)) {
             return;
         }
 
-        $notifier->deliver($alert, $delivery);
+        $result = $notifier->deliver($alert, $delivery);
+
+        if ($result->status === DeliveryResult::FAILED) {
+            // `deliver()` already wrote `failed` + `next_retry_at`, so the
+            // reminder command can recover the row even after the last try.
+            //
+            // Only a real worker may retry. The sync queue (tests, local dev
+            // without a worker) rethrows at the dispatcher, which would break
+            // the ingest response or an admin's resolve — there the row is the
+            // retry source of truth and no exception escapes.
+            if ($this->job instanceof JobContract && ! $this->job instanceof SyncJob) {
+                throw RetryDelivery::forAttempt($this->channel, $this->event, $this->alertId, $result->error);
+            }
+        }
     }
 
     /**

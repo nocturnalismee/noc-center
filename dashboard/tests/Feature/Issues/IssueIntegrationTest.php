@@ -165,7 +165,16 @@ class IssueIntegrationTest extends TestCase
         // sample resolved it. The replay of the older sample must not reopen
         // it — `evaluate()` sees the current issue state, not the payload.
         $this->assertSame(1, Alert::query()->count());
-        $this->assertSame('resolved', Alert::query()->sole()->status->value);
+
+        $alert = Alert::query()->sole();
+        $this->assertSame('resolved', $alert->status->value);
+        $this->assertNotNull($alert->resolved_at);
+        $this->assertSame('Issue cleared', $alert->resolution_note);
+        // Recovery goes only to channels that had an `opened` row. This
+        // server did (email is enabled by default), so exactly one recovery
+        // row is queued — never a second one for the replayed sample.
+        $this->assertSame(1, DB::table('alert_deliveries')->where('alert_id', $alert->id)->where('event', 'opened')->count());
+        $this->assertSame(1, DB::table('alert_deliveries')->where('alert_id', $alert->id)->where('event', 'resolved')->count());
     }
 
     public function test_an_older_duplicate_response_describes_the_newest_stored_sample(): void

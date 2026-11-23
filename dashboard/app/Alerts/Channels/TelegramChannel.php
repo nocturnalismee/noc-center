@@ -95,11 +95,20 @@ class TelegramChannel implements AlertChannel
      */
     public function sendTest(): void
     {
-        if ($this->chatId() === null || $this->token() === null) {
+        // The "Send test" button must not bypass a disabled channel: a
+        // disabled channel never delivers an alert, so a successful test
+        // would be a lie.
+        if (! $this->enabled()) {
             throw new \InvalidArgumentException('The Telegram channel is not configured.');
         }
 
-        $result = $this->sendMessage($this->chatId(), 'NOC dashboard test message.');
+        $chatId = $this->chatId();
+
+        if ($chatId === null || $this->token() === null) {
+            throw new \InvalidArgumentException('The Telegram channel is not configured.');
+        }
+
+        $result = $this->sendMessage($chatId, 'NOC dashboard test message.');
 
         if (! $result->isSent()) {
             throw new \RuntimeException($result->error ?? 'Telegram test delivery failed.');
