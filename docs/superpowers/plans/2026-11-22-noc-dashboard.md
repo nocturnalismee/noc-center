@@ -607,21 +607,26 @@ git commit -m "feat(dashboard): add chart series repository and JSON endpoint"
 ### Task 14: UI foundation, design system, and security headers
 
 **Files:**
-- Create: `dashboard/resources/views/layouts/{app,guest}.blade.php`, `dashboard/resources/views/components/{status-pill,stat-card,empty-state,sparkline}.blade.php`, `dashboard/resources/css/app.css`, `dashboard/resources/js/app.js`, `dashboard/app/Http/Middleware/SecurityHeaders.php`, `dashboard/app/Support/Sparkline.php`, `dashboard/tests/Feature/Ui/LayoutTest.php`, `dashboard/tests/Feature/Security/HeadersTest.php`
-- Modify: `dashboard/composer.json`, `dashboard/bootstrap/app.php`, `dashboard/app/Providers/AppServiceProvider.php`, `dashboard/.gitignore`, `dashboard/vite.config.js`
+- Create: `dashboard/resources/views/layouts/{app,guest}.blade.php`, `dashboard/resources/views/components/{status,empty-state}.blade.php`, `dashboard/resources/css/app.css`, `dashboard/resources/js/app.js`, `dashboard/app/Http/Middleware/SecurityHeaders.php`, `dashboard/tests/Feature/Ui/LayoutTest.php`, `dashboard/tests/Feature/Security/HeadersTest.php`
+- Modify: `dashboard/composer.json`, `dashboard/package.json`, `dashboard/bootstrap/app.php`, `dashboard/app/Providers/AppServiceProvider.php`, `dashboard/.gitignore`, `dashboard/vite.config.js`, `dashboard/routes/web.php`, `dashboard/resources/views/dashboard-placeholder.blade.php`, `dashboard/resources/views/auth/{login,forgot-password,reset-password,confirm-password}.blade.php`
+
+**Design contract:** `docs/design/DESIGN.md` is authoritative. Do not add sparklines, stat cards, rings, gradient heroes, left accent bars, decorative avatars, or eyebrow labels. Status is a dot plus text, never a filled pill.
 
 **Interfaces:**
-- Produces: Blade layout using `blade-ui-kit/blade-heroicons` `^2.0` (MIT, inline SVG, no JS/CDN) via `<x-heroicon-o-*>` / `<x-heroicon-s-*>` components for every UI icon; only the three-bar logo and the sparkline remain hand-written SVG. Icons inherit `currentColor`, default 16–20px with `stroke-width` 1.5.
-- Produces: layout with 240px sidebar, topbar, dark mode default, theme toggle persisted in `localStorage`, skip link, `aria-current` nav.
-- Produces: `GET /` redirects to `/dashboard`; authenticated `GET /dashboard` still renders the Task 2 placeholder until Task 15 replaces it.
-- Produces: Tailwind tokens `ok/warning/critical/unknown/accent`, Inter self-hosted with system fallback, tabular numerals, 13px tables.
-- Produces: `Sparkline::svg(array $values, int $width = 96, int $height = 28): string` — inline SVG, no JS, gaps break the line.
-- Produces: `SecurityHeaders` middleware setting HSTS (production only), `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, `frame-ancestors 'none'`, and a nonce-based CSP: `script-src 'self' 'nonce-…' 'unsafe-eval'` (Alpine requirement, documented), `style-src 'self' 'unsafe-inline'`, `img-src 'self' data:`, `font-src 'self'`, `connect-src 'self'`, `base-uri 'self'`, `form-action 'self'`.
-- Produces: committed `public/build` artifacts; `.gitignore` no longer ignores `/public/build` but still ignores `/public/hot`.
+- Produces: `layouts/app.blade.php` — skip link, 240px sidebar / 64px icon rail, 64px topbar, `<main id="main">`, responsive mobile drawer, `aria-current` on nav, collapse and theme controls. Sidebar and theme state persist in `localStorage` and are applied before first paint by a single nonce-protected bootstrap script. Light theme is default; `.dark` plus `data-theme="dark"` selects the neutral-black palette.
+- Produces: `layouts/guest.blade.php` — 1440px document with brand top-left, “Need access?” top-right, theme toggle, centered 400px card, operational status footer, no sidebar; used by sign-in/password screens. Convert the existing login/forgot/reset/confirm views to it while preserving every Fortify route, field name, CSRF token, error summary, and autocomplete attribute. The sign-in card matches screen 07: 24px title, one-line subtitle, 44px fields, remember + forgot row, full-width primary button, account-policy note; no remote fonts or decorative illustration.
+- Produces: `components/status.blade.php` — props `state` (`online|warning|critical|stale|offline|never|unknown|acknowledged`) and optional `label`; renders a 6–7px dot plus text using DESIGN §3.2; never colour alone.
+- Produces: `components/empty-state.blade.php` — one sentence plus one action, no illustration.
+- Produces: `blade-ui-kit/blade-heroicons` `^2.0` via `<x-heroicon-o-*>` / `<x-heroicon-s-*>`; all icons inline SVG with `currentColor`, 14–20px, 1.2–1.6 stroke. Only the three-bar logo is hand-written.
+- Produces: Tailwind 4 tokens from DESIGN §3 as CSS variables + `@theme inline` utilities (`canvas`, `surface`, `surface-2`, `surface-3`, `selected`, `border`, `border-strong`, `divider`, `text`, `text-sub`, `text-muted`, `ink`, `focus`, `ok`, `warning`, `critical`, `unknown`, chart colours). No raw hex in components.
+- Produces: self-hosted InterVariable + one JetBrains Mono weight with `font-display: swap` via `@fontsource-variable/inter` and `@fontsource/jetbrains-mono/400.css`, bundled by Vite; remove the Bunny remote-font plugin. Tabular numerals on metrics/ages/prices.
+- Produces: `GET /` redirects to `/dashboard`; authenticated `GET /dashboard` renders the Task 2 placeholder inside the new layout until Task 15 replaces it.
+- Produces: `SecurityHeaders` middleware applied to web responses: HSTS (production + secure only), `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, `frame-ancestors 'none'`, and a per-request nonce CSP: `script-src 'self' 'nonce-…' 'unsafe-eval'` (Alpine), `style-src 'self' 'unsafe-inline'`, `img-src 'self' data:`, `font-src 'self'`, `connect-src 'self'`, `base-uri 'self'`, `form-action 'self'`.
+- Produces: committed `public/build` artifacts; `.gitignore` stops ignoring `/public/build` but still ignores `/public/hot`.
 
 - [ ] **Step 1: Write failing tests**
 
-`LayoutTest`: authenticated `GET /dashboard` (temporary placeholder) contains sidebar links, the skip link, a theme bootstrap script with a nonce, the status-pill text for `ok/warning/critical/unknown`, and no `http://`/`https://` asset URL other than `app.url`. `HeadersTest`: responses carry all headers; CSP includes the same nonce as the rendered script tag; HSTS absent when not secure.
+`LayoutTest`: `/` redirects to `/dashboard`; authenticated `/dashboard` contains the sidebar links, skip link, collapse/theme/mobile controls, `aria-current`, the nonce-bearing bootstrap script, status text for `online/warning/critical/unknown`, and no remote asset URLs. Guest screens: `/login` renders the sign-in card inside the guest layout (no sidebar, email/password/remember/forgot controls, theme toggle, policy note), and forgot/reset/confirm still render with their existing form actions. `HeadersTest`: every header present; CSP contains the same nonce as the rendered inline script; HSTS absent outside production or without HTTPS.
 
 - [ ] **Step 2: Implement the layout and build pipeline**
 
@@ -633,15 +638,17 @@ import { Livewire, Alpine } from '../../vendor/livewire/livewire/dist/livewire.e
 Livewire.start();
 ```
 
-Use `@livewireScriptConfig` in the layout. Add the theme bootstrap as the only inline script, with `nonce="{{ $cspNonce }}"`. Tailwind 4 dark variant:
+Use `@livewireScriptConfig(['nonce' => $cspNonce])` and `Vite::useCspNonce($cspNonce)` so both Vite and Livewire tags carry the request nonce. Tailwind 4:
 
 ```css
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
-@theme { --color-accent: #2563eb; --color-ok: #047857; /* … */ }
+@theme inline { --color-canvas: var(--canvas); /* … */ }
+:root { --canvas: #F3F5F7; /* light tokens */ }
+.dark { --canvas: #0A0A0A; /* neutral-black dark tokens */ }
 ```
 
-Vendor `InterVariable.woff2` under `resources/fonts/` and reference it from CSS with `font-display: swap`; if the font file cannot be obtained, fall back to `ui-sans-serif, system-ui, sans-serif` and record that in the README.
+Sidebar layout: CSS grid `240px 1fr`; collapsed state `64px 1fr`; below 768px the sidebar becomes an Alpine-driven slide-over with a 44px menu button. Do not animate layout during polling.
 
 - [ ] **Step 3: Verify the build and tests**
 
@@ -660,22 +667,22 @@ git commit -m "feat(dashboard): add design system, layout, dark mode, and CSP he
 ### Task 15: Fleet overview and server table
 
 **Files:**
-- Create: `dashboard/app/Livewire/Dashboard.php`, `dashboard/app/Livewire/Servers/ServerTable.php`, `dashboard/app/Services/FleetSummary.php`, Blade views under `dashboard/resources/views/livewire/`, `dashboard/tests/Feature/Ui/DashboardTest.php`, `dashboard/tests/Unit/SparklineTest.php`
+- Create: `dashboard/app/Livewire/Dashboard.php`, `dashboard/app/Livewire/Servers/ServerTable.php`, `dashboard/app/Services/FleetSummary.php`, Blade views under `dashboard/resources/views/livewire/`, `dashboard/tests/Feature/Ui/DashboardTest.php`
 - Modify: `dashboard/routes/web.php`
 
 **Interfaces:**
-- Produces: `Route::livewire('/dashboard', Dashboard::class)` full-page Livewire 4 component with four summary cards (Online x/y, Needs attention, Hot resources, Data gaps), recent alerts count, and the server table.
-- Produces: `FleetSummary::cards(): array{total:int,online:int,attention:int,hot:int,gaps:int}` via one aggregate query cached 20s.
-- Produces: `ServerTable` with `#[Url]` properties `status`, `panel`, `type`, `provider`, `location`, `q`, `sort`, `dir`, `problems`; 25 rows/page; `wire:poll.30s.visible`; one batched sparkline query per page.
-- Produces: `SparklineTest` for the pure SVG helper.
+- Produces: `Route::livewire('/dashboard', Dashboard::class)` full-page Livewire 4 component. Layout follows DESIGN §6.4–6.6 and `screens/01-dashboard-{dark,light}.png`: page header “Fleet”, one-line summary, six-metric summary strip (Online x/y, Attention, Hot resources, Missing data, Open alerts, Samples/min) separated by hairlines — **not cards**.
+- Produces: `FleetSummary::summary(): array{total:int,online:int,attention:int,hot:int,gaps:int,open_alerts:int,samples_per_minute:int}` via one aggregate query cached 20s.
+- Produces: `ServerTable` with `#[Url]` properties `status`, `group`, `q`, `sort`, `dir`; 25 rows/page; `wire:poll.30s.visible`; dense table with status dot + text, server name over hostname, type/label/IP, group, CPU, memory, disk, load, last sample. No sparkline columns. Below 768px rows become stacked cards.
+- Produces: filter tabs `All/Online/Attention/Stale/Offline/Never` with counts, a filter input, and an empty state with the add-server action. No filter-card wall.
 
 - [ ] **Step 1: Write failing tests**
 
-Assert: cards match seeded data; status filter uses `stale_after`/`offline_after` and never-seen (`last_seen_at=null`); problems filter excludes `ok`; search matches name/hostname/IP/label; panel/type/provider/location filters; default sort is health severity then hostname; 30 servers paginate 25; query count for a 25-row page stays ≤ 10 (no N+1); empty database shows the add-server CTA.
+Assert: summary matches seeded data; status filter uses `stale_after`/`offline_after` and never-seen (`last_seen_at=null`); search matches name/hostname/IP/label; group filter; default sort is health severity then hostname; 30 servers paginate 25; query count for a 25-row page stays ≤ 10 (no N+1); missing values render `—`; empty database shows the add-server CTA; the view contains no `<x-sparkline` or stat-card markup.
 
 - [ ] **Step 2: Implement, run, and commit**
 
-Run: `dashboard/tools/php.sh php artisan test --filter='DashboardTest|SparklineTest'`
+Run: `dashboard/tools/php.sh php artisan test --filter=DashboardTest`
 Expected: PASS.
 
 ```bash
@@ -685,19 +692,19 @@ git commit -m "feat(dashboard): add fleet overview, filters, and server table"
 
 ---
 
-### Task 16: Server detail, KPIs, and charts
+### Task 16: Server detail, metric strip, and charts
 
 **Files:**
 - Create: `dashboard/app/Livewire/Servers/Show.php`, `dashboard/resources/views/livewire/servers/show.blade.php`, `dashboard/resources/js/charts.js`, `dashboard/tests/Feature/Ui/ServerDetailTest.php`
 - Modify: `dashboard/routes/web.php`, `dashboard/resources/js/app.js`
 
 **Interfaces:**
-- Produces: `Route::livewire('/servers/{server}', Show::class)` with sticky header, status pill, last-seen, agent version, panel, actions, KPI tiles, tabs `overview|performance|panel|modules|alerts|history` via `?tab=`, and range `?range=1h|6h|24h|7d|30d|90d|1y`.
+- Produces: `Route::livewire('/servers/{server}', Show::class)` with header (status dot + text, last-seen, agent version, panel, actions), a six-metric hairline strip (CPU, memory, disk, load, network, uptime) — **not KPI tiles** — tabs `overview|performance|panel|modules|alerts|history` via `?tab=`, and range `?range=1h|6h|24h|7d|30d|90d|1y`.
 - Produces: `charts.js` exporting `mountSeriesChart(el, url)`; Chart.js 4.6 and `chartjs-adapter-date-fns` are loaded with `await import(...)` only on this page; four-series maximum, units in ticks, gap breaking at 2.5× interval.
 
 - [ ] **Step 1: Write failing tests**
 
-Assert: never-seen server shows "Never seen" and "Waiting for first check-in"; offline server shows "Data ends … ago" and no misleading flat line marker; KPI values come from the latest sample; each tab renders its section; invalid tab falls back to overview; chart container carries the series URL and a `<noscript>` text summary; viewer can view.
+Assert: never-seen server shows "Never seen" and "Waiting for first check-in"; offline server shows "Data ends … ago" and no misleading flat line marker; six-metric hairline strip values come from the latest sample; each tab renders its section; invalid tab falls back to overview; chart container carries the series URL and a `<noscript>` text summary; viewer can view.
 
 - [ ] **Step 2: Implement, run, and commit**
 
@@ -706,7 +713,7 @@ Expected: PASS.
 
 ```bash
 git add dashboard
-git commit -m "feat(dashboard): add server detail page with KPI tiles and charts"
+git commit -m "feat(dashboard): add server detail page with metric strip and charts"
 ```
 
 ---
