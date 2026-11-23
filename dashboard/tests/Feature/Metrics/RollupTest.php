@@ -28,9 +28,18 @@ class RollupTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * `rollup()` windows recorded by `recordRollupCalls()`.
+     *
+     * @var list<array{string, int, CarbonImmutable, CarbonImmutable}>
+     */
+    private array $rollupCalls = [];
+
     protected function setUp(): void
     {
         parent::setUp();
+
+        $this->rollupCalls = [];
 
         Carbon::setTestNow('2026-11-23 12:00:00');
     }
@@ -350,6 +359,140 @@ class RollupTest extends TestCase
     }
 
     // ------------------------------------------------------------------
+    // Per-resolution default windows
+    // ------------------------------------------------------------------
+
+    public function test_the_default_run_gives_each_level_its_own_window(): void
+    {
+        $server = $this->server();
+        $this->sample($server, '2026-11-23 11:00:00', ['cpu_usage_pct' => 10]);
+        $this->sample($server, '2026-11-23 11:10:00', ['cpu_usage_pct' => 20]);
+        $this->sample($server, '2026-11-23 10:00:00', ['cpu_usage_pct' => 30]);
+
+        $this->recordRollupCalls();
+
+        $this->artisan('noc:rollup')->assertSuccessful();
+
+        // now == 12:00 → 5m: last 12 (11:00–12:00), 1h: last 3 (09:00–12:00),
+        // 1d: last 2 (11-21 00:00–11-23 00:00). No level is widened to 2 days.
+        $this->assertSame([
+            [300, '2026-11-23 11:00:00', '2026-11-23 12:00:00'],
+            [3600, '2026-11-23 09:00:00', '2026-11-23 12:00:00'],
+            // The 1d window starts 2 day-buckets back and ends now; the
+            // service itself drops the incomplete day.
+            [86400, '2026-11-21 00:00:00', '2026-11-23 12:00:00'],
+        ], $this->windowsFor($server));
+
+        // Today's 11:00 bucket comes from the 5m window; the 10:00 sample is
+        // inside the 1h window but outside the 5m one, so it never reaches 5m.
+        $this->assertSame([
+            '2026-11-23 11:00:00',
+            '2026-11-23 11:10:00',
+        ], $this->rollups($server, 300)->map(fn (MetricRollup $r): string => $r->bucket_start->utc()->format('Y-m-d H:i:s'))->all());
+        $this->assertSame('2026-11-23 11:00:00', $this->rollups($server, 3600)->sole()->bucket_start->utc()->format('Y-m-d H:i:s'));
+    }
+
+    public function test_the_default_run_does_not_recompute_five_minute_over_the_daily_window(): void
+    {
+        $server = $this->server();
+
+        // Three days of 5-minute samples would produce 576 5m buckets if 5m
+        // were given the 2-day window; the per-level window keeps it at 12.
+        for ($minute = 0; $minute < 72 * 12; $minute++) {
+            $this->sample(
+                $server,
+                CarbonImmutable::parse('2026-11-20 12:00:00', 'UTC')->addMinutes($minute * 5)->format('Y-m-d H:i:s'),
+                ['cpu_usage_pct' => 10],
+            );
+        }
+
+        $this->artisan('noc:rollup')->assertSuccessful();
+
+        // The samples reach only 11:00–12:00, so the 5m window yields its 12
+        // buckets and the 1h window its single completed hour. Widening 5m to
+        // the 1d window would have written 576 buckets here instead.
+        $this->assertSame(12, MetricRollup::query()->where('resolution_seconds', 300)->count());
+        $this->assertSame(1, MetricRollup::query()->where('resolution_seconds', 3600)->count());
+    }
+
+    public function test_an_hourly_only_run_cascades_five_minutes_over_the_hourly_window(): void
+    {
+        $server = $this->server();
+
+        // 11:55 is inside the 5m prerequisite window (09:00–12:00).
+        $this->sample($server, '2026-11-23 11:55:00', ['cpu_usage_pct' => 60]);
+
+        $this->recordRollupCalls();
+
+        $this->artisan('noc:rollup', ['--resolution' => '3600'])->assertSuccessful();
+
+        $this->assertSame([
+            [300, '2026-11-23 09:00:00', '2026-11-23 12:00:00'],
+            [3600, '2026-11-23 09:00:00', '2026-11-23 12:00:00'],
+        ], $this->windowsFor($server));
+
+        $hour = $this->rollups($server, 3600)->sole();
+        $this->assertSame(1, $hour->samples);
+        $this->assertEqualsWithDelta(60.0, $hour->cpu_usage_sum, 0.001);
+    }
+
+    public function test_a_daily_only_run_cascades_hourly_and_five_minutes_over_the_daily_window(): void
+    {
+        $server = $this->server();
+
+        $this->sample($server, '2026-11-22 10:00:00', ['cpu_usage_pct' => 20]);
+
+        $this->recordRollupCalls();
+
+        $this->artisan('noc:rollup', ['--resolution' => '86400'])->assertSuccessful();
+
+        $this->assertSame([
+            [300, '2026-11-21 00:00:00', '2026-11-23 12:00:00'],
+            [3600, '2026-11-21 00:00:00', '2026-11-23 12:00:00'],
+            [86400, '2026-11-21 00:00:00', '2026-11-23 12:00:00'],
+        ], $this->windowsFor($server));
+
+        $this->assertSame(1, $this->rollups($server, 300)->count());
+        $this->assertSame(1, $this->rollups($server, 3600)->count());
+        $this->assertSame(1, $this->rollups($server, 86400)->count());
+    }
+
+    public function test_an_explicit_range_and_backfill_apply_to_every_level_in_the_chain(): void
+    {
+        $server = $this->server();
+        $this->sample($server, '2026-11-22 10:00:00', ['cpu_usage_pct' => 20]);
+
+        $this->recordRollupCalls();
+
+        $this->artisan('noc:rollup', [
+            '--resolution' => '86400',
+            '--from' => '2026-11-22T00:00:00Z',
+            '--to' => '2026-11-23T00:00:00Z',
+        ])->assertSuccessful();
+
+        $this->assertSame([
+            [300, '2026-11-22 00:00:00', '2026-11-23 00:00:00'],
+            [3600, '2026-11-22 00:00:00', '2026-11-23 00:00:00'],
+            [86400, '2026-11-22 00:00:00', '2026-11-23 00:00:00'],
+        ], $this->windowsFor($server));
+    }
+
+    public function test_backfill_days_applies_to_every_level_in_the_chain(): void
+    {
+        $server = $this->server();
+
+        $this->recordRollupCalls();
+
+        $this->artisan('noc:rollup', ['--resolution' => '86400', '--backfill-days' => '3'])->assertSuccessful();
+
+        $this->assertSame([
+            [300, '2026-11-20 12:00:00', '2026-11-23 12:00:00'],
+            [3600, '2026-11-20 12:00:00', '2026-11-23 12:00:00'],
+            [86400, '2026-11-20 12:00:00', '2026-11-23 12:00:00'],
+        ], $this->windowsFor($server));
+    }
+
+    // ------------------------------------------------------------------
     // Command
     // ------------------------------------------------------------------
 
@@ -382,16 +525,18 @@ class RollupTest extends TestCase
         );
 
         $this->artisan('noc:rollup')
-            // The command's window is its widest level's (1d: 11-21 00:00 →
-            // 11-23 00:00), applied to every level in the chain.
-            ->expectsOutputToContain('300s: 2 bucket(s)')
-            ->expectsOutputToContain('3600s: 2 bucket(s)')
+            // Default run: 5m keeps its own 12-bucket window (11:00–12:00),
+            // 1h its 3-hour window (09:00–12:00), 1d its 2-day window.
+            ->expectsOutputToContain('300s: 1 bucket(s)')
+            ->expectsOutputToContain('3600s: 1 bucket(s)')
             ->expectsOutputToContain('86400s: 1 bucket(s)')
             ->assertSuccessful();
 
-        // Seeded: 11-22 5m, 11-22 1h, 11-22 1d. The run re-upserts those and
-        // adds today's 11:00 5m and 1h. The 11-21 day bucket is not built: its
-        // only hourly bucket (the hand-seeded 10:00) sat in 11-22.
+        // The seeded 11-22 5m bucket is outside the 5m window, so only today's
+        // 11:00 bucket is (re)written at 5m. The 1h pass adds 11-23 11:00 from
+        // the fresh 5m bucket (the seeded 11-22 10:00 hour is outside the 1h
+        // window). The 1d pass keeps the seeded 11-22 bucket and can add no
+        // other day, because no hourly bucket exists for 11-21.
         $this->assertSame(2, MetricRollup::query()->where('resolution_seconds', 300)->count());
         $this->assertSame(2, MetricRollup::query()->where('resolution_seconds', 3600)->count());
         $this->assertSame(1, MetricRollup::query()->where('resolution_seconds', 86400)->count());
@@ -915,6 +1060,52 @@ class RollupTest extends TestCase
     private static function isRollupEvent(Event $event): bool
     {
         return preg_match('/[\'"]?noc:rollup[\'"]?(?![[:alnum:]_:.-])/', (string) $event->command) === 1;
+    }
+
+    /**
+     * Record every `rollup()` call the command makes, still delegating to the
+     * real implementation (a partial Mockery mock of the shared service).
+     *
+     * Re-instancing the container resets Carbon's test clock, so the frozen
+     * "now" is captured first and re-applied: the recorded windows are the
+     * ones the assertions reason about.
+     */
+    private function recordRollupCalls(): void
+    {
+        $real = $this->app->make(RollupService::class);
+        $now = Carbon::now();
+
+        $this->instance(RollupService::class, \Mockery::mock(
+            $real,
+            function ($mock) use ($real): void {
+                $mock->shouldReceive('rollup')
+                    ->andReturnUsing(function (Server $server, int $resolution, CarbonImmutable $from, CarbonImmutable $to) use ($real): int {
+                        $this->rollupCalls[] = [$server->getKey(), $resolution, $from->utc(), $to->utc()];
+
+                        return $real->rollup($server, $resolution, $from, $to);
+                    });
+            },
+        )->makePartial());
+
+        Carbon::setTestNow($now);
+    }
+
+    /**
+     * The recorded `rollup()` windows for one server, in call order.
+     *
+     * @return list<array{int, string, string}>
+     */
+    private function windowsFor(Server $server): array
+    {
+        $windows = [];
+
+        foreach ($this->rollupCalls as [$serverId, $resolution, $from, $to]) {
+            if ($serverId === $server->getKey()) {
+                $windows[] = [$resolution, $from->format('Y-m-d H:i:s'), $to->format('Y-m-d H:i:s')];
+            }
+        }
+
+        return $windows;
     }
 
     private function service(): RollupService

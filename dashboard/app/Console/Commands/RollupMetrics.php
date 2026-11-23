@@ -100,13 +100,10 @@ class RollupMetrics extends Command
         $total = array_fill_keys($resolutions, 0);
 
         $this->pageServers($server, function (Server $server) use ($rollups, $chain, $resolutions, $now, $backfillDays, $explicit, $explicitFrom, $explicitTo, &$total): void {
-            // The widest selected level sets the window for its prerequisites.
-            $widest = max($chain);
-
-            foreach ($chain as $resolution) {
+            foreach ($chain as [$resolution, $window]) {
                 [$from, $to] = $explicit
                     ? [$explicitFrom, $explicitTo]
-                    : $this->defaultRange($now, $widest, (int) $backfillDays);
+                    : $this->defaultRange($now, $window, (int) $backfillDays);
 
                 $written = $rollups->rollup($server, $resolution, $from, $to);
 
@@ -149,24 +146,45 @@ class RollupMetrics extends Command
     }
 
     /**
-     * Expand the selected resolutions with their prerequisites, in order.
+     * Expand the selected resolutions with their prerequisites, in order, each
+     * paired with the window it uses by default.
      *
-     * `300` stays 5m-only; `3600` becomes `300, 3600`; `86400` becomes
-     * `300, 3600, 86400`.
+     * A requested level always keeps its own window (300 → 12 buckets,
+     * 3600 → 3, 86400 → 2), so the scheduled run stays at ~12 5m buckets.
+     * A prerequisite that was *not* requested inherits the window of the
+     * coarser requested level that needs it: `3600` runs 5m over the 1h
+     * window, `86400` runs 5m and 1h over the 1d window. `300` stays 5m-only.
      *
      * @param  list<int>  $resolutions
-     * @return list<int>
+     * @return list<array{0: int, 1: int}> [resolution, window resolution]
      */
     private function withPrerequisites(array $resolutions): array
     {
-        $chain = [RollupService::FIVE_MINUTES];
+        $selected = array_fill_keys($resolutions, true);
+        $needsHour = isset($selected[RollupService::HOUR]) || isset($selected[RollupService::DAY]);
+        $needsDay = isset($selected[RollupService::DAY]);
 
-        if (in_array(RollupService::HOUR, $resolutions, true) || in_array(RollupService::DAY, $resolutions, true)) {
-            $chain[] = RollupService::HOUR;
+        // A requested level keeps its own default window. Only an unrequested
+        // prerequisite is widened, to the coarser requested level it feeds.
+        if (isset($selected[RollupService::FIVE_MINUTES])) {
+            $fiveMinuteWindow = RollupService::FIVE_MINUTES;
+        } elseif ($needsDay) {
+            $fiveMinuteWindow = RollupService::DAY;
+        } else {
+            $fiveMinuteWindow = RollupService::HOUR; // `3600` only.
         }
 
-        if (in_array(RollupService::DAY, $resolutions, true)) {
-            $chain[] = RollupService::DAY;
+        $chain = [[RollupService::FIVE_MINUTES, $fiveMinuteWindow]];
+
+        if ($needsHour) {
+            $chain[] = [
+                RollupService::HOUR,
+                isset($selected[RollupService::HOUR]) ? RollupService::HOUR : RollupService::DAY,
+            ];
+        }
+
+        if ($needsDay) {
+            $chain[] = [RollupService::DAY, RollupService::DAY];
         }
 
         return $chain;
