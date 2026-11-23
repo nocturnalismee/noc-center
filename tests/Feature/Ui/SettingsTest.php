@@ -201,7 +201,7 @@ class SettingsTest extends TestCase
         $this->assertSame('new.address@example.com', $user->fresh()->email);
     }
 
-    public function test_a_failed_password_change_clears_the_current_password_from_the_snapshot(): void
+    public function test_a_failed_password_change_clears_all_password_fields_from_the_snapshot(): void
     {
         $user = User::factory()->create();
 
@@ -213,9 +213,15 @@ class SettingsTest extends TestCase
             ->set('newPasswordConfirmation', 'short')
             ->call('savePassword')
             ->assertHasErrors('newPassword')
-            ->assertSet('currentPassword', '');
+            ->assertSet('currentPassword', '')
+            ->assertSet('newPassword', '')
+            ->assertSet('newPasswordConfirmation', '');
 
-        $this->assertStringNotContainsString('"currentPassword":"password"', json_encode($component->getData()));
+        $snapshot = json_encode($component->getData());
+
+        $this->assertStringNotContainsString('"currentPassword":"password"', $snapshot);
+        $this->assertStringNotContainsString('"newPassword":"short"', $snapshot);
+        $this->assertStringNotContainsString('"newPasswordConfirmation":"short"', $snapshot);
         $this->assertStringNotContainsString('"currentPassword":"password"', $component->html());
     }
 

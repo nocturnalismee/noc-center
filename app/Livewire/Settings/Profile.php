@@ -130,6 +130,8 @@ class Profile extends Component
             ]);
         } catch (ValidationException $exception) {
             $this->currentPassword = '';
+            $this->newPassword = '';
+            $this->newPasswordConfirmation = '';
 
             throw $exception;
         }

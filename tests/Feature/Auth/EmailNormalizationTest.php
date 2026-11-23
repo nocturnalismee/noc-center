@@ -5,7 +5,11 @@ namespace Tests\Feature\Auth;
 use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\UpdateUserProfileInformation;
 use App\Models\User;
+use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Password;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
@@ -69,5 +73,33 @@ class EmailNormalizationTest extends TestCase
             'name' => 'Owner',
             'email' => 'TAKEN@EXAMPLE.COM',
         ]);
+    }
+
+    public function test_password_reset_request_normalizes_the_email(): void
+    {
+        Notification::fake();
+
+        $user = User::factory()->create(['email' => 'mixed@example.test']);
+
+        $this->post('/forgot-password', [
+            'email' => '  MiXeD@Example.TEST  ',
+        ])->assertSessionHasNoErrors();
+
+        Notification::assertSentTo($user, ResetPassword::class);
+    }
+
+    public function test_password_reset_submission_normalizes_the_email(): void
+    {
+        $user = User::factory()->create(['email' => 'mixed@example.test']);
+        $token = Password::broker()->createToken($user);
+
+        $this->post('/reset-password', [
+            'token' => $token,
+            'email' => '  MiXeD@Example.TEST  ',
+            'password' => 'brand-new-password-1',
+            'password_confirmation' => 'brand-new-password-1',
+        ])->assertSessionHasNoErrors();
+
+        $this->assertTrue(Hash::check('brand-new-password-1', $user->fresh()->password));
     }
 }

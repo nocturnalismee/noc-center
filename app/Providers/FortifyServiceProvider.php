@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Actions\Fortify\ResetUserPassword;
 use App\Actions\Fortify\UpdateUserPassword;
+use App\Http\Middleware\NormalizeEmailInput;
 use App\Models\User;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -77,7 +78,10 @@ class FortifyServiceProvider extends ServiceProvider
             $routes->refreshNameLookups();
 
             foreach (['password.email', 'password.update'] as $name) {
-                $routes->getByName($name)?->middleware('throttle:passwords');
+                $routes->getByName($name)?->middleware([
+                    'throttle:passwords',
+                    NormalizeEmailInput::class,
+                ]);
             }
         });
     }
