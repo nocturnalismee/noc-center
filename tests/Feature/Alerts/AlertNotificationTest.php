@@ -344,15 +344,30 @@ class AlertNotificationTest extends TestCase
         $alert = $this->openAlert('memory_high', 'critical');
         $this->runJob($alert, 'email', 'opened');
 
-        // The reminder command queued this job just before the ack landed.
-        Carbon::setTestNow('2026-11-23 16:01:00');
-        $this->engine()->acknowledge($alert, $operator);
+        // A real reminder requeue writes `pending` but keeps the previous
+        // successful `sent_at`. Ack before the queued job is handled.
+        Carbon::setTestNow('2026-11-23 17:00:00');
+        Queue::fake();
+        $this->artisan('noc:alert-reminders')->assertSuccessful();
 
+        $queued = $this->delivery($alert, 'email')->fresh();
+        $this->assertSame('pending', $queued->status);
+        $this->assertSame(1, $queued->attempts);
+        $this->assertNotNull($queued->sent_at);
+        Queue::assertPushed(
+            SendAlertNotification::class,
+            fn (SendAlertNotification $job): bool => $job->alertId === $alert->id
+                && $job->channel === 'email'
+                && $job->event === 'opened',
+        );
+
+        $this->engine()->acknowledge($alert, $operator);
         $this->runJob($alert, 'email', 'opened');
 
         $delivery = $this->delivery($alert, 'email')->fresh();
 
         $this->assertSame('sent', $delivery->status);
+        $this->assertNull($delivery->next_retry_at);
         $this->assertSame(1, $delivery->attempts);
         $this->assertSame(1, $alert->fresh()->notification_count);
         Notification::assertSentToTimes($admin, AlertOpened::class, 1);

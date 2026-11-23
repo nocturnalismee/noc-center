@@ -103,8 +103,9 @@ This file is the deployment and operations runbook. Design rationale lives in
 
 **Local development**
 
-This repository's development host intentionally has no PHP or Composer. Use
-the Podman wrappers; never call host `php`, `composer`, or `artisan`.
+`./tools/php.sh` prefers a host PHP 8.3+ toolchain and a host Composer. When
+either is missing (or PHP is older than 8.3) it falls back to the pinned PHP
+8.4 Podman image, so CI and machines without PHP keep working.
 
 ```bash
 ./tools/php.sh composer install
@@ -114,9 +115,10 @@ the Podman wrappers; never call host `php`, `composer`, or `artisan`.
 ./tools/test.sh --with-assets   # Pint + suite + npm run build
 ```
 
-`./tools/php.sh` runs any command inside the PHP 8.4 image with the repository
-mounted at `/app`. Server commands below use plain `php`; on this development
-host, prefix them with `./tools/php.sh php`.
+The wrapper maps `php …` and `composer …` to the host tools when present;
+otherwise it runs the command inside the PHP 8.4 image with the repository
+mounted at `/app`. Server commands below use plain `php`; in this repository
+prefix them with `./tools/php.sh php` unless you deliberately use host PHP.
 
 ## Local development
 

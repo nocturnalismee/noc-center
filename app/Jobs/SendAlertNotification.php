@@ -110,13 +110,20 @@ class SendAlertNotification implements ShouldQueue
         }
 
         // A reminder queued just before an acknowledgement must not slip out
-        // afterwards. The original page (still pending) is still delivered by
-        // the rule above; only an already-sent opened row is a reminder.
+        // afterwards. Requeued reminders are marked `pending`, but keep the
+        // `sent_at` of their previous successful page, while an initial page
+        // has never been sent. Restore the row to `sent` so the UI does not
+        // leave a stale pending delivery after the acknowledgement.
         if (
             $this->event === 'opened'
             && $alert->status === AlertStatus::Acknowledged
-            && $delivery->status === DeliveryResult::SENT
+            && $delivery->sent_at !== null
         ) {
+            $delivery->forceFill([
+                'status' => DeliveryResult::SENT,
+                'next_retry_at' => null,
+            ])->save();
+
             return;
         }
 

@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Prefer the host toolchain; fall back to the pinned Podman image for hosts
-# without PHP (or CI machines that only have Podman).
-if command -v php >/dev/null 2>&1; then
+# Prefer a host toolchain that satisfies the project's PHP floor; otherwise
+# fall back to the pinned Podman image (used by CI and older workstations).
+native_php() {
+  command -v php >/dev/null 2>&1 \
+    && php -r 'exit(PHP_VERSION_ID >= 80300 ? 0 : 1);' >/dev/null 2>&1
+}
+
+if native_php; then
   case "${1:-}" in
     php)
       shift
       exec php "$@"
       ;;
     composer)
-      shift
-      exec composer "$@"
+      if command -v composer >/dev/null 2>&1; then
+        shift
+        exec composer "$@"
+      fi
       ;;
     *)
       exec "$@"
