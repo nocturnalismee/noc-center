@@ -140,6 +140,10 @@ class CreateServerTest extends TestCase
             ->set('hostname', 'web-03.nusantara.id')
             ->set('server_type', 'Web')
             ->set('interval_seconds', '120')
+            ->set('provider', 'Nusantara Cloud')
+            ->set('location', 'Jakarta')
+            ->set('ip_address', '203.0.113.10')
+            ->set('label', 'asset-042')
             ->set('notes', 'Primary Laravel application server')
             ->call('goToReview')
             ->assertSet('step', 2)
@@ -147,11 +151,40 @@ class CreateServerTest extends TestCase
             ->assertSee('web-03')
             ->assertSee('web-03.nusantara.id')
             ->assertSee('Web')
+            ->assertSee('Nusantara Cloud')
+            ->assertSee('Jakarta')
+            ->assertSee('203.0.113.10')
+            ->assertSee('asset-042')
             ->assertSee('Primary Laravel application server')
             ->call('back')
             ->assertSet('step', 1)
             ->assertSet('name', 'web-03')
-            ->assertSet('interval_seconds', '120');
+            ->assertSet('interval_seconds', '120')
+            ->assertSet('provider', 'Nusantara Cloud')
+            ->assertSet('location', 'Jakarta')
+            ->assertSet('ip_address', '203.0.113.10')
+            ->assertSet('label', 'asset-042');
+    }
+
+    public function test_step_one_validates_optional_asset_metadata(): void
+    {
+        $this->actingAs(User::factory()->create(['role' => 'operator']));
+
+        Livewire::test(Create::class)
+            ->set('name', 'web-03')
+            ->set('hostname', 'web-03.nusantara.id')
+            ->set('provider', str_repeat('a', 101))
+            ->set('location', str_repeat('a', 101))
+            ->set('ip_address', 'not-an-ip')
+            ->set('label', str_repeat('a', 101))
+            ->call('goToReview')
+            ->assertHasErrors([
+                'provider' => 'max',
+                'location' => 'max',
+                'ip_address' => 'ip',
+                'label' => 'max',
+            ])
+            ->assertSet('step', 1);
     }
 
     public function test_an_invalid_review_submit_returns_to_step_one_with_errors(): void
@@ -236,6 +269,10 @@ class CreateServerTest extends TestCase
             ->set('hostname', 'web-03.nusantara.id')
             ->set('server_type', 'Web')
             ->set('interval_seconds', '120')
+            ->set('provider', 'Nusantara Cloud')
+            ->set('location', 'Jakarta')
+            ->set('ip_address', '203.0.113.10')
+            ->set('label', 'asset-042')
             ->set('notes', 'Primary Laravel application server')
             ->call('goToReview')
             ->call('create')
@@ -248,6 +285,10 @@ class CreateServerTest extends TestCase
         $this->assertSame('web-03.nusantara.id', $server->hostname);
         $this->assertSame('Web', $server->server_type);
         $this->assertSame(120, $server->interval_seconds);
+        $this->assertSame('Nusantara Cloud', $server->provider);
+        $this->assertSame('Jakarta', $server->location);
+        $this->assertSame('203.0.113.10', $server->ip_address);
+        $this->assertSame('asset-042', $server->label);
         $this->assertSame('Primary Laravel application server', $server->notes);
         $this->assertTrue($server->alerts_enabled);
 

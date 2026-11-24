@@ -168,7 +168,7 @@
                 </section>
 
                 <section aria-labelledby="agent-heading">
-                    <h2 id="agent-heading" class="text-[15px] font-semibold text-text">Agent &amp; panel</h2>
+                    <h2 id="agent-heading" class="text-[15px] font-semibold text-text">Server facts</h2>
                     <dl class="mt-3 border-t border-divider">
                         @foreach ($itsm as $label => $value)
                             <div class="flex items-baseline justify-between gap-4 border-b border-divider py-2">

@@ -74,6 +74,30 @@ class ServerDetailTest extends TestCase
             ->assertSee('Stored snapshot');
     }
 
+    public function test_server_facts_show_asset_metadata(): void
+    {
+        $viewer = User::factory()->create();
+        $server = $this->server([
+            'provider' => 'Nusantara Cloud',
+            'location' => 'Jakarta',
+            'ip_address' => '203.0.113.10',
+            'label' => 'asset-042',
+        ]);
+
+        $this->actingAs($viewer)
+            ->get(route('servers.show', $server))
+            ->assertOk()
+            ->assertSee('Server facts')
+            ->assertSee('Primary IP')
+            ->assertSee('203.0.113.10')
+            ->assertSee('Asset label')
+            ->assertSee('asset-042')
+            ->assertSee('Provider')
+            ->assertSee('Nusantara Cloud')
+            ->assertSee('Location')
+            ->assertSee('Jakarta');
+    }
+
     public function test_soft_deleted_servers_return_not_found(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);

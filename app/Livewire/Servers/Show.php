@@ -231,7 +231,11 @@ class Show extends Component
     {
         return [
             'Hostname' => $this->server->hostname,
+            'Primary IP' => $this->server->ip_address ?: '—',
+            'Asset label' => $this->server->label ?: '—',
             'Type' => $this->server->server_type ?: '—',
+            'Provider' => $this->server->provider ?: '—',
+            'Location' => $this->server->location ?: '—',
             'Panel' => $this->server->panel ?: '—',
             'Agent' => $this->server->agent_version ? 'v'.$this->server->agent_version : '—',
             'Interval' => $this->server->interval_seconds.'s',

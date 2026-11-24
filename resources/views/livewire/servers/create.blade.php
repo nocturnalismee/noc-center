@@ -161,6 +161,94 @@
                         </div>
                     </section>
 
+                    <section class="border-t border-border pt-5" aria-labelledby="asset-heading">
+                        <h2 id="asset-heading" class="text-[15px] font-semibold text-text">Asset metadata</h2>
+                        <p class="mt-1 text-[12px] text-text-sub">Optional inventory details. They appear on the server page.</p>
+
+                        <div class="mt-5 grid gap-5 sm:grid-cols-2">
+                            <div>
+                                <label for="ip_address" class="field-label">Primary IP</label>
+                                <input
+                                    id="ip_address"
+                                    type="text"
+                                    wire:model="ip_address"
+                                    class="field"
+                                    autocomplete="off"
+                                    spellcheck="false"
+                                    aria-describedby="ip-address-help ip-address-error"
+                                    @error('ip_address') aria-invalid="true" @enderror
+                                >
+                                <p id="ip-address-help" class="mt-1.5 text-[11px] text-text-muted">IPv4 or IPv6. Identification only, not reported by the agent.</p>
+                                @error('ip_address')
+                                    <p id="ip-address-error" class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
+                                @enderror
+                            </div>
+
+                            <div>
+                                <label for="label" class="field-label">Asset label</label>
+                                <input
+                                    id="label"
+                                    type="text"
+                                    wire:model="label"
+                                    class="field"
+                                    autocomplete="off"
+                                    aria-describedby="label-help label-error"
+                                    @error('label') aria-invalid="true" @enderror
+                                >
+                                <p id="label-help" class="mt-1.5 text-[11px] text-text-muted">Short inventory tag, for example a rack or asset ID.</p>
+                                @error('label')
+                                    <p id="label-error" class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
+                                @enderror
+                            </div>
+
+                            <div>
+                                <label for="provider" class="field-label">Provider</label>
+                                <input
+                                    id="provider"
+                                    type="text"
+                                    wire:model="provider"
+                                    class="field"
+                                    list="create-provider-options"
+                                    autocomplete="off"
+                                    aria-describedby="provider-help provider-error"
+                                    @error('provider') aria-invalid="true" @enderror
+                                >
+                                <datalist id="create-provider-options">
+                                    @foreach ($providers as $provider)
+                                        <option value="{{ $provider }}"></option>
+                                    @endforeach
+                                </datalist>
+                                <p id="provider-help" class="mt-1.5 text-[11px] text-text-muted">Hosting provider or platform owner.</p>
+                                @error('provider')
+                                    <p id="provider-error" class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
+                                @enderror
+                            </div>
+
+                            <div>
+                                <label for="location" class="field-label">Location</label>
+                                <input
+                                    id="location"
+                                    type="text"
+                                    wire:model="location"
+                                    class="field"
+                                    list="create-location-options"
+                                    autocomplete="off"
+                                    aria-describedby="location-help location-error"
+                                    @error('location') aria-invalid="true" @enderror
+                                >
+                                <datalist id="create-location-options">
+                                    @foreach ($locations as $location)
+                                        <option value="{{ $location }}"></option>
+                                    @endforeach
+                                </datalist>
+                                <p id="location-help" class="mt-1.5 text-[11px] text-text-muted">Datacenter, region, or city.</p>
+                                @error('location')
+                                    <p id="location-error" class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
+                                @enderror
+                            </div>
+                        </div>
+                    </section>
+
                     <section class="border-t border-border pt-5" aria-labelledby="collection-heading">
                         <h2 id="collection-heading" class="text-[15px] font-semibold text-text">Collection</h2>
                         <p class="mt-1 text-[12px] text-text-sub">The agent sends one sample per interval. Thresholds follow the interval.</p>
@@ -206,7 +294,11 @@
                             @foreach ([
                                 ['label' => 'Server name', 'value' => $name],
                                 ['label' => 'Hostname', 'value' => $hostname],
+                                ['label' => 'Primary IP', 'value' => $ip_address !== '' ? $ip_address : '—'],
+                                ['label' => 'Asset label', 'value' => $label !== '' ? $label : '—'],
                                 ['label' => 'Group', 'value' => $server_type !== '' ? $server_type : '—'],
+                                ['label' => 'Provider', 'value' => $provider !== '' ? $provider : '—'],
+                                ['label' => 'Location', 'value' => $location !== '' ? $location : '—'],
                                 ['label' => 'Collection interval', 'value' => $interval_seconds.' seconds'],
                                 ['label' => 'Alerts', 'value' => $alerts_enabled ? 'Enabled' : 'Disabled'],
                                 ['label' => 'Notes', 'value' => $notes !== '' ? $notes : '—'],

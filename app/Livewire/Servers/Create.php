@@ -26,6 +26,14 @@ class Create extends Component
 
     public string $server_type = '';
 
+    public string $provider = '';
+
+    public string $location = '';
+
+    public string $ip_address = '';
+
+    public string $label = '';
+
     public string $interval_seconds = '60';
 
     public string $notes = '';
@@ -79,6 +87,10 @@ class Create extends Component
                     'name' => $this->name,
                     'hostname' => $this->hostname,
                     'server_type' => $this->server_type,
+                    'provider' => $this->provider,
+                    'location' => $this->location,
+                    'ip_address' => $this->ip_address,
+                    'label' => $this->label,
                     'interval_seconds' => (int) $this->interval_seconds,
                     'alerts_enabled' => $this->alerts_enabled,
                     'notes' => trim($this->notes) === '' ? null : trim($this->notes),
@@ -119,16 +131,10 @@ class Create extends Component
 
     public function render(): View
     {
-        $groups = Server::query()
-            ->whereNotNull('server_type')
-            ->where('server_type', '!=', '')
-            ->distinct()
-            ->orderBy('server_type')
-            ->pluck('server_type')
-            ->all();
-
         return view('livewire.servers.create', [
-            'groups' => $groups,
+            'groups' => $this->distinct('server_type'),
+            'providers' => $this->distinct('provider'),
+            'locations' => $this->distinct('location'),
             'intervals' => [10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600],
         ]);
     }
@@ -139,7 +145,7 @@ class Create extends Component
      */
     private function validateStepOne(): void
     {
-        foreach (['name', 'hostname', 'server_type', 'notes'] as $key) {
+        foreach (['name', 'hostname', 'server_type', 'provider', 'location', 'ip_address', 'label', 'notes'] as $key) {
             $this->{$key} = trim($this->{$key});
         }
 
@@ -147,9 +153,29 @@ class Create extends Component
             'name' => ['required', 'string', 'max:100', Rule::unique('servers', 'name')],
             'hostname' => ['required', 'string', 'max:255'],
             'server_type' => ['nullable', 'string', 'max:100'],
+            'provider' => ['nullable', 'string', 'max:100'],
+            'location' => ['nullable', 'string', 'max:100'],
+            'ip_address' => $this->ip_address === ''
+                ? ['nullable', 'string', 'max:45']
+                : ['required', 'string', 'max:45', 'ip'],
+            'label' => ['nullable', 'string', 'max:100'],
             'interval_seconds' => ['required', 'integer', 'between:10,3600'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'alerts_enabled' => ['boolean'],
         ]);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function distinct(string $column): array
+    {
+        return Server::query()
+            ->whereNotNull($column)
+            ->where($column, '!=', '')
+            ->distinct()
+            ->orderBy($column)
+            ->pluck($column)
+            ->all();
     }
 }
