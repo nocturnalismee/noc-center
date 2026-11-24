@@ -71,9 +71,10 @@
                             >Copy</button>
                         </div>
                         <p class="border-t border-divider px-4 py-3 font-mono text-[9.5px] text-text-muted">
-                            # copy the agent directory first, then run as root on {{ $server->hostname }}
+                            # downloads the agent from this dashboard, then installs as root on {{ $server->hostname }}
                         </p>
                         <p class="border-t border-divider px-4 py-3 text-[9px] text-text-muted">
+                            No repository checkout is needed. <a href="{{ url('/agent/download') }}" class="text-focus hover:underline">Download noc-agent.tar.gz</a>.
                             The installer reads the token from a mode-600 file; it is never passed in argv or shell history.
                         </p>
                     </div>

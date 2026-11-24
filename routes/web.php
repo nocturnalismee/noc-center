@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AgentDownloadController;
 use App\Http\Controllers\ServerSeriesController;
 use App\Http\Controllers\StoredSnapshotController;
 use App\Http\Controllers\TokenRevealController;
@@ -21,6 +22,8 @@ use App\Livewire\Settings\Users;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/dashboard');
+
+Route::get('/agent/download', AgentDownloadController::class)->name('agent.download');
 
 Route::middleware('auth')->group(function () {
     Route::livewire('/dashboard', Dashboard::class)->name('dashboard');

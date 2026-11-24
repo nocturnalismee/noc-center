@@ -58,7 +58,9 @@ class TokenRevealController extends Controller
         $installCommand = "sudo install -m 600 /dev/null /root/noc-token\n"
             ."sudo bash -c 'read -rsp \"Token: \" token; printf \"%s\" \"\$token\" > /root/noc-token; echo'\n"
             ."# paste the token at the prompt, then press Enter\n"
-            ."sudo ./agent/install.sh \\\n"
+            ."curl -fsSL {$baseUrl}/agent/download -o /tmp/noc-agent.tar.gz\n"
+            ."sudo tar -xzpf /tmp/noc-agent.tar.gz -C /tmp\n"
+            ."sudo /tmp/noc-agent/install.sh \\\n"
             ."  --api-url {$baseUrl}/api/v1/ingest \\\n"
             .'  --token-file /root/noc-token';
 
