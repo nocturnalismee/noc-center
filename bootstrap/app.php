@@ -27,6 +27,22 @@ return Application::configure(basePath: dirname(__DIR__))
         // Host cannot redirect a reset token to another origin.
         $middleware->trustHosts();
 
+        // Honour X-Forwarded-* only from proxies the operator explicitly
+        // trusts. Leave TRUSTED_PROXIES empty for a direct connection, list
+        // the proxy IPs/CIDRs for a reverse proxy, or use `*` only when the
+        // origin accepts traffic exclusively from that proxy (Cloudflare with
+        // an origin firewall). Without this, audit rows and rate limits see
+        // the proxy address instead of the client.
+        $trustedProxies = trim((string) env('TRUSTED_PROXIES', ''));
+
+        if ($trustedProxies !== '') {
+            $middleware->trustProxies(
+                at: $trustedProxies === '*'
+                    ? '*'
+                    : array_values(array_filter(array_map('trim', explode(',', $trustedProxies)))),
+            );
+        }
+
         // Global so unmatched routes, route-model-binding 404s, and rendered
         // exceptions also carry the CSP/security headers. The routing pipeline
         // converts exceptions to responses before they bubble out here.

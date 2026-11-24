@@ -319,6 +319,11 @@ Notes:
 - Keep `shared/storage/` and `bootstrap/cache/` writable **only** by the PHP
   user. `deploy.sh` creates `shared/storage` with 750 directories and symlinks
   each release's `storage` to it, so sessions, cache, and logs survive deploys.
+- **Reverse proxy / Cloudflare:** set `TRUSTED_PROXIES` to the proxy IPs or
+  CIDRs (comma-separated) so audit rows and rate limits use the real client
+  IP from `X-Forwarded-For`. Use `TRUSTED_PROXIES=*` only when the origin is
+  firewalled to the proxy; otherwise the header is spoofable. Restrict the
+  origin to Cloudflare's published ranges and keep those ranges current.
 - On a VPS, Redis must be installed and listening on loopback; the queue and
   scheduler systemd units assume the application is at `/var/www/noc/current`.
 

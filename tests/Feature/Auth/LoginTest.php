@@ -32,6 +32,29 @@ class LoginTest extends TestCase
         $this->assertAuthenticatedAs($user);
     }
 
+    public function test_login_audit_records_the_forwarded_client_ip_from_a_trusted_proxy(): void
+    {
+        $user = User::factory()->create([
+            'email' => 'proxy@example.com',
+            'password' => 'correct-horse-battery',
+        ]);
+
+        $this->withHeader('X-Forwarded-For', '203.0.113.9')
+            ->post('/login', [
+                'email' => 'proxy@example.com',
+                'password' => 'correct-horse-battery',
+            ])
+            ->assertRedirect('/dashboard');
+
+        $this->assertAuthenticatedAs($user);
+
+        $this->assertDatabaseHas('audit_events', [
+            'action' => 'auth.login',
+            'user_id' => $user->id,
+            'ip' => '203.0.113.9',
+        ]);
+    }
+
     public function test_login_is_case_insensitive_for_the_email_address(): void
     {
         $user = User::factory()->create([
