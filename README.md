@@ -324,6 +324,29 @@ Notes:
   IP from `X-Forwarded-For`. Use `TRUSTED_PROXIES=*` only when the origin is
   firewalled to the proxy; otherwise the header is spoofable. Restrict the
   origin to Cloudflare's published ranges and keep those ranges current.
+  The value is read from `config/trustedproxy.php`; after changing `.env`, run
+  `php artisan optimize:clear && php artisan config:cache`.
+- **aaPanel / Nginx behind Cloudflare:** if the panel's PHP include does not
+  expose the client address, configure Nginx `real_ip` instead. Replace the
+  domain in the path below, then reload Nginx:
+
+  ```bash
+  conf=/www/server/panel/vhost/nginx/extension/panel.developers.web.id/cloudflare-real-ip.conf
+  {
+      echo 'real_ip_header CF-Connecting-IP;'
+      echo 'real_ip_recursive on;'
+      for ip in $(curl -fsS https://www.cloudflare.com/ips-v4) $(curl -fsS https://www.cloudflare.com/ips-v6); do
+          echo "set_real_ip_from $ip;"
+      done
+  } | sudo tee "$conf" >/dev/null
+  sudo nginx -t && sudo nginx -s reload
+  ```
+
+  After this, `REMOTE_ADDR` is the real client IP before PHP-FPM, so Activity
+  no longer stores a Cloudflare edge address. Keep the generated file current
+  when Cloudflare changes its ranges. If Nginx already sets `real_ip`,
+  `TRUSTED_PROXIES` may stay empty; do not enable both unless you have verified
+  the resulting `X-Forwarded-For` chain.
 - On a VPS, Redis must be installed and listening on loopback; the queue and
   scheduler systemd units assume the application is at `/var/www/noc/current`.
 

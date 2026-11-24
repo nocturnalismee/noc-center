@@ -27,21 +27,10 @@ return Application::configure(basePath: dirname(__DIR__))
         // Host cannot redirect a reset token to another origin.
         $middleware->trustHosts();
 
-        // Honour X-Forwarded-* only from proxies the operator explicitly
-        // trusts. Leave TRUSTED_PROXIES empty for a direct connection, list
-        // the proxy IPs/CIDRs for a reverse proxy, or use `*` only when the
-        // origin accepts traffic exclusively from that proxy (Cloudflare with
-        // an origin firewall). Without this, audit rows and rate limits see
-        // the proxy address instead of the client.
-        $trustedProxies = trim((string) env('TRUSTED_PROXIES', ''));
-
-        if ($trustedProxies !== '') {
-            $middleware->trustProxies(
-                at: $trustedProxies === '*'
-                    ? '*'
-                    : array_values(array_filter(array_map('trim', explode(',', $trustedProxies)))),
-            );
-        }
+        // Trusted proxies are configured in config/trustedproxy.php and read
+        // by Laravel's TrustProxies middleware at request time. Keeping the
+        // value in config makes it survive `php artisan config:cache`; calling
+        // env() here would silently see an empty value on a cached app.
 
         // Global so unmatched routes, route-model-binding 404s, and rendered
         // exceptions also carry the CSP/security headers. The routing pipeline

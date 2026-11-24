@@ -48,6 +48,8 @@ class LoginTest extends TestCase
 
         $this->assertAuthenticatedAs($user);
 
+        $this->assertSame('127.0.0.1', config('trustedproxy.proxies'));
+
         $this->assertDatabaseHas('audit_events', [
             'action' => 'auth.login',
             'user_id' => $user->id,
