@@ -139,8 +139,32 @@ install -m 600 /root/noc-token /etc/noc-agent/token
 ## 4. Install
 
 The installer is idempotent: re-running it never overwrites an existing config
-or token unless you pass `--force`. Run it from the agent source directory as
-root:
+or token unless you pass `--force`.
+
+### Install from the dashboard (recommended)
+
+Every token reveal page shows this flow. The dashboard builds the bundle
+from its own `agent/` directory; no repository checkout is needed on the
+monitored server.
+
+```bash
+curl -fsSL https://monitor.example.com/agent/download -o /tmp/noc-agent.tar.gz
+tar -xzpf /tmp/noc-agent.tar.gz -C /tmp
+
+install -m 600 /dev/null /root/noc-token
+read -rsp "Token: " token && printf '%s' "$token" > /root/noc-token
+
+/tmp/noc-agent/install.sh --api-url https://monitor.example.com/api/v1/ingest \
+  --token-file /root/noc-token
+```
+
+`APP_URL` on the dashboard must be the public URL that monitored servers can
+reach. Downloading the bundle manually is also supported:
+`https://monitor.example.com/agent/download` returns `noc-agent.tar.gz`.
+
+### Install from a source checkout
+
+Run the installer from the agent source directory as root:
 
 ```bash
 # minimal install: config + token + units + timers, start timers, prime caches

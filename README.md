@@ -28,12 +28,26 @@ with the release. See [Install](#install) and [Update and rollback](#update-and-
 
 ## Quick start (agent)
 
+On each monitored server, as root. The dashboard serves the agent bundle, so
+no repository checkout is needed:
+
 ```bash
-# on the monitored server, as root
-install -m 600 /dev/null /root/noc-token         # paste the per-server token
-agent/install.sh --api-url https://monitor.example.com/api/v1/ingest \
+# 1. Download the agent from the dashboard
+curl -fsSL https://monitor.example.com/agent/download -o /tmp/noc-agent.tar.gz
+tar -xzpf /tmp/noc-agent.tar.gz -C /tmp
+
+# 2. Store the per-server token in a root-only file
+install -m 600 /dev/null /root/noc-token
+read -rsp "Token: " token && printf '%s' "$token" > /root/noc-token
+
+# 3. Install and start the timers
+/tmp/noc-agent/install.sh --api-url https://monitor.example.com/api/v1/ingest \
   --token-file /root/noc-token
 ```
+
+The same command, with the token prompt, appears on the server's one-time
+token reveal page. `APP_URL` must be the dashboard's public URL, not
+`localhost`, when monitored servers are on other hosts.
 
 See [`agent/README.md`](agent/README.md) for prerequisites, configuration,
 timers, troubleshooting, token rotation, and uninstall.
