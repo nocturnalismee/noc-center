@@ -121,7 +121,7 @@
                             <td class="pr-2 text-right font-mono text-[13px] {{ $server->mem_used_pct === null ? 'text-text-muted' : 'text-text' }}">{{ $this->percent($server->mem_used_pct) }}</td>
                             <td class="pr-2 text-right font-mono text-[13px] {{ $server->disk_used_pct === null ? 'text-text-muted' : 'text-text' }}">{{ $this->percent($server->disk_used_pct) }}</td>
                             <td class="pr-2 text-right font-mono text-[13px] {{ $server->load1 === null ? 'text-text-muted' : 'text-text' }}">{{ $this->load($server->load1) }}</td>
-                            <td class="pr-3">
+                            <td class="pl-3 pr-3">
                                 <p class="text-[12px] {{ $server->last_sample_at === null ? 'text-text-muted' : 'text-text-sub' }}">{{ $this->sampleAge($server->last_sample_at) }}</p>
                                 @if ($server->last_sample_at)
                                     <p class="font-mono text-[11px] text-text-muted">{{ $this->sampleClock($server->last_sample_at) }}</p>
