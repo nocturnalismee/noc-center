@@ -186,15 +186,22 @@
                 </div>
 
                 <div class="flex shrink-0 items-center gap-1">
-                    <button
-                        type="button"
-                        class="hidden h-9 w-[212px] items-center gap-2 rounded-control border border-border bg-surface-2 px-3 text-left text-[11.5px] text-text-muted hover:border-border-strong lg:inline-flex"
-                        aria-label="Search or jump to"
-                    >
-                        <x-heroicon-o-magnifying-glass class="h-4 w-4 shrink-0" />
-                        <span class="flex-1">Search or jump to</span>
-                        <kbd class="rounded border border-border px-1 py-0.5 font-mono text-[9px] text-text-muted">⌘K</kbd>
-                    </button>
+                    <form method="GET" action="{{ route('servers.index') }}" role="search" class="hidden lg:block">
+                        <label for="global-search" class="sr-only">Search servers</label>
+                        <div class="relative">
+                            <x-heroicon-o-magnifying-glass class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+                            <input
+                                id="global-search"
+                                name="q"
+                                type="search"
+                                value="{{ request()->routeIs('servers.index') ? (string) request()->query('q', '') : '' }}"
+                                placeholder="Search servers"
+                                autocomplete="off"
+                                class="h-9 w-[212px] rounded-control border border-border bg-surface-2 pl-9 pr-12 text-[11.5px] text-text placeholder:text-text-muted hover:border-border-strong focus:border-border-strong"
+                            >
+                            <kbd class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border px-1 py-0.5 font-mono text-[9px] text-text-muted">⌘K</kbd>
+                        </div>
+                    </form>
 
                     <button
                         type="button"

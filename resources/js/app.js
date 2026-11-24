@@ -231,6 +231,18 @@ document.addEventListener('click', (event) => {
 });
 
 document.addEventListener('keydown', (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        const search = document.getElementById('global-search');
+
+        if (search && search.getClientRects().length > 0) {
+            event.preventDefault();
+            search.focus();
+            search.select();
+        }
+
+        return;
+    }
+
     if (event.key === 'Escape') {
         closeSidebar();
     }

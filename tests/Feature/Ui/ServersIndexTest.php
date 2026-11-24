@@ -29,6 +29,20 @@ class ServersIndexTest extends TestCase
             ->assertSee('Filter name, hostname, IP, label');
     }
 
+    public function test_the_search_query_parameter_filters_the_server_list(): void
+    {
+        $user = User::factory()->create();
+
+        $this->server(['name' => 'web-01', 'hostname' => 'web-01.nusantara.id']);
+        $this->server(['name' => 'db-01', 'hostname' => 'db-01.nusantara.id']);
+
+        $this->actingAs($user)
+            ->get('/servers?q=web-01')
+            ->assertOk()
+            ->assertSee('web-01.nusantara.id')
+            ->assertDontSee('db-01.nusantara.id');
+    }
+
     public function test_the_servers_page_shows_the_empty_state_when_the_fleet_is_empty(): void
     {
         $user = User::factory()->create();

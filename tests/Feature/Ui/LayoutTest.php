@@ -68,6 +68,18 @@ class LayoutTest extends TestCase
         }
     }
 
+    public function test_the_topbar_search_submits_a_query_to_the_server_list(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->get('/dashboard')
+            ->assertOk()
+            ->assertSee('action="'.route('servers.index').'"', false)
+            ->assertSee('name="q"', false)
+            ->assertSee('placeholder="Search servers"', false);
+    }
+
     public function test_a_viewer_does_not_see_the_activity_sidebar_link(): void
     {
         $viewer = User::factory()->create();
