@@ -259,14 +259,16 @@ class DashboardTest extends TestCase
             ->assertDontSee('web-01');
     }
 
-    public function test_the_group_filter_and_tab_counts_respect_the_search(): void
+    public function test_the_provider_filter_and_tab_counts_respect_the_search(): void
     {
-        $this->online('web-01', ['server_type' => 'Web']);
-        $this->online('web-02', ['server_type' => 'Web']);
-        $this->online('db-01', ['server_type' => 'Database']);
+        $this->online('web-01', ['provider' => 'Nusantara Cloud', 'server_type' => 'Web']);
+        $this->online('web-02', ['provider' => 'Nusantara Cloud', 'server_type' => 'Web']);
+        $this->online('db-01', ['provider' => 'Contabo', 'server_type' => 'Database']);
 
         $component = Livewire::test(ServerTable::class)
-            ->set('group', 'Web')
+            ->assertSee('Provider')
+            ->assertDontSee('All groups')
+            ->set('provider', 'Nusantara Cloud')
             ->assertSee('web-01')
             ->assertSee('web-02')
             ->assertDontSee('db-01');
@@ -281,6 +283,23 @@ class DashboardTest extends TestCase
         $counts = $component->viewData('counts');
 
         $this->assertSame(1, $counts['all']);
+    }
+
+    public function test_memory_and_disk_bars_follow_alert_thresholds(): void
+    {
+        $this->online('low-01', ['mem_used_pct' => 10, 'disk_used_pct' => 10]);
+        $this->online('warn-01', ['mem_used_pct' => 90, 'disk_used_pct' => 85]);
+        $this->online('crit-01', ['mem_used_pct' => 95, 'disk_used_pct' => 95]);
+        $this->online('null-01', ['mem_used_pct' => null, 'disk_used_pct' => null]);
+
+        $html = Livewire::test(ServerTable::class)->html();
+
+        $this->assertSame(2, substr_count($html, 'data-tone="ok"'));
+        $this->assertSame(2, substr_count($html, 'data-tone="warning"'));
+        $this->assertSame(2, substr_count($html, 'data-tone="critical"'));
+        $this->assertSame(3, substr_count($html, 'data-usage="memory"'));
+        $this->assertSame(3, substr_count($html, 'data-usage="disk"'));
+        $this->assertStringContainsString('style="width: 95%"', $html);
     }
 
     public function test_default_and_explicit_sorting(): void

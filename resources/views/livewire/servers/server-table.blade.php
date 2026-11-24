@@ -25,16 +25,16 @@
         </nav>
 
         <div class="flex w-full flex-wrap items-center gap-2 pb-2 sm:w-auto">
-            @if (count($groups) > 0)
-                <label class="sr-only" for="server-group-filter">Filter by group</label>
+            @if (count($providers) > 0)
+                <label class="sr-only" for="server-provider-filter">Filter by provider</label>
                 <select
-                    id="server-group-filter"
-                    wire:model.live="group"
+                    id="server-provider-filter"
+                    wire:model.live="provider"
                     class="h-8 rounded-control border border-border bg-canvas px-2 text-[13px] text-text-sub"
                 >
-                    <option value="">All groups</option>
-                    @foreach ($groups as $groupName)
-                        <option value="{{ $groupName }}">{{ $groupName }}</option>
+                    <option value="">All providers</option>
+                    @foreach ($providers as $providerName)
+                        <option value="{{ $providerName }}">{{ $providerName }}</option>
                     @endforeach
                 </select>
             @endif
@@ -82,7 +82,7 @@
                         <th class="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col">
                             <button type="button" wire:click="sortBy('hostname')" class="hover:text-text-sub">Server</button>
                         </th>
-                        <th class="w-[112px] text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col">Group</th>
+                        <th class="w-[112px] text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col">Provider</th>
                         <th class="w-[64px] text-right text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col">
                             <button type="button" wire:click="sortBy('cpu')" class="hover:text-text-sub">CPU</button>
                         </th>
@@ -116,10 +116,26 @@
                                     {{ $server->hostname }}@if ($server->ip_address)<span class="text-text-muted"> · {{ $server->ip_address }}</span>@endif
                                 </p>
                             </td>
-                            <td class="truncate pr-3 text-[13px] text-text-sub">{{ $server->server_type ?: '—' }}</td>
+                            <td class="truncate pr-3 text-[13px] text-text-sub">{{ $server->provider ?: '—' }}</td>
                             <td class="pr-2 text-right font-mono text-[13px] {{ $server->cpu_usage_pct === null ? 'text-text-muted' : 'text-text' }}">{{ $this->percent($server->cpu_usage_pct) }}</td>
-                            <td class="pr-2 text-right font-mono text-[13px] {{ $server->mem_used_pct === null ? 'text-text-muted' : 'text-text' }}">{{ $this->percent($server->mem_used_pct) }}</td>
-                            <td class="pr-2 text-right font-mono text-[13px] {{ $server->disk_used_pct === null ? 'text-text-muted' : 'text-text' }}">{{ $this->percent($server->disk_used_pct) }}</td>
+                            <td class="pr-2 text-right">
+                                <span class="block font-mono text-[13px] {{ $server->mem_used_pct === null ? 'text-text-muted' : 'text-text' }}">{{ $this->percent($server->mem_used_pct) }}</span>
+                                @if ($server->mem_used_pct !== null)
+                                    @php($memoryTone = $this->usageTone($server->mem_used_pct, $thresholds['memory']))
+                                    <span class="ml-auto mt-1 block h-1 w-10 overflow-hidden rounded-full bg-surface-2" data-usage="memory" data-tone="{{ $memoryTone }}" aria-hidden="true">
+                                        <span class="block h-full rounded-full {{ $this->usageBarColor($memoryTone) }}" style="width: {{ $this->usageWidth($server->mem_used_pct) }}"></span>
+                                    </span>
+                                @endif
+                            </td>
+                            <td class="pr-2 text-right">
+                                <span class="block font-mono text-[13px] {{ $server->disk_used_pct === null ? 'text-text-muted' : 'text-text' }}">{{ $this->percent($server->disk_used_pct) }}</span>
+                                @if ($server->disk_used_pct !== null)
+                                    @php($diskTone = $this->usageTone($server->disk_used_pct, $thresholds['disk']))
+                                    <span class="ml-auto mt-1 block h-1 w-10 overflow-hidden rounded-full bg-surface-2" data-usage="disk" data-tone="{{ $diskTone }}" aria-hidden="true">
+                                        <span class="block h-full rounded-full {{ $this->usageBarColor($diskTone) }}" style="width: {{ $this->usageWidth($server->disk_used_pct) }}"></span>
+                                    </span>
+                                @endif
+                            </td>
                             <td class="pr-2 text-right font-mono text-[13px] {{ $server->load1 === null ? 'text-text-muted' : 'text-text' }}">{{ $this->load($server->load1) }}</td>
                             <td class="pl-3 pr-3">
                                 <p class="text-[12px] {{ $server->last_sample_at === null ? 'text-text-muted' : 'text-text-sub' }}">{{ $this->sampleAge($server->last_sample_at) }}</p>

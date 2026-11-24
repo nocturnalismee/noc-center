@@ -5,6 +5,7 @@ namespace App\Livewire\Servers;
 use App\Enums\ServerHealth;
 use App\Enums\ServerStatus;
 use App\Models\Server;
+use App\Services\SettingsRepository;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -21,7 +22,7 @@ class ServerTable extends Component
     public string $status = 'all';
 
     #[Url(except: '')]
-    public string $group = '';
+    public string $provider = '';
 
     #[Url(except: '')]
     public string $q = '';
@@ -49,7 +50,7 @@ class ServerTable extends Component
     public function clearFilters(): void
     {
         $this->status = 'all';
-        $this->group = '';
+        $this->provider = '';
         $this->q = '';
         $this->resetPage();
     }
@@ -79,7 +80,7 @@ class ServerTable extends Component
 
     public function updating(string $property): void
     {
-        if (in_array($property, ['status', 'group', 'q'], true)) {
+        if (in_array($property, ['status', 'provider', 'q'], true)) {
             $this->resetPage();
         }
     }
@@ -93,6 +94,7 @@ class ServerTable extends Component
             'name',
             'hostname',
             'server_type',
+            'provider',
             'ip_address',
             'label',
             'interval_seconds',
@@ -116,18 +118,30 @@ class ServerTable extends Component
 
         $counts = $this->tabCounts($now);
 
-        $groups = Server::query()
-            ->whereNotNull('server_type')
-            ->where('server_type', '!=', '')
+        $providers = Server::query()
+            ->whereNotNull('provider')
+            ->where('provider', '!=', '')
             ->distinct()
-            ->orderBy('server_type')
-            ->pluck('server_type')
+            ->orderBy('provider')
+            ->pluck('provider')
             ->all();
+
+        $settings = app(SettingsRepository::class);
 
         return view('livewire.servers.server-table', [
             'servers' => $servers,
             'counts' => $counts,
-            'groups' => count($groups) >= 2 ? $groups : [],
+            'providers' => count($providers) >= 2 ? $providers : [],
+            'thresholds' => [
+                'memory' => [
+                    'warning' => (int) $settings->get('alerts.rules.memory_high.warning', config('alerts.rules.memory_high.warning')),
+                    'critical' => (int) $settings->get('alerts.rules.memory_high.critical', config('alerts.rules.memory_high.critical')),
+                ],
+                'disk' => [
+                    'warning' => (int) $settings->get('alerts.rules.disk_high.warning', config('alerts.rules.disk_high.warning')),
+                    'critical' => (int) $settings->get('alerts.rules.disk_high.critical', config('alerts.rules.disk_high.critical')),
+                ],
+            ],
             'totalServers' => Server::query()->count(),
         ]);
     }
@@ -147,6 +161,40 @@ class ServerTable extends Component
     public function percent(?float $value): string
     {
         return $value === null ? '—' : round($value).'%';
+    }
+
+    /**
+     * @param  array{warning:int,critical:int}  $thresholds
+     */
+    public function usageTone(?float $value, array $thresholds): string
+    {
+        if ($value === null) {
+            return 'muted';
+        }
+
+        if ($value >= $thresholds['critical']) {
+            return 'critical';
+        }
+
+        if ($value >= $thresholds['warning']) {
+            return 'warning';
+        }
+
+        return 'ok';
+    }
+
+    public function usageBarColor(string $tone): string
+    {
+        return match ($tone) {
+            'critical' => 'bg-critical',
+            'warning' => 'bg-warning',
+            default => 'bg-ok',
+        };
+    }
+
+    public function usageWidth(?float $value): string
+    {
+        return $value === null ? '0%' : max(0, min(100, round($value, 1))).'%';
     }
 
     public function load(?float $value): string
@@ -232,12 +280,13 @@ class ServerTable extends Component
                     ->orWhere('hostname', 'like', $like)
                     ->orWhere('ip_address', 'like', $like)
                     ->orWhere('label', 'like', $like)
-                    ->orWhere('server_type', 'like', $like);
+                    ->orWhere('server_type', 'like', $like)
+                    ->orWhere('provider', 'like', $like);
             });
         }
 
-        if ($this->group !== '') {
-            $query->where('server_type', $this->group);
+        if ($this->provider !== '') {
+            $query->where('provider', $this->provider);
         }
 
         return $query;
