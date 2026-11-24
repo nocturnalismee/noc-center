@@ -26,7 +26,8 @@ class ServersIndexTest extends TestCase
             ->assertSee('Add server')
             ->assertSee('web-01')
             ->assertSee('web-01.nusantara.id')
-            ->assertSee('Filter name, hostname, IP, label');
+            ->assertSee('Filter name, hostname, IP, label')
+            ->assertSee('sm:w-[280px]', false);
     }
 
     public function test_the_search_query_parameter_filters_the_server_list(): void

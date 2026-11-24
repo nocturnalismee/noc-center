@@ -14,7 +14,7 @@
             </p>
         </div>
 
-        <a href="{{ route('dashboard') }}" class="text-[13px] text-focus hover:underline">Need help?</a>
+        <a href="{{ route('agent.guide') }}" class="text-[13px] text-focus hover:underline">Need help?</a>
     </div>
 
     <ol class="mt-6 grid grid-cols-3 gap-4 border-b border-divider sm:gap-8" aria-label="Add server steps">
@@ -187,7 +187,7 @@
                     </section>
 
                     <div class="flex flex-wrap items-center justify-end gap-3 border-t border-divider pt-5">
-                        <a href="{{ route('dashboard') }}" class="secondary-button">Cancel</a>
+                        <a href="{{ route('servers.index') }}" class="secondary-button">Cancel</a>
                         <button type="submit" class="primary-button">
                             Review server
                             <span aria-hidden="true">&rarr;</span>
@@ -270,7 +270,7 @@
                     Tokens are HMAC-hashed with APP_KEY. Rotate or revoke at any time from the server page.
                     Old tokens keep working for the 24-hour grace period.
                 </p>
-                <a href="{{ route('dashboard') }}" class="mt-3 inline-block text-[12px] text-focus hover:underline">Read the agent guide &rarr;</a>
+                <a href="{{ route('agent.guide') }}" class="mt-3 inline-block text-[12px] text-focus hover:underline">Read the agent guide &rarr;</a>
             </section>
         </aside>
     </div>

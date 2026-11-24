@@ -98,6 +98,14 @@ function applySidebar(state) {
     });
 }
 
+function applyPlatformHints() {
+    const isApple = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+
+    document.querySelectorAll('[data-search-hint]').forEach((hint) => {
+        hint.textContent = isApple ? '⌘K' : 'Ctrl K';
+    });
+}
+
 function toggleSidebar() {
     const next = root.getAttribute('data-sidebar') === 'collapsed' ? 'expanded' : 'collapsed';
 
@@ -256,6 +264,7 @@ mobileQuery.addEventListener('change', (event) => {
 
 applyTheme(root.classList.contains('dark') ? 'dark' : 'light');
 applySidebar(root.getAttribute('data-sidebar') === 'collapsed' ? 'collapsed' : 'expanded');
+applyPlatformHints();
 
 document.addEventListener('DOMContentLoaded', () => {
     initSeriesCharts();

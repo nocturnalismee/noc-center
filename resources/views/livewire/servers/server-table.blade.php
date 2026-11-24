@@ -47,7 +47,7 @@
                     type="search"
                     wire:model.live.debounce.300ms="q"
                     placeholder="Filter name, hostname, IP, label"
-                    class="h-9 w-full rounded-control border border-border bg-canvas pl-8 pr-2 text-[13px] text-text placeholder:text-text-muted focus:border-border-strong sm:w-[232px]"
+                    class="h-9 w-full rounded-control border border-border bg-canvas pl-8 pr-2 text-[13px] text-text placeholder:text-text-muted focus:border-border-strong sm:w-[280px]"
                 >
             </div>
         </div>

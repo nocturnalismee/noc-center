@@ -48,7 +48,7 @@ class ServerDetailTest extends TestCase
             ->assertOk()
             ->assertSee($server->name)
             ->assertSee('web-01.nusantara.id')
-            ->assertDontSee('Rotate token')
+            ->assertDontSee('Manage tokens')
             ->assertDontSee('Edit server')
             ->assertDontSee('Stored snapshot')
             ->assertDontSee('tab=history', false);
@@ -62,7 +62,7 @@ class ServerDetailTest extends TestCase
         $this->actingAs($operator)
             ->get(route('servers.show', $server))
             ->assertOk()
-            ->assertSee('Rotate token')
+            ->assertSee('Manage tokens')
             ->assertSee('Edit server')
             ->assertDontSee('Stored snapshot');
 
@@ -99,7 +99,9 @@ class ServerDetailTest extends TestCase
             ->assertOk()
             ->assertSee('Never seen')
             ->assertSee('Waiting for first check-in')
-            ->assertSee('No sample yet');
+            ->assertSee('No sample yet')
+            ->assertSee('No samples yet')
+            ->assertSee('overflow-x-auto overflow-y-hidden', false);
     }
 
     public function test_offline_status_tells_the_operator_when_data_ends(): void

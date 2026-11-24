@@ -50,4 +50,6 @@ Route::middleware('auth')->group(function () {
     Route::livewire('/settings/alerts', AlertSettings::class)->name('settings.alerts');
 
     Route::livewire('/activity', ActivityIndex::class)->name('activity.index');
+
+    Route::view('/agent/guide', 'agent.guide')->name('agent.guide');
 });

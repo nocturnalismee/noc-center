@@ -43,9 +43,12 @@ class LayoutTest extends TestCase
 
         $response->assertSee('aria-current="page"', false);
 
-        foreach (['Dashboard', 'Servers', 'Alerts', 'Activity', 'Settings', 'Users', 'Audit log'] as $label) {
+        foreach (['Dashboard', 'Servers', 'Alerts', 'Activity', 'Settings', 'Users'] as $label) {
             $response->assertSee('aria-label="'.$label.'"', false);
         }
+
+        $response->assertDontSee('aria-label="Audit log"', false);
+        $response->assertSee('data-search-hint', false);
 
         $response->assertSee('data-sidebar-toggle', false);
         $response->assertSee('data-sidebar-open', false);

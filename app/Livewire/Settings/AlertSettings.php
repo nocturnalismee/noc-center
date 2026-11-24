@@ -247,6 +247,18 @@ class AlertSettings extends Component
         $this->statusMessage = ucfirst($channel).' test message sent.';
     }
 
+    public function ruleLabel(string $rule): string
+    {
+        return match ($rule) {
+            'cpu_high' => 'CPU High',
+            'smart_failed' => 'SMART Failed',
+            'smart_warning' => 'SMART Warning',
+            'mysql_unreachable' => 'MySQL Unreachable',
+            'quota_over' => 'Quota Exceeded',
+            default => Str::headline($rule),
+        };
+    }
+
     public function tokenConfigured(): bool
     {
         return app(SettingsRepository::class)->hasSecret(self::BOT_TOKEN_KEY);

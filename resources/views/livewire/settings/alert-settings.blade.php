@@ -27,7 +27,7 @@
         <section class="border-t border-border pt-5" aria-labelledby="thresholds-heading">
             <div class="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
                 <h2 id="thresholds-heading" class="text-[15px] font-semibold text-text">Rules and thresholds</h2>
-                <p class="text-[11px] uppercase tracking-[0.08em] text-text-muted">config/alerts.php defaults</p>
+                <p class="text-[11px] uppercase tracking-[0.08em] text-text-muted">System defaults</p>
             </div>
 
             <div class="mt-4 border-t border-divider">
@@ -35,7 +35,7 @@
                     <div class="border-b border-divider py-4" wire:key="rule-{{ $rule }}">
                         <div class="flex flex-wrap items-center justify-between gap-3">
                             <div class="min-w-0">
-                                <p class="text-[13px] font-medium text-text">{{ Str::headline($rule) }}</p>
+                                <p class="text-[13px] font-medium text-text">{{ $this->ruleLabel($rule) }}</p>
                                 <p class="mt-0.5 text-[12px] text-text-muted">
                                     @switch($rule)
                                         @case('server_offline') Critical when the server passes its offline deadline. @break
@@ -98,7 +98,7 @@
                                             type="number"
                                             step="{{ $step }}"
                                             wire:model="rules.{{ $rule }}.{{ $key }}"
-                                            class="field font-mono"
+                                            class="field max-w-[180px] font-mono"
                                             @error('rules.'.$rule.'.'.$key) aria-invalid="true" @enderror
                                         >
                                         @error('rules.'.$rule.'.'.$key)
@@ -120,7 +120,7 @@
                     min="1"
                     max="720"
                     wire:model="reminderHours"
-                    class="field font-mono"
+                    class="field max-w-[180px] font-mono"
                     @error('reminderHours') aria-invalid="true" @enderror
                 >
                 <p class="mt-1.5 text-[11px] text-text-muted">Open alerts are reminded at most once per window. Acknowledged alerts are not reminded.</p>
@@ -228,7 +228,7 @@
                         type="number"
                         min="1"
                         wire:model="messageThreadId"
-                        class="field font-mono"
+                        class="field max-w-[180px] font-mono"
                         placeholder="Optional"
                         @error('messageThreadId') aria-invalid="true" @enderror
                     >

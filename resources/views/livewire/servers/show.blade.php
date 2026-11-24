@@ -32,7 +32,9 @@
                 <span>{{ $server->interval_seconds }}s interval</span>
             </p>
 
-            <p class="mt-1 text-[12px] text-text-muted">{{ $lastSeen }}</p>
+            @if ($server->last_seen_at !== null)
+                <p class="mt-1 text-[12px] text-text-muted">{{ $lastSeen }}</p>
+            @endif
 
             @if ($issueLabels !== [])
                 <ul class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[12px] {{ $server->health->value === 'critical' ? 'text-critical' : 'text-warning' }}">
@@ -48,7 +50,7 @@
                 <a href="/servers/{{ $server->id }}/snapshot" class="secondary-button">Stored snapshot</a>
             @endif
             @if ($canOperate)
-                <a href="/servers/{{ $server->id }}/tokens" class="secondary-button">Rotate token</a>
+                <a href="/servers/{{ $server->id }}/tokens" class="secondary-button">Manage tokens</a>
                 <a href="/servers/{{ $server->id }}/edit" class="secondary-button">Edit server</a>
             @endif
         </div>
@@ -82,7 +84,7 @@
         @endforeach
     </dl>
 
-    <nav class="mt-8 flex gap-6 overflow-x-auto border-b border-border" aria-label="Server sections">
+    <nav class="mt-8 flex gap-6 overflow-x-auto overflow-y-hidden border-b border-border" aria-label="Server sections">
         @foreach (['overview' => 'Overview', 'performance' => 'Performance', 'panel' => 'Panel', 'modules' => 'Modules', 'alerts' => 'Alerts', 'history' => 'History'] as $key => $label)
             @continue($key === 'history' && ! $canViewHistory)
 
@@ -129,6 +131,14 @@
                     aria-label="{{ $sample ? 'CPU, memory, and disk usage for the last hour' : 'No samples recorded for this server' }}"
                 >
                     <canvas></canvas>
+                    @if (! $sample)
+                        <div class="absolute inset-0 z-10 flex items-center justify-center border-y border-divider bg-canvas">
+                            <div class="max-w-[36ch] text-center">
+                                <p class="text-[13.5px] font-medium text-text">No samples yet</p>
+                                <p class="mt-1 text-[12px] text-text-muted">The chart appears after this server sends its first sample.</p>
+                            </div>
+                        </div>
+                    @endif
                     <noscript>
                         <p class="py-8 text-[13px] text-text-sub">
                             Charts require JavaScript. The latest values are shown in the summary strip above.
@@ -213,6 +223,14 @@
                 aria-label="CPU, memory, and disk usage over {{ $range }}"
             >
                 <canvas></canvas>
+                @if (! $sample)
+                    <div class="absolute inset-0 z-10 flex items-center justify-center border-y border-divider bg-canvas">
+                        <div class="max-w-[36ch] text-center">
+                            <p class="text-[13.5px] font-medium text-text">No samples yet</p>
+                            <p class="mt-1 text-[12px] text-text-muted">The chart appears after this server sends its first sample.</p>
+                        </div>
+                    </div>
+                @endif
                 <noscript>
                     <p class="py-8 text-[13px] text-text-sub">
                         Charts require JavaScript. The range and latest values are shown above.

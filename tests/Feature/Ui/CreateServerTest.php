@@ -68,6 +68,8 @@ class CreateServerTest extends TestCase
                 ->assertSee('Add server')
                 ->assertSee('Details')
                 ->assertSee('Review')
+                ->assertSee(route('agent.guide'), false)
+                ->assertSee(route('servers.index'), false)
                 ->assertSee('Install');
         }
     }

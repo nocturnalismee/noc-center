@@ -21,7 +21,7 @@
         </div>
     </div>
 
-    <nav class="mt-6 flex gap-5 overflow-x-auto border-b border-border" aria-label="Alert status">
+    <nav class="mt-6 flex gap-5 overflow-x-auto overflow-y-hidden border-b border-border" aria-label="Alert status">
         @foreach (['open' => 'Open', 'acknowledged' => 'Acknowledged', 'resolved' => 'Resolved', 'all' => 'All'] as $key => $label)
             <button
                 type="button"

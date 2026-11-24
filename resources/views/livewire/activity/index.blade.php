@@ -71,18 +71,14 @@
                     @foreach ($events as $event)
                         <tr class="border-b border-divider align-top text-[13px]" wire:key="audit-{{ $event->id }}">
                             <td class="whitespace-nowrap py-3 pr-4 font-mono text-[12px] text-text-muted">
-                                {{ $event->created_at?->timezone('Asia/Jakarta')->format('Y-m-d H:i:s') ?? '—' }}
+                                {{ $event->created_at ? $event->created_at->timezone('Asia/Jakarta')->format('Y-m-d H:i:s').' WIB' : '—' }}
                             </td>
                             <td class="py-3 pr-4 font-mono text-[12px] text-text">{{ $event->action }}</td>
                             <td class="py-3 pr-4 text-text-sub">
                                 {{ $event->user?->name ?? 'System' }}
                             </td>
                             <td class="py-3 pr-4 font-mono text-[12px] text-text-muted">
-                                @if ($event->target_type || $event->target_id)
-                                    {{ $event->target_type ?? '—' }}<span aria-hidden="true"> · </span>{{ $event->target_id ?? '—' }}
-                                @else
-                                    —
-                                @endif
+                                {{ $this->targetLabel($event, $targetNames) ?: '—' }}
                             </td>
                             <td class="py-3 pr-4 font-mono text-[12px] text-text-muted">{{ $event->ip ?? '—' }}</td>
                             <td class="py-3 text-[12px] text-text-muted">

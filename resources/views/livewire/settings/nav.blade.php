@@ -15,7 +15,7 @@
     }
 @endphp
 
-<nav class="mt-6 flex gap-5 overflow-x-auto border-b border-border" aria-label="Settings sections">
+<nav class="mt-6 flex gap-5 overflow-x-auto overflow-y-hidden border-b border-border" aria-label="Settings sections">
     @foreach ($sections as $section)
         <a
             href="{{ $section['href'] }}"

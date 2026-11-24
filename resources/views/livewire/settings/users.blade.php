@@ -103,7 +103,7 @@
                                 @endif
                             </td>
                             <td class="py-3 pr-4 font-mono text-[12px] text-text-muted">
-                                {{ $user->last_login_at?->timezone('Asia/Jakarta')->format('Y-m-d H:i') ?? '—' }}
+                                {{ $user->last_login_at ? $user->last_login_at->timezone('Asia/Jakarta')->format('Y-m-d H:i').' WIB' : '—' }}
                             </td>
                             <td class="py-3 text-right">
                                 <div class="flex flex-wrap justify-end gap-3 text-[12px]">

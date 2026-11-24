@@ -321,7 +321,11 @@ class SettingsTest extends TestCase
             ->get('/settings/alerts')
             ->assertOk()
             ->assertSee('Alert settings')
-            ->assertSee('Reminder hours');
+            ->assertSee('Reminder hours')
+            ->assertSee('System defaults')
+            ->assertSee('CPU High')
+            ->assertSee('MySQL Unreachable')
+            ->assertSee('overflow-x-auto overflow-y-hidden', false);
 
         $server = $this->server();
         $latest = null;

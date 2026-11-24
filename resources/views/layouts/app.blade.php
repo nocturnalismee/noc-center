@@ -105,12 +105,6 @@
                                 </a>
                             @endif
 
-                            @if (auth()->user()->canOperate())
-                                <a href="/activity" @if (request()->is('activity*')) aria-current="page" @endif class="nav-link" title="Audit log" aria-label="Audit log">
-                                    <x-heroicon-o-clipboard-document-list class="h-5 w-5 shrink-0" />
-                                    <span class="sidebar-label">Audit log</span>
-                                </a>
-                            @endif
                         @endauth
                     </div>
                 </div>
@@ -197,9 +191,9 @@
                                 value="{{ request()->routeIs('servers.index') ? (string) request()->query('q', '') : '' }}"
                                 placeholder="Search servers"
                                 autocomplete="off"
-                                class="h-9 w-[212px] rounded-control border border-border bg-surface-2 pl-9 pr-12 text-[13px] text-text placeholder:text-text-muted hover:border-border-strong focus:border-border-strong"
+                                class="h-9 w-[212px] rounded-control border border-border bg-surface-2 pl-9 pr-14 text-[13px] text-text placeholder:text-text-muted hover:border-border-strong focus:border-border-strong"
                             >
-                            <kbd class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border px-1 py-0.5 font-mono text-[11px] text-text-muted">⌘K</kbd>
+                            <kbd data-search-hint class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border px-1 py-0.5 font-mono text-[11px] text-text-muted">Ctrl K</kbd>
                         </div>
                     </form>
 

@@ -4,6 +4,7 @@ namespace Tests\Feature\Ui;
 
 use App\Livewire\Activity\Index;
 use App\Models\AuditEvent;
+use App\Models\Server;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -70,6 +71,29 @@ class ActivityTest extends TestCase
             ->assertDontSee('user_id');
     }
 
+    public function test_activity_targets_are_labeled_without_php_namespaces_and_times_are_wib(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $server = Server::query()->create([
+            'name' => 'web-01',
+            'hostname' => 'web-01.nusantara.id',
+            'interval_seconds' => 60,
+            'health' => 'unknown',
+            'issue_codes' => [],
+            'is_active' => true,
+        ]);
+
+        $this->event('server.updated', $admin, ['server_id' => $server->id], '2026-11-22 08:30:00', Server::class, $server->id);
+
+        $this->actingAs($admin)
+            ->get('/activity')
+            ->assertOk()
+            ->assertSee('Server · web-01')
+            ->assertDontSee('App\\Models\\Server')
+            ->assertSee('WIB');
+    }
+
     public function test_activity_date_filters_use_jakarta_calendar_days(): void
     {
         $admin = User::factory()->create(['role' => 'admin', 'name' => 'Admin User']);
@@ -112,13 +136,19 @@ class ActivityTest extends TestCase
     /**
      * @param  array<string, mixed>  $meta
      */
-    private function event(string $action, User $actor, array $meta, string $createdAt): AuditEvent
-    {
+    private function event(
+        string $action,
+        User $actor,
+        array $meta,
+        string $createdAt,
+        ?string $targetType = null,
+        ?string $targetId = null,
+    ): AuditEvent {
         return AuditEvent::query()->forceCreate([
             'user_id' => $actor->id,
             'action' => $action,
-            'target_type' => null,
-            'target_id' => null,
+            'target_type' => $targetType,
+            'target_id' => $targetId,
             'ip' => '203.0.113.5',
             'user_agent' => 'PHPUnit',
             'meta_json' => $meta === [] ? null : $meta,

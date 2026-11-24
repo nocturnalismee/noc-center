@@ -2,12 +2,17 @@
 
 namespace App\Livewire\Activity;
 
+use App\Models\Alert;
 use App\Models\AuditEvent;
+use App\Models\Server;
+use App\Models\ServerToken;
 use App\Models\User;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -73,8 +78,11 @@ class Index extends Component
             ->orderByDesc('created_at')
             ->orderByDesc('id');
 
+        $events = $query->paginate(25);
+
         return view('livewire.activity.index', [
-            'events' => $query->paginate(25),
+            'events' => $events,
+            'targetNames' => $this->targetNames($events->getCollection()),
             'actions' => AuditEvent::query()
                 ->select('action')
                 ->distinct()
@@ -83,6 +91,67 @@ class Index extends Component
                 ->all(),
             'actors' => User::query()->orderBy('name')->pluck('name', 'id'),
         ]);
+    }
+
+    /**
+     * Audit targets are stored as class names. Keep the trail readable without
+     * leaking the application namespace into the table.
+     */
+    public function targetLabel(AuditEvent $event, array $names = []): string
+    {
+        $type = class_basename((string) $event->target_type);
+
+        $label = match ($type) {
+            'Server' => 'Server',
+            'User' => 'User',
+            'ServerToken' => 'Token',
+            'Alert' => 'Alert',
+            default => $type === '' ? '' : Str::headline($type),
+        };
+
+        $suffix = $names[$event->id] ?? $event->target_id;
+
+        return trim($label.($suffix ? ' · '.$suffix : ''));
+    }
+
+    /**
+     * Resolve the current display name for audit targets without an N+1 query
+     * per row. Deleted servers are resolved with their trashed rows.
+     *
+     * @param  Collection<int, AuditEvent>  $events
+     * @return array<int, string>
+     */
+    private function targetNames(Collection $events): array
+    {
+        $byType = $events
+            ->filter(fn (AuditEvent $event): bool => $event->target_id !== null)
+            ->groupBy(fn (AuditEvent $event): string => class_basename((string) $event->target_type));
+
+        $ids = fn (string $type): array => $byType->get($type, collect())
+            ->pluck('target_id')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        $servers = $ids('Server') === [] ? [] : Server::withTrashed()->whereIn('id', $ids('Server'))->pluck('name', 'id')->all();
+        $users = $ids('User') === [] ? [] : User::whereIn('id', $ids('User'))->pluck('name', 'id')->all();
+        $tokens = $ids('ServerToken') === [] ? [] : ServerToken::whereIn('id', $ids('ServerToken'))->pluck('token_prefix', 'id')->all();
+        $alerts = $ids('Alert') === [] ? [] : Alert::whereIn('id', $ids('Alert'))->pluck('title', 'id')->all();
+
+        return $events->mapWithKeys(function (AuditEvent $event) use ($servers, $users, $tokens, $alerts): array {
+            $id = (string) $event->target_id;
+
+            $name = match (class_basename((string) $event->target_type)) {
+                'Server' => $servers[$id] ?? null,
+                'User' => $users[$id] ?? null,
+                'ServerToken' => $tokens[$id] ?? null,
+                'Alert' => $alerts[$id] ?? null,
+                default => null,
+            };
+
+            return $name === null ? [] : [$event->id => $name];
+        })->all();
     }
 
     /**

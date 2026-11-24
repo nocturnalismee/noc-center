@@ -145,7 +145,7 @@
                     <p class="mt-2 text-[12px] text-text-muted">
                         Tokens are hashed with APP_KEY. Database access alone cannot recover a working token.
                     </p>
-                    <a href="{{ route('dashboard') }}" class="mt-3 inline-block text-[12px] text-focus hover:underline">Read the agent guide &rarr;</a>
+                    <a href="{{ route('agent.guide') }}" class="mt-3 inline-block text-[12px] text-focus hover:underline">Read the agent guide &rarr;</a>
                 </section>
 
                 <section class="border-t border-divider pt-4 text-[11px] text-text-muted">
