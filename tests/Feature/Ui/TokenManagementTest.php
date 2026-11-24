@@ -591,13 +591,6 @@ class TokenManagementTest extends TestCase
         $this->assertTrue($updated->alerts_enabled);
     }
 
-    public function test_servers_index_redirects_to_the_dashboard(): void
-    {
-        $this->actingAs(User::factory()->create())
-            ->get('/servers')
-            ->assertRedirect('/dashboard');
-    }
-
     /**
      * @param  array<string, mixed>  $attributes
      */

@@ -9,6 +9,7 @@ use App\Livewire\Alerts\Show as AlertsShow;
 use App\Livewire\Dashboard;
 use App\Livewire\Servers\Create;
 use App\Livewire\Servers\Edit;
+use App\Livewire\Servers\Index as ServersIndex;
 use App\Livewire\Servers\Show;
 use App\Livewire\Servers\Tokens;
 use App\Livewire\Servers\Waiting;
@@ -23,7 +24,7 @@ Route::redirect('/', '/dashboard');
 
 Route::middleware('auth')->group(function () {
     Route::livewire('/dashboard', Dashboard::class)->name('dashboard');
-    Route::redirect('/servers', '/dashboard')->name('servers.index');
+    Route::livewire('/servers', ServersIndex::class)->name('servers.index');
 
     // Registered before the show route so `/servers/create` is not captured
     // by route-model binding for `/servers/{server}`.
