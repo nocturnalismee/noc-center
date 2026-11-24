@@ -17,9 +17,7 @@
 
     @include('livewire.settings.nav')
 
-    @if ($statusMessage)
-        <p class="mt-4 border-y border-divider py-2.5 text-[13px] text-text-sub" role="status">{{ $statusMessage }}</p>
-    @endif
+    <x-status-toast :message="$statusMessage" />
 
     @if ($enabled)
         <section class="mt-8 max-w-[820px] border-t border-border pt-5" aria-labelledby="two-factor-enabled-heading">

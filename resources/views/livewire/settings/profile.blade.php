@@ -23,9 +23,7 @@
         </p>
     @endif
 
-    @if ($statusMessage)
-        <p class="mt-4 border-y border-divider py-2.5 text-[13px] text-text-sub" role="status">{{ $statusMessage }}</p>
-    @endif
+    <x-status-toast :message="$statusMessage" />
 
     <form wire:submit="saveProfile" class="mt-8 grid gap-10 xl:grid-cols-[minmax(0,760px)_minmax(0,1fr)]">
         <section class="border-t border-border pt-5" aria-labelledby="profile-details-heading">

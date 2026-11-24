@@ -277,6 +277,18 @@ Maximum four series. No dual axes. Units live in the tick labels and legend.
   the page.
 - Empty states are one sentence plus one action. No illustrations.
 
+### 6.13 Status feedback
+
+- Successful saves and actions confirm with a toast fixed to the bottom-right
+  (full-width above the bottom edge on mobile), so feedback is visible without
+  scrolling back to the page header.
+- Toast: `surface` fill, `border-strong`, one soft shadow, 6px radius, 13px
+  message, semantic icon at 11px equivalent. Never use colour alone.
+- The region is `role="status"` with `aria-live="polite"`; it can be dismissed
+  and persists until the next action or navigation.
+- Validation errors stay inline beside the field; a toast never replaces an
+  error message.
+
 ---
 
 ## 7. Responsive behaviour

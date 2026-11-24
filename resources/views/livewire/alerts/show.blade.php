@@ -53,9 +53,7 @@
         <a href="{{ route('alerts.index') }}" class="secondary-button">Back to alerts</a>
     </div>
 
-    @if ($statusMessage)
-        <p class="mt-4 border-y border-divider py-2.5 text-[13px] text-text-sub" role="status">{{ $statusMessage }}</p>
-    @endif
+    <x-status-toast :message="$statusMessage" :tone="$statusTone" />
 
     <div class="mt-6 grid gap-10 xl:grid-cols-[minmax(0,1fr)_420px]">
         <div class="min-w-0">

@@ -80,6 +80,19 @@ class LayoutTest extends TestCase
             ->assertSee('placeholder="Search servers"', false);
     }
 
+    public function test_the_status_toast_is_a_fixed_live_region(): void
+    {
+        $html = Blade::render('<x-status-toast message="Alert settings saved." />');
+
+        $this->assertStringContainsString('data-status-toast', $html);
+        $this->assertStringContainsString('role="status"', $html);
+        $this->assertStringContainsString('aria-live="polite"', $html);
+        $this->assertStringContainsString('fixed', $html);
+        $this->assertStringContainsString('Alert settings saved.', $html);
+
+        $this->assertSame('', trim(Blade::render('<x-status-toast />')));
+    }
+
     public function test_a_viewer_does_not_see_the_activity_sidebar_link(): void
     {
         $viewer = User::factory()->create();

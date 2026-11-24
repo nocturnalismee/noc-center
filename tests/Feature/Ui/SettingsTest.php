@@ -337,7 +337,9 @@ class SettingsTest extends TestCase
         Livewire::test(AlertSettings::class)
             ->set('rules.cpu_high.warning', 50)
             ->call('save')
-            ->assertHasNoErrors();
+            ->assertHasNoErrors()
+            ->assertSet('statusMessage', 'Alert settings saved.')
+            ->assertSeeHtml('data-status-toast');
 
         $this->assertSame(50, app(SettingsRepository::class)->get('alerts.rules.cpu_high.warning'));
 

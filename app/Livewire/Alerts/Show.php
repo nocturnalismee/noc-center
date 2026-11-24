@@ -26,6 +26,8 @@ class Show extends Component
 
     public ?string $statusMessage = null;
 
+    public string $statusTone = 'success';
+
     public function mount(Alert $alert): void
     {
         Gate::authorize('view', $alert);
@@ -44,6 +46,7 @@ class Show extends Component
         $this->statusMessage = null;
 
         if ($this->alert->status !== AlertStatus::Open) {
+            $this->statusTone = 'warning';
             $this->statusMessage = 'Only an open alert can be acknowledged.';
 
             return;
@@ -51,6 +54,7 @@ class Show extends Component
 
         app(AlertEngine::class)->acknowledge($this->alert, auth()->user());
 
+        $this->statusTone = 'success';
         $this->alert->refresh();
         $this->statusMessage = 'Alert acknowledged. Reminders are paused until it resolves.';
     }
@@ -66,6 +70,7 @@ class Show extends Component
         $this->statusMessage = null;
 
         if ($this->alert->status === AlertStatus::Resolved) {
+            $this->statusTone = 'warning';
             $this->statusMessage = 'This alert is already resolved.';
 
             return;
@@ -79,6 +84,7 @@ class Show extends Component
 
         app(AlertEngine::class)->resolve($this->alert, auth()->user(), $this->note, true);
 
+        $this->statusTone = 'success';
         $this->alert->refresh();
         $this->note = '';
         $this->statusMessage = 'Alert resolved. A recovery message was queued for each channel that actually opened this alert.';

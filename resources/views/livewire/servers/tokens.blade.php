@@ -29,9 +29,7 @@
         @endif
     </div>
 
-    @if ($statusMessage)
-        <p class="mt-4 border-y border-divider py-2.5 text-[13px] text-text-sub" role="status">{{ $statusMessage }}</p>
-    @endif
+    <x-status-toast :message="$statusMessage" />
 
     <div class="mt-6 overflow-x-auto">
         <table class="w-full border-collapse text-left">

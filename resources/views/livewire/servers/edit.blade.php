@@ -24,9 +24,7 @@
         </div>
     </div>
 
-    @if ($statusMessage)
-        <p class="mt-4 border-y border-divider py-2.5 text-[13px] text-text-sub" role="status">{{ $statusMessage }}</p>
-    @endif
+    <x-status-toast :message="$statusMessage" />
 
     <form wire:submit="save" class="mt-8 grid gap-10 xl:grid-cols-[minmax(0,820px)_minmax(0,1fr)]">
         <div class="flex min-w-0 flex-col gap-8">

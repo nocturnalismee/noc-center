@@ -17,9 +17,7 @@
 
     @include('livewire.settings.nav')
 
-    @if ($statusMessage)
-        <p class="mt-4 border-y border-divider py-2.5 text-[13px] text-text-sub" role="status">{{ $statusMessage }}</p>
-    @endif
+    <x-status-toast :message="$statusMessage" />
 
     @error('channel')
         <p class="mt-4 border-y border-divider py-2.5 text-[13px] text-critical" role="alert">{{ $message }}</p>
