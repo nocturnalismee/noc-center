@@ -5,6 +5,7 @@ namespace Tests\Feature\Ui;
 use App\Livewire\Dashboard;
 use App\Livewire\Servers\ServerTable;
 use App\Models\Alert;
+use App\Models\AuditEvent;
 use App\Models\Server;
 use App\Models\User;
 use App\Services\FleetSummary;
@@ -112,6 +113,79 @@ class DashboardTest extends TestCase
         $response->assertSee('node-07');
         $response->assertDontSee('<x-sparkline', false);
         $response->assertDontSee('stat-card', false);
+    }
+
+    public function test_the_dashboard_renders_open_alerts_collection_and_activity(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin', 'name' => 'Andi Pratama']);
+        $server = $this->online('web-01');
+
+        Alert::query()->create(array_merge($this->alertAttributes($server, 'open'), [
+            'severity' => 'critical',
+            'title' => 'Disk almost full',
+            'message' => 'Disk almost full on web-01: 93% (threshold 85%)',
+        ]));
+
+        AuditEvent::query()->create([
+            'user_id' => $admin->id,
+            'action' => 'server.created',
+            'target_type' => Server::class,
+            'target_id' => $server->id,
+            'ip' => '10.0.0.1',
+            'meta_json' => ['server_id' => $server->id],
+        ]);
+
+        $this->actingAs($admin)
+            ->get('/dashboard')
+            ->assertOk()
+            ->assertSee('Open alerts')
+            ->assertSee('View all')
+            ->assertSee('Disk almost full')
+            ->assertSee('web-01')
+            ->assertSee('Collection')
+            ->assertSee('Agents reporting')
+            ->assertSee('1 / 1')
+            ->assertSee('Last rollup')
+            ->assertSee('Next retention')
+            ->assertSee('Failed jobs')
+            ->assertSee('Activity')
+            ->assertSee('Open audit log')
+            ->assertSee('Andi Pratama')
+            ->assertSee('Created server');
+    }
+
+    public function test_open_alerts_put_critical_before_warning(): void
+    {
+        $server = $this->online('web-01');
+
+        Alert::query()->create(array_merge($this->alertAttributes($server, 'open'), [
+            'severity' => 'warning',
+            'title' => 'CPU sustained high',
+            'last_seen_at' => now()->subMinutes(2),
+        ]));
+        Alert::query()->create(array_merge($this->alertAttributes($server, 'open'), [
+            'severity' => 'critical',
+            'title' => 'Disk almost full',
+            'last_seen_at' => now()->subMinutes(9),
+        ]));
+
+        $alerts = Livewire::test(Dashboard::class)->viewData('openAlerts');
+
+        $this->assertSame('Disk almost full', $alerts->first()->title);
+        $this->assertSame('critical', $alerts->first()->severity->value);
+    }
+
+    public function test_viewers_do_not_see_the_audit_activity_section(): void
+    {
+        $viewer = User::factory()->create(['role' => 'viewer']);
+        $this->online('web-01');
+
+        $this->actingAs($viewer)
+            ->get('/dashboard')
+            ->assertOk()
+            ->assertSee('Open alerts')
+            ->assertDontSee('Open audit log')
+            ->assertDontSee('Created server');
     }
 
     public function test_guests_are_redirected_to_sign_in(): void
