@@ -120,7 +120,7 @@ class LoginTest extends TestCase
         $this->get('/dashboard')->assertRedirect('/login');
     }
 
-    public function test_an_authenticated_user_can_view_the_dashboard_placeholder(): void
+    public function test_an_authenticated_user_can_view_the_dashboard(): void
     {
         $user = User::factory()->create();
 

@@ -17,7 +17,8 @@ use App\Models\Server;
  * newest stored sample, `sample` is that newest sample and `issues` is its
  * current issue state, which the request did not change.
  *
- * Creating alerts from this set is Task 9; ingest only persists the state.
+ * Alert creation is handled by the alert engine after ingest; this value only
+ * carries the issue state produced by the store call.
  */
 final readonly class IngestResult
 {

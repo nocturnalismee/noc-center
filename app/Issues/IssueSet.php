@@ -9,9 +9,9 @@ use App\Enums\ServerHealth;
  * The issue state of one server for one sample.
  *
  * `codes` is ordered by detection order and holds `AlertRule` values only
- * (liveness rules such as `server_offline` belong to the scheduler, Task 10).
+ * (liveness rules such as `server_offline` belong to the scheduler).
  * Every detail carries the `severity` that was used to trigger it, so the
- * alert engine (Task 9) never re-derives a threshold: changing a threshold
+ * alert engine never re-derives a threshold: changing a threshold
  * between detection and alert evaluation cannot silently promote a warning
  * to a critical or the other way around (R24).
  *

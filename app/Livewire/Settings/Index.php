@@ -10,8 +10,7 @@ use Livewire\Component;
  * Authenticated settings hub (R53).
  *
  * Lists every configurable area with role-aware visibility; it never 404s for
- * a signed-in user. The Security entry is a plain link so Task 21 can register
- * the route without changing this component.
+ * a signed-in user.
  */
 #[Layout('layouts.app')]
 class Index extends Component

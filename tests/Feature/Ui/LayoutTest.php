@@ -5,6 +5,7 @@ namespace Tests\Feature\Ui;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\File;
 use Tests\TestCase;
 
 class LayoutTest extends TestCase
@@ -283,7 +284,6 @@ class LayoutTest extends TestCase
             resource_path('views/layouts/guest.blade.php'),
             resource_path('views/components/status.blade.php'),
             resource_path('views/components/empty-state.blade.php'),
-            resource_path('views/dashboard-placeholder.blade.php'),
             resource_path('views/auth/login.blade.php'),
             resource_path('views/auth/forgot-password.blade.php'),
             resource_path('views/auth/reset-password.blade.php'),
@@ -294,6 +294,30 @@ class LayoutTest extends TestCase
             $contents = (string) file_get_contents($path);
 
             $this->assertDoesNotMatchRegularExpression('/#[0-9a-fA-F]{3,8}\b/', $contents, basename($path).' hardcodes a colour value.');
+        }
+    }
+
+    public function test_no_view_ships_placeholder_copy(): void
+    {
+        $phrases = [
+            'arrives in the next task',
+            'coming soon',
+            'not implemented yet',
+            'placeholder page',
+            'under construction',
+            'this shell is the shared application frame',
+        ];
+
+        foreach (File::allFiles(resource_path('views')) as $file) {
+            $contents = strtolower((string) file_get_contents($file->getPathname()));
+
+            foreach ($phrases as $phrase) {
+                $this->assertStringNotContainsString(
+                    $phrase,
+                    $contents,
+                    $file->getRelativePathname().' still contains placeholder copy: '.$phrase,
+                );
+            }
         }
     }
 

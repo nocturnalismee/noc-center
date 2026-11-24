@@ -15,8 +15,8 @@ use Throwable;
  * Evaluate the ingest-time issue rules (spec §9.1) for one sample.
  *
  * Every threshold is read through `SettingsRepository` with the
- * `config/alerts.php` value as the default, so an admin override on the alert
- * settings page (Task 20) changes behaviour without a deploy.
+ * `config/alerts.php` value as the default, so an administrator override on the
+ * alert settings page changes behaviour without a deploy.
  *
  * Rules never treat a missing key as zero: a module that was not reported, a
  * service without its state keys, or a server without `mysql.available` stays

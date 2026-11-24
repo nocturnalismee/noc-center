@@ -33,7 +33,7 @@ class Tokens extends Component
 
     /**
      * Rotate the current token and hand the new plaintext to the one-time
-     * reveal controller exactly like the create wizard (Task 18).
+     * reveal controller exactly like the create wizard.
      *
      * The plaintext never becomes a public property, a URL segment, or a
      * Livewire payload: only `Crypt::encryptString($plain)` is flashed.

@@ -158,7 +158,7 @@ class AlertEngine
     }
 
     /**
-     * Reconcile the two liveness rules for one server (Task 10).
+     * Reconcile the two liveness rules for one server.
      *
      * `server_stale` (warning) and `server_offline` (critical) are mutually
      * exclusive: at most one is open. The escalation is administrative, so the
@@ -358,8 +358,8 @@ class AlertEngine
      *
      * `$notify` defaults to true on purpose (spec §9): an operator resolving an
      * alert asserts that the condition is gone. A maintenance close — "we are
-     * doing this deliberately, do not celebrate" — is a Task 19 UI decision
-     * that will pass `$notify: false`; liveness never suppresses recovery here.
+     * doing this deliberately, do not celebrate" — passes `$notify: false`;
+     * liveness never suppresses recovery here.
      */
     public function resolve(Alert $alert, ?User $actor = null, ?string $note = null, bool $notify = true): void
     {
