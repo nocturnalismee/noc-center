@@ -302,6 +302,8 @@ class CreateServerTest extends TestCase
 
     public function test_the_reveal_page_shows_the_token_once_with_details_and_no_store(): void
     {
+        config(['app.url' => 'httpS://panel.example.com/']);
+
         $operator = User::factory()->create(['role' => 'operator']);
         $server = $this->server();
         $payload = $this->payload($server);
@@ -319,11 +321,14 @@ class CreateServerTest extends TestCase
             ->assertSee($payload['prefix'])
             ->assertSee('Copy this token now. It will not be shown again.')
             ->assertSee('agent/install.sh')
-            ->assertSee('--api-url '.rtrim((string) config('app.url'), '/').'/api/v1/ingest')
+            ->assertSee('--api-url https://panel.example.com/api/v1/ingest')
             ->assertSee('--token-file /root/noc-token')
-            ->assertSee('curl -fsSL '.rtrim((string) config('app.url'), '/').'/agent/download')
-            ->assertSee('tar -xzpf /tmp/noc-agent.tar.gz -C /tmp')
-            ->assertSee('/tmp/noc-agent/install.sh')
+            ->assertSee('sudo curl -fsSL https://panel.example.com/agent/download -o /root/noc-agent.tar.gz')
+            ->assertSee('sudo rm -rf /root/noc-agent')
+            ->assertSee('sudo tar -xzpf /root/noc-agent.tar.gz -C /root')
+            ->assertSee('sudo /root/noc-agent/install.sh')
+            ->assertDontSee('/tmp/noc-agent/install.sh')
+            ->assertDontSee('httpS://')
             ->assertSee(route('servers.waiting', $server), false)
             ->assertSee('Never')
             ->assertSee('24 hours')

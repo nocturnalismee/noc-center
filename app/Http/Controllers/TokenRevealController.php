@@ -55,12 +55,22 @@ class TokenRevealController extends Controller
 
         $baseUrl = rtrim((string) config('app.url'), '/');
 
+        // URL schemes are case-insensitive, but the agent's strict validator
+        // compares them literally. Normalise APP_URL so a pasted uppercase
+        // scheme cannot produce an install command the agent rejects.
+        $baseUrl = (string) preg_replace_callback(
+            '/^[A-Za-z][A-Za-z0-9+.-]*:\/\//',
+            static fn (array $match): string => strtolower($match[0]),
+            $baseUrl,
+        );
+
         $installCommand = "sudo install -m 600 /dev/null /root/noc-token\n"
             ."sudo bash -c 'read -rsp \"Token: \" token; printf \"%s\" \"\$token\" > /root/noc-token; echo'\n"
             ."# paste the token at the prompt, then press Enter\n"
-            ."curl -fsSL {$baseUrl}/agent/download -o /tmp/noc-agent.tar.gz\n"
-            ."sudo tar -xzpf /tmp/noc-agent.tar.gz -C /tmp\n"
-            ."sudo /tmp/noc-agent/install.sh \\\n"
+            ."sudo curl -fsSL {$baseUrl}/agent/download -o /root/noc-agent.tar.gz\n"
+            ."sudo rm -rf /root/noc-agent\n"
+            ."sudo tar -xzpf /root/noc-agent.tar.gz -C /root\n"
+            ."sudo /root/noc-agent/install.sh \\\n"
             ."  --api-url {$baseUrl}/api/v1/ingest \\\n"
             .'  --token-file /root/noc-token';
 

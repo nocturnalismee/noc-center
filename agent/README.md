@@ -143,13 +143,14 @@ from its own `agent/` directory; no repository checkout is needed on the
 monitored server.
 
 ```bash
-curl -fsSL https://monitor.example.com/agent/download -o /tmp/noc-agent.tar.gz
-tar -xzpf /tmp/noc-agent.tar.gz -C /tmp
+sudo curl -fsSL https://monitor.example.com/agent/download -o /root/noc-agent.tar.gz
+sudo rm -rf /root/noc-agent
+sudo tar -xzpf /root/noc-agent.tar.gz -C /root
 
-install -m 600 /dev/null /root/noc-token
-read -rsp "Token: " token && printf '%s' "$token" > /root/noc-token
+sudo install -m 600 /dev/null /root/noc-token
+sudo bash -c 'read -rsp "Token: " token; printf "%s" "$token" > /root/noc-token; echo'
 
-/tmp/noc-agent/install.sh --api-url https://monitor.example.com/api/v1/ingest \
+sudo /root/noc-agent/install.sh --api-url https://monitor.example.com/api/v1/ingest \
   --token-file /root/noc-token
 ```
 

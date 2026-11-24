@@ -48,9 +48,10 @@ sudo bash -c 'read -rsp "Token: " token; printf "%s" "$token" &gt; /root/noc-tok
 
                         <li>
                             <p class="text-[13px] font-medium text-text">2. Download and install the agent</p>
-                            <pre class="mt-2 overflow-x-auto border border-border bg-surface px-4 py-3 font-mono text-[12px] leading-5 text-text">curl -fsSL https://noc.example.com/agent/download -o /tmp/noc-agent.tar.gz
-sudo tar -xzpf /tmp/noc-agent.tar.gz -C /tmp
-sudo /tmp/noc-agent/install.sh \
+                            <pre class="mt-2 overflow-x-auto border border-border bg-surface px-4 py-3 font-mono text-[12px] leading-5 text-text">sudo curl -fsSL https://noc.example.com/agent/download -o /root/noc-agent.tar.gz
+sudo rm -rf /root/noc-agent
+sudo tar -xzpf /root/noc-agent.tar.gz -C /root
+sudo /root/noc-agent/install.sh \
   --api-url https://noc.example.com/api/v1/ingest \
   --token-file /root/noc-token</pre>
                             <p class="mt-1.5 text-[12px] text-text-muted">The installer is idempotent. Add <code class="font-mono">--interval 120</code> for a two-minute collection interval.</p>

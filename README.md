@@ -33,15 +33,16 @@ no repository checkout is needed:
 
 ```bash
 # 1. Download the agent from the dashboard
-curl -fsSL https://monitor.example.com/agent/download -o /tmp/noc-agent.tar.gz
-tar -xzpf /tmp/noc-agent.tar.gz -C /tmp
+sudo curl -fsSL https://monitor.example.com/agent/download -o /root/noc-agent.tar.gz
+sudo rm -rf /root/noc-agent
+sudo tar -xzpf /root/noc-agent.tar.gz -C /root
 
 # 2. Store the per-server token in a root-only file
-install -m 600 /dev/null /root/noc-token
-read -rsp "Token: " token && printf '%s' "$token" > /root/noc-token
+sudo install -m 600 /dev/null /root/noc-token
+sudo bash -c 'read -rsp "Token: " token; printf "%s" "$token" > /root/noc-token; echo'
 
 # 3. Install and start the timers
-/tmp/noc-agent/install.sh --api-url https://monitor.example.com/api/v1/ingest \
+sudo /root/noc-agent/install.sh --api-url https://monitor.example.com/api/v1/ingest \
   --token-file /root/noc-token
 ```
 
