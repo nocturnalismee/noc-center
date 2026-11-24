@@ -17,11 +17,6 @@ by the Imunify module when present.
   controllers), and SMART data behind hardware RAID controllers (Dell PERC,
   LSI, HP Smart Array) is out of scope for v1.
 
-> Not to be confused with the legacy root-level `collector-cpanel.sh`. That is
-> an older, standalone cPanel/cron collector. The agent lives entirely under
-> `agent/` and is installed by `agent/install.sh` (see the repository
-> [`README.md`](../README.md)).
-
 ---
 
 ## 1. Architecture

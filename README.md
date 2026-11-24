@@ -49,6 +49,9 @@ The same command, with the token prompt, appears on the server's one-time
 token reveal page. `APP_URL` must be the dashboard's public URL, not
 `localhost`, when monitored servers are on other hosts.
 
+The legacy root-level `collector-cpanel.sh` has been retired. Deployments
+still running it should migrate to the agent above.
+
 See [`agent/README.md`](agent/README.md) for prerequisites, configuration,
 timers, troubleshooting, token rotation, and uninstall.
 
@@ -63,16 +66,6 @@ timers, troubleshooting, token rotation, and uninstall.
 | `agent/` | Agent: `collector.sh` core, `lib/`, `panels/`, `modules/`, `systemd/`, `config/`, installer and uninstaller. |
 | `tools/tests/`, `tools/test-agent.sh`, `tools/mock-ingest.py` | Agent test suites, one-command runner, and local mock ingest endpoint. |
 | `docs/superpowers/` | Approved design and implementation plan. |
-
-## Legacy collector — do not confuse with the agent
-
-The root-level [`collector-cpanel.sh`](collector-cpanel.sh) is the **legacy,
-standalone cPanel collector**. It is installed manually as a root cron script,
-writes local snapshots/caches for a local PHP page, and has **nothing to do with
-the new agent**: it does not use `agent/`, is not installed by
-`agent/install.sh`, and is not covered by `tools/test-agent.sh`. It is kept
-unchanged for existing deployments; the new agent supersedes it functionally
-(and can run side by side with it until migration is finished).
 
 ---
 
