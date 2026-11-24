@@ -42,8 +42,8 @@
                     </span>
 
                     <span class="sidebar-brand-copy min-w-0">
-                        <span class="block truncate text-[14px] font-semibold leading-5 text-text">NOC Center</span>
-                        <span class="block truncate text-[8.5px] font-medium uppercase leading-3 tracking-[0.1em] text-text-muted">Operations Console</span>
+                        <span class="block truncate text-[15px] font-semibold leading-5 text-text">NOC Center</span>
+                        <span class="block truncate text-[11px] font-medium uppercase leading-4 tracking-[0.1em] text-text-muted">Operations Console</span>
                     </span>
                 </a>
 
@@ -59,7 +59,7 @@
 
             <nav class="flex flex-1 flex-col gap-6 overflow-y-auto px-3 py-5">
                 <div>
-                    <p class="sidebar-group-label px-2 pb-2 text-[9px] font-medium uppercase tracking-[0.1em] text-text-muted">Fleet</p>
+                    <p class="sidebar-group-label px-2 pb-2 text-[11px] font-medium uppercase tracking-[0.1em] text-text-muted">Fleet</p>
 
                     <div class="flex flex-col gap-0.5">
                         <a href="/dashboard" @if (request()->is('dashboard')) aria-current="page" @endif class="nav-link" title="Dashboard" aria-label="Dashboard">
@@ -89,7 +89,7 @@
                 </div>
 
                 <div>
-                    <p class="sidebar-group-label px-2 pb-2 text-[9px] font-medium uppercase tracking-[0.1em] text-text-muted">Admin</p>
+                    <p class="sidebar-group-label px-2 pb-2 text-[11px] font-medium uppercase tracking-[0.1em] text-text-muted">Admin</p>
 
                     <div class="flex flex-col gap-0.5">
                         <a href="/settings" @if (request()->is('settings*')) aria-current="page" @endif class="nav-link" title="Settings" aria-label="Settings">
@@ -133,8 +133,8 @@
 
                 <div class="sidebar-footer flex items-center justify-between gap-2 border-t border-divider px-4 py-3">
                     <div class="sidebar-footer-copy min-w-0">
-                        <p class="truncate text-[12px] font-medium leading-4 text-text">{{ $user->name }}</p>
-                        <p class="truncate text-[10px] leading-4 text-text-muted">{{ $role }}</p>
+                        <p class="truncate text-[13px] font-medium leading-5 text-text">{{ $user->name }}</p>
+                        <p class="truncate text-[12px] leading-5 text-text-muted">{{ $role }}</p>
                     </div>
 
                     <span class="sidebar-footer-avatar" title="{{ $user->name }}" aria-hidden="true">{{ $initials }}</span>
@@ -150,7 +150,7 @@
                     aria-controls="sidebar"
                     aria-expanded="true"
                     aria-label="Collapse sidebar"
-                    class="flex min-h-9 w-full items-center gap-2.5 rounded-control px-2.5 py-1.5 text-[11.5px] text-text-sub hover:bg-surface-2 hover:text-text"
+                    class="flex min-h-9 w-full items-center gap-2.5 rounded-control px-2.5 py-1.5 text-[13px] text-text-sub hover:bg-surface-2 hover:text-text"
                 >
                     <x-heroicon-o-chevron-double-left class="h-4 w-4 shrink-0" />
                     <span class="sidebar-label">Collapse</span>
@@ -176,7 +176,7 @@
                         @hasSection('breadcrumb')
                             @yield('breadcrumb')
                         @else
-                            <ol class="flex items-center gap-2 text-[12px] text-text-muted">
+                            <ol class="flex items-center gap-2 text-[13px] text-text-muted">
                                 <li>Fleet</li>
                                 <li aria-hidden="true" class="text-divider">/</li>
                                 <li class="truncate font-medium text-text">Overview</li>
@@ -197,9 +197,9 @@
                                 value="{{ request()->routeIs('servers.index') ? (string) request()->query('q', '') : '' }}"
                                 placeholder="Search servers"
                                 autocomplete="off"
-                                class="h-9 w-[212px] rounded-control border border-border bg-surface-2 pl-9 pr-12 text-[11.5px] text-text placeholder:text-text-muted hover:border-border-strong focus:border-border-strong"
+                                class="h-9 w-[212px] rounded-control border border-border bg-surface-2 pl-9 pr-12 text-[13px] text-text placeholder:text-text-muted hover:border-border-strong focus:border-border-strong"
                             >
-                            <kbd class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border px-1 py-0.5 font-mono text-[9px] text-text-muted">⌘K</kbd>
+                            <kbd class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border px-1 py-0.5 font-mono text-[11px] text-text-muted">⌘K</kbd>
                         </div>
                     </form>
 
@@ -252,19 +252,19 @@
                         @endphp
 
                         <details class="relative">
-                            <summary class="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-control border border-border bg-surface-2 text-[11px] font-medium text-text [&::-webkit-details-marker]:hidden" aria-label="Account menu">
+                            <summary class="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-control border border-border bg-surface-2 text-[13px] font-medium text-text [&::-webkit-details-marker]:hidden" aria-label="Account menu">
                                 {{ $initials }}
                             </summary>
 
                             <div class="absolute right-0 top-11 z-30 w-56 rounded-control border border-border bg-surface p-1.5 shadow-lg">
                                 <div class="px-2.5 py-2">
-                                    <p class="truncate text-[12px] font-medium text-text">{{ $account->name }}</p>
-                                    <p class="truncate text-[10px] text-text-muted">{{ $account->email }}</p>
+                                    <p class="truncate text-[13px] font-medium text-text">{{ $account->name }}</p>
+                                    <p class="truncate text-[12px] text-text-muted">{{ $account->email }}</p>
                                 </div>
 
                                 <form method="POST" action="{{ route('logout') }}">
                                     @csrf
-                                    <button type="submit" class="flex min-h-8 w-full items-center rounded-control px-2.5 text-left text-[11.5px] text-text-sub hover:bg-surface-2 hover:text-text">
+                                    <button type="submit" class="flex min-h-8 w-full items-center rounded-control px-2.5 text-left text-[13px] text-text-sub hover:bg-surface-2 hover:text-text">
                                         Sign out
                                     </button>
                                 </form>
@@ -282,7 +282,7 @@
                 @endif
             </main>
 
-            <footer class="flex flex-wrap items-center justify-between gap-2 border-t border-divider px-4 py-4 text-[9px] text-text-muted lg:px-6 xl:px-8">
+            <footer class="flex flex-wrap items-center justify-between gap-2 border-t border-divider px-4 py-4 text-[11px] text-text-muted lg:px-6 xl:px-8">
                 <p>NOC Center {{ $appVersion ?? 'v1.0.0' }} · UTC in storage · Asia/Jakarta display</p>
                 <p>Internal operations console</p>
             </footer>

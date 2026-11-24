@@ -7,8 +7,8 @@
     @endsection
 
     <div class="min-w-0">
-        <h1 class="text-[22px] font-semibold leading-7 tracking-[-0.01em] text-text">Activity</h1>
-        <p class="mt-1.5 max-w-[78ch] text-[11.5px] text-text-sub">
+        <h1 class="text-[26px] font-semibold leading-8 tracking-[-0.01em] text-text">Activity</h1>
+        <p class="mt-1.5 max-w-[78ch] text-[13px] text-text-sub">
             Read-only audit trail. Records sign-ins, server and token changes, alert actions, and settings updates. Entries cannot be edited or deleted.
             Date filters use Asia/Jakarta calendar days.
         </p>
@@ -47,7 +47,7 @@
 
         <button type="button" wire:click="clearFilters" class="secondary-button h-9">Clear filters</button>
 
-        <p class="ml-auto font-mono text-[9.5px] text-text-muted">{{ $events->total() }} {{ Str::plural('event', $events->total()) }}</p>
+        <p class="ml-auto font-mono text-[12px] text-text-muted">{{ $events->total() }} {{ Str::plural('event', $events->total()) }}</p>
     </div>
 
     @if ($events->isEmpty())
@@ -58,7 +58,7 @@
         <div class="mt-2 overflow-x-auto">
             <table class="w-full border-collapse text-left">
                 <thead>
-                    <tr class="border-b border-border text-[8.5px] uppercase tracking-[0.08em] text-text-muted">
+                    <tr class="border-b border-border text-[11px] uppercase tracking-[0.08em] text-text-muted">
                         <th scope="col" class="py-2 pr-4 font-medium">Time</th>
                         <th scope="col" class="py-2 pr-4 font-medium">Action</th>
                         <th scope="col" class="py-2 pr-4 font-medium">Actor</th>
@@ -69,23 +69,23 @@
                 </thead>
                 <tbody>
                     @foreach ($events as $event)
-                        <tr class="border-b border-divider align-top text-[10.5px]" wire:key="audit-{{ $event->id }}">
-                            <td class="whitespace-nowrap py-3 pr-4 font-mono text-[9.5px] text-text-muted">
+                        <tr class="border-b border-divider align-top text-[13px]" wire:key="audit-{{ $event->id }}">
+                            <td class="whitespace-nowrap py-3 pr-4 font-mono text-[12px] text-text-muted">
                                 {{ $event->created_at?->timezone('Asia/Jakarta')->format('Y-m-d H:i:s') ?? '—' }}
                             </td>
-                            <td class="py-3 pr-4 font-mono text-[10px] text-text">{{ $event->action }}</td>
+                            <td class="py-3 pr-4 font-mono text-[12px] text-text">{{ $event->action }}</td>
                             <td class="py-3 pr-4 text-text-sub">
                                 {{ $event->user?->name ?? 'System' }}
                             </td>
-                            <td class="py-3 pr-4 font-mono text-[9.5px] text-text-muted">
+                            <td class="py-3 pr-4 font-mono text-[12px] text-text-muted">
                                 @if ($event->target_type || $event->target_id)
                                     {{ $event->target_type ?? '—' }}<span aria-hidden="true"> · </span>{{ $event->target_id ?? '—' }}
                                 @else
                                     —
                                 @endif
                             </td>
-                            <td class="py-3 pr-4 font-mono text-[9.5px] text-text-muted">{{ $event->ip ?? '—' }}</td>
-                            <td class="py-3 text-[9.5px] text-text-muted">
+                            <td class="py-3 pr-4 font-mono text-[12px] text-text-muted">{{ $event->ip ?? '—' }}</td>
+                            <td class="py-3 text-[12px] text-text-muted">
                                 @php
                                     $meta = is_array($event->meta_json) ? $event->meta_json : [];
                                     $summary = collect($meta)->keys()->implode(' · ');

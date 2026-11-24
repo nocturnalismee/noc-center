@@ -10,8 +10,8 @@
 
     <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div class="min-w-0">
-            <h1 class="text-[22px] font-semibold leading-7 tracking-[-0.01em] text-text">Users</h1>
-            <p class="mt-1.5 max-w-[76ch] text-[11.5px] text-text-sub">
+            <h1 class="text-[26px] font-semibold leading-8 tracking-[-0.01em] text-text">Users</h1>
+            <p class="mt-1.5 max-w-[76ch] text-[13px] text-text-sub">
                 Accounts that can sign in to this dashboard. Administrator-set passwords must be changed at next sign-in.
             </p>
         </div>
@@ -22,20 +22,20 @@
     @include('livewire.settings.nav')
 
     @if ($statusMessage)
-        <p class="mt-4 border-y border-divider py-2.5 text-[10.5px] text-text-sub" role="status">{{ $statusMessage }}</p>
+        <p class="mt-4 border-y border-divider py-2.5 text-[13px] text-text-sub" role="status">{{ $statusMessage }}</p>
     @endif
 
     @error('delete')
-        <p class="mt-4 border-y border-divider py-2.5 text-[10.5px] text-critical" role="alert">{{ $message }}</p>
+        <p class="mt-4 border-y border-divider py-2.5 text-[13px] text-critical" role="alert">{{ $message }}</p>
     @enderror
 
     @if ($showForm)
         <section class="mt-6 border-t border-border pt-5" aria-labelledby="user-form-heading">
             <div class="flex items-baseline justify-between gap-4">
-                <h2 id="user-form-heading" class="text-[13px] font-semibold text-text">
+                <h2 id="user-form-heading" class="text-[15px] font-semibold text-text">
                     {{ $editingId ? 'Edit user' : 'New user' }}
                 </h2>
-                <button type="button" wire:click="closeForm" class="text-[10.5px] text-text-sub hover:text-text">Cancel</button>
+                <button type="button" wire:click="closeForm" class="text-[13px] text-text-sub hover:text-text">Cancel</button>
             </div>
 
             <livewire:settings.user-form
@@ -56,7 +56,7 @@
             autocomplete="off"
         >
 
-        <p class="font-mono text-[9.5px] text-text-muted">{{ $users->total() }} {{ Str::plural('account', $users->total()) }}</p>
+        <p class="font-mono text-[12px] text-text-muted">{{ $users->total() }} {{ Str::plural('account', $users->total()) }}</p>
     </div>
 
     @if ($users->isEmpty())
@@ -71,7 +71,7 @@
         <div class="mt-2 overflow-x-auto">
             <table class="w-full border-collapse text-left">
                 <thead>
-                    <tr class="border-b border-border text-[8.5px] uppercase tracking-[0.08em] text-text-muted">
+                    <tr class="border-b border-border text-[11px] uppercase tracking-[0.08em] text-text-muted">
                         <th scope="col" class="py-2 pr-4 font-medium">User</th>
                         <th scope="col" class="py-2 pr-4 font-medium">Role</th>
                         <th scope="col" class="py-2 pr-4 font-medium">Status</th>
@@ -81,10 +81,10 @@
                 </thead>
                 <tbody>
                     @foreach ($users as $user)
-                        <tr class="border-b border-divider align-top text-[10.5px]" wire:key="user-{{ $user->id }}">
+                        <tr class="border-b border-divider align-top text-[13px]" wire:key="user-{{ $user->id }}">
                             <td class="py-3 pr-4">
-                                <p class="text-[12px] font-medium text-text">{{ $user->name }}</p>
-                                <p class="mt-0.5 font-mono text-[9.5px] text-text-muted">{{ $user->email }}</p>
+                                <p class="text-[13px] font-medium text-text">{{ $user->name }}</p>
+                                <p class="mt-0.5 font-mono text-[12px] text-text-muted">{{ $user->email }}</p>
                             </td>
                             <td class="py-3 pr-4 text-text-sub">{{ ucfirst($user->role()->value) }}</td>
                             <td class="py-3 pr-4">
@@ -101,14 +101,14 @@
                                     {{ $user->is_active ? 'Active' : 'Inactive' }}
                                 </span>
                                 @if ($user->must_change_password)
-                                    <p class="mt-1 text-[9px] text-text-muted">Password change required</p>
+                                    <p class="mt-1 text-[11px] text-text-muted">Password change required</p>
                                 @endif
                             </td>
-                            <td class="py-3 pr-4 font-mono text-[9.5px] text-text-muted">
+                            <td class="py-3 pr-4 font-mono text-[12px] text-text-muted">
                                 {{ $user->last_login_at?->timezone('Asia/Jakarta')->format('Y-m-d H:i') ?? '—' }}
                             </td>
                             <td class="py-3 text-right">
-                                <div class="flex flex-wrap justify-end gap-3 text-[10px]">
+                                <div class="flex flex-wrap justify-end gap-3 text-[12px]">
                                     <button type="button" wire:click="openEdit({{ $user->id }})" class="text-text-sub hover:text-text">Edit</button>
                                     <button type="button" wire:click="startReset({{ $user->id }})" class="text-text-sub hover:text-text">Reset password</button>
                                     <button
@@ -133,11 +133,11 @@
                                                     aria-describedby="new-password-help-{{ $user->id }}"
                                                     @error('newPassword') aria-invalid="true" @enderror
                                                 >
-                                                <p id="new-password-help-{{ $user->id }}" class="mt-1.5 text-[9px] text-text-muted">
+                                                <p id="new-password-help-{{ $user->id }}" class="mt-1.5 text-[11px] text-text-muted">
                                                     The user must change it at next sign-in.
                                                 </p>
                                                 @error('newPassword')
-                                                    <p class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+                                                    <p class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
                                                 @enderror
                                             </div>
 

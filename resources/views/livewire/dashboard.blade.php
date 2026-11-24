@@ -1,8 +1,8 @@
 <div class="mx-auto w-full max-w-[1440px]">
     <div class="flex flex-wrap items-start justify-between gap-4">
         <div class="min-w-0">
-            <h1 class="text-[22px] font-semibold leading-7 tracking-[-0.01em] text-text">Fleet</h1>
-            <p class="mt-1 text-[11.5px] text-text-sub">
+            <h1 class="text-[26px] font-semibold leading-8 tracking-[-0.01em] text-text">Fleet</h1>
+            <p class="mt-1 text-[13px] text-text-sub">
                 {{ $summary['total'] }} {{ $summary['total'] === 1 ? 'server' : 'servers' }}
                 · {{ $summary['online'] }} reporting
                 @if ($latestSample)
@@ -30,9 +30,9 @@
 
         @foreach ($metrics as $metric)
             <div class="bg-canvas px-4 py-4">
-                <dt class="text-[8.5px] font-medium uppercase tracking-[0.09em] text-text-muted">{{ $metric['label'] }}</dt>
-                <dd class="mt-1.5 text-[20px] font-semibold leading-6 tracking-[-0.01em] text-text">{{ $metric['value'] }}</dd>
-                <dd class="mt-1 text-[9.5px] text-text-muted">{{ $metric['meta'] }}</dd>
+                <dt class="text-[11px] font-medium uppercase tracking-[0.09em] text-text-muted">{{ $metric['label'] }}</dt>
+                <dd class="mt-1.5 text-[24px] font-semibold leading-7 tracking-[-0.01em] text-text">{{ $metric['value'] }}</dd>
+                <dd class="mt-1 text-[12px] text-text-muted">{{ $metric['meta'] }}</dd>
             </div>
         @endforeach
     </dl>

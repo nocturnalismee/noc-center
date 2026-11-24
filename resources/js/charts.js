@@ -154,7 +154,7 @@ function chartOptions() {
                 border: { color: divider },
                 ticks: {
                     color: muted,
-                    font: { size: 8.5 },
+                    font: { size: 11 },
                     maxRotation: 0,
                     autoSkipPadding: 18,
                     callback(value) {
@@ -172,7 +172,7 @@ function chartOptions() {
                 border: { display: false },
                 ticks: {
                     color: muted,
-                    font: { size: 8.5 },
+                    font: { size: 11 },
                     padding: 8,
                     callback: (value) => `${value}%`,
                 },

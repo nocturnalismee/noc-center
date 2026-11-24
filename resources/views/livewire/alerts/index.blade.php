@@ -8,8 +8,8 @@
 
     <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div class="min-w-0">
-            <h1 class="text-[22px] font-semibold leading-7 tracking-[-0.01em] text-text">Alerts</h1>
-            <p class="mt-1.5 flex flex-wrap items-center gap-x-2 text-[11px] text-text-sub">
+            <h1 class="text-[26px] font-semibold leading-8 tracking-[-0.01em] text-text">Alerts</h1>
+            <p class="mt-1.5 flex flex-wrap items-center gap-x-2 text-[13px] text-text-sub">
                 <span>{{ $counts['open'] }} open</span>
                 <span class="text-border-strong">·</span>
                 <span>{{ $counts['critical'] }} critical active</span>
@@ -27,14 +27,14 @@
                 type="button"
                 wire:click="$set('status', '{{ $key }}')"
                 @class([
-                    '-mb-px flex shrink-0 items-baseline gap-1.5 border-b-2 py-3 text-[11px] transition-colors',
+                    '-mb-px flex shrink-0 items-baseline gap-1.5 border-b-2 py-3 text-[13px] transition-colors',
                     'border-focus font-medium text-text' => $status === $key,
                     'border-transparent text-text-sub hover:text-text' => $status !== $key,
                 ])
                 @if ($status === $key) aria-current="page" @endif
             >
                 {{ $label }}
-                <span class="font-mono text-[9.5px] text-text-muted">{{ $counts[$key] }}</span>
+                <span class="font-mono text-[12px] text-text-muted">{{ $counts[$key] }}</span>
             </button>
         @endforeach
 
@@ -58,7 +58,7 @@
 
     @if ($alerts->isEmpty())
         <div class="mt-6 border-y border-divider py-10 text-center">
-            <p class="text-[12.5px] text-text-sub">
+            <p class="text-[13.5px] text-text-sub">
                 @if ($status === 'open')
                     No open alerts.
                 @elseif ($status === 'acknowledged')
@@ -77,7 +77,7 @@
         <div class="mt-2 overflow-x-auto">
             <table class="w-full border-collapse text-left">
                 <thead>
-                    <tr class="border-b border-border text-[8.5px] uppercase tracking-[0.08em] text-text-muted">
+                    <tr class="border-b border-border text-[11px] uppercase tracking-[0.08em] text-text-muted">
                         <th scope="col" class="py-2 pr-4 font-medium">Severity</th>
                         <th scope="col" class="py-2 pr-4 font-medium">Alert</th>
                         <th scope="col" class="py-2 pr-4 font-medium">Status</th>
@@ -86,7 +86,7 @@
                 </thead>
                 <tbody>
                     @foreach ($alerts as $alert)
-                        <tr class="border-b border-divider align-top text-[10.5px]" wire:key="alert-{{ $alert->id }}">
+                        <tr class="border-b border-divider align-top text-[13px]" wire:key="alert-{{ $alert->id }}">
                             <td class="py-3 pr-4">
                                 <span @class([
                                     'inline-flex items-center gap-1.5 font-medium whitespace-nowrap',
@@ -102,17 +102,17 @@
                                 </span>
                             </td>
                             <td class="py-3 pr-4">
-                                <a href="{{ route('alerts.show', $alert) }}" class="block text-[12px] font-medium text-text hover:underline">
+                                <a href="{{ route('alerts.show', $alert) }}" class="block text-[13px] font-medium text-text hover:underline">
                                     {{ $alert->title }}
                                 </a>
-                                <p class="mt-0.5 flex flex-wrap items-center gap-x-2 text-[9.5px] text-text-muted">
+                                <p class="mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px] text-text-muted">
                                     <span class="font-mono">{{ $alert->server?->hostname ?? 'Deleted server' }}</span>
                                     <span aria-hidden="true">·</span>
                                     <span>{{ $alert->server?->server_type ?: 'Unassigned' }}</span>
                                 </p>
                             </td>
                             <td class="py-3 pr-4 text-text-sub">{{ ucfirst($alert->status->value) }}</td>
-                            <td class="py-3 text-right font-mono text-[9.5px] text-text-muted">
+                            <td class="py-3 text-right font-mono text-[12px] text-text-muted">
                                 {{ $alert->last_seen_at?->diffForHumans(short: true) ?? '—' }}
                             </td>
                         </tr>
@@ -121,7 +121,7 @@
             </table>
         </div>
 
-        <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-[10px] text-text-muted">
+        <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-[12px] text-text-muted">
             <p>Showing {{ $alerts->firstItem() }}–{{ $alerts->lastItem() }} of {{ $alerts->total() }}</p>
             {{ $alerts->links() }}
         </div>

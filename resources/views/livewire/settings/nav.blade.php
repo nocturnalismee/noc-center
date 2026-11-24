@@ -20,7 +20,7 @@
         <a
             href="{{ $section['href'] }}"
             @class([
-                '-mb-px flex shrink-0 items-center border-b-2 py-3 text-[11px] transition-colors',
+                '-mb-px flex shrink-0 items-center border-b-2 py-3 text-[13px] transition-colors',
                 'border-focus font-medium text-text' => $section['active'],
                 'border-transparent text-text-sub hover:text-text' => ! $section['active'],
             ])

@@ -38,13 +38,13 @@
                 </span>
 
                 <span class="min-w-0">
-                    <span class="block truncate text-[14px] font-semibold leading-5 text-text">NOC Center</span>
-                    <span class="block text-[8.5px] font-medium uppercase leading-3 tracking-[0.1em] text-text-muted">Operations</span>
+                    <span class="block truncate text-[15px] font-semibold leading-5 text-text">NOC Center</span>
+                    <span class="block text-[11px] font-medium uppercase leading-4 tracking-[0.1em] text-text-muted">Operations</span>
                 </span>
             </a>
 
             <div class="flex items-center gap-3">
-                <p class="hidden text-[11px] text-text-sub sm:block">Need access? Contact your administrator.</p>
+                <p class="hidden text-[13px] text-text-sub sm:block">Need access? Contact your administrator.</p>
 
                 <button
                     type="button"
@@ -71,14 +71,14 @@
             <div class="mt-12 flex flex-col items-center gap-2 text-center">
                 <div class="flex flex-wrap items-center justify-center gap-x-8 gap-y-2">
                     <x-status state="online" label="All systems operational" />
-                    <span class="text-[9px] text-text-muted">NOC Center {{ $appVersion }}</span>
+                    <span class="text-[11px] text-text-muted">NOC Center {{ $appVersion }}</span>
                 </div>
 
-                <p class="text-[9px] text-text-muted">UTC in storage · Asia/Jakarta display</p>
+                <p class="text-[11px] text-text-muted">UTC in storage · Asia/Jakarta display</p>
             </div>
         </main>
 
-        <footer class="flex flex-wrap items-center justify-between gap-2 px-5 py-5 text-[9px] text-text-muted sm:px-8">
+        <footer class="flex flex-wrap items-center justify-between gap-2 px-5 py-5 text-[11px] text-text-muted sm:px-8">
             <p>Internal operations console</p>
             <p>Agent guide · Changelog</p>
         </footer>

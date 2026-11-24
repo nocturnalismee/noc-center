@@ -19,7 +19,7 @@
     $text = $label ?? $config['label'];
 @endphp
 
-<span {{ $attributes->merge(['class' => 'inline-flex items-center gap-1.5 text-[9.5px] font-medium whitespace-nowrap '.$config['colour']]) }} data-state="{{ $stateValue }}">
+<span {{ $attributes->merge(['class' => 'inline-flex items-center gap-1.5 text-[12px] font-medium whitespace-nowrap '.$config['colour']]) }} data-state="{{ $stateValue }}">
     @if ($config['dot'])
         <span aria-hidden="true" class="h-[6px] w-[6px] shrink-0 rounded-full {{ $config['dot'] }}"></span>
     @endif

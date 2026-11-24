@@ -94,7 +94,7 @@ Dark mode is **neutral black**, never navy, slate-blue, or purple.
 Rules:
 
 - Always pair a status dot with its label. Never rely on colour alone.
-- Severity is a dot plus an uppercase 8.5px label, not a filled pill.
+- Severity is a dot plus an uppercase 11px label, not a filled pill.
 - Acknowledged is deliberately neutral; only open critical/warning carries
   colour.
 
@@ -115,15 +115,16 @@ Maximum four series. No dual axes. Units live in the tick labels and legend.
 
 | Role | Family | Size / line | Weight | Notes |
 | --- | --- | --- | --- | --- |
-| Brand | Inter | 14 / 20 | 600 | “NOC Center” |
-| Page title | Inter | 22 / 28 | 600 | tracking −1% |
-| Section title | Inter | 13 / 20 | 600 | |
-| Body | Inter | 12.5 / 18 | 400 | |
-| Table cell | Inter | 11.5 / 16 | 400–500 | server name 500 |
-| Label | Inter | 8.5 / 12 | 500 | uppercase, tracking 8–12% |
-| Metadata | Inter | 9–10 / 14 | 400 | `text-muted` |
-| Metric value | Inter | 18–20 / 24 | 600 | tabular numerals |
-| Mono | JetBrains Mono | 9.5–12 / 16 | 400 | hostnames, tokens, numbers |
+| Brand | Inter | 15 / 20 | 600 | “NOC Center” |
+| Page title | Inter | 26 / 32 | 600 | tracking −1% |
+| Auth title | Inter | 28 / 36 | 600 | tracking −1% |
+| Section title | Inter | 15 / 22 | 600 | |
+| Body | Inter | 13 / 19.5 | 400 | |
+| Table cell | Inter | 13 / 18 | 400–500 | server name 500 |
+| Label | Inter | 11 / 16 | 500 | uppercase, tracking 8–12% |
+| Metadata | Inter | 12 / 18 | 400 | `text-muted` |
+| Metric value | Inter | 24 / 28 | 600 | tabular numerals |
+| Mono | JetBrains Mono | 11–13 / 18 | 400 | hostnames, tokens, numbers |
 
 - Use `font-variant-numeric: tabular-nums` on every metric, age, and
   right-aligned number.
@@ -156,12 +157,12 @@ Maximum four series. No dual axes. Units live in the tick labels and legend.
 ### 6.1 Sidebar
 
 - Brand mark: three 3px bars, or the `N` tile in compact screens; wordmark
-  “NOC Center” with “OPERATIONS CONSOLE” at 8.5px, `text-muted`, tracking 10%.
+  “NOC Center” with “OPERATIONS CONSOLE” at 11px, `text-muted`, tracking 10%.
 - Groups: `FLEET` (Dashboard, Servers, Alerts, Activity) and `ADMIN`
-  (Settings, Users, Audit log), each with a 9px uppercase group label.
+  (Settings, Users, Audit log), each with an 11px uppercase group label.
 - Active item: `surface-2` fill, 6px radius, text `text` at 500. Inactive:
   `text-sub` at 400.
-- Counts are monospace, right-aligned, 9.5px; alert count uses `crit`.
+- Counts are monospace, right-aligned, 12px; alert count uses `crit`.
 - Footer: signed-in name, role, chevron, and a `Collapse` control at the very
   bottom.
 - Collapsed rail: icons only (20px), tooltip on hover/focus, no labels.
@@ -178,7 +179,7 @@ Maximum four series. No dual axes. Units live in the tick labels and legend.
 
 ### 6.3 Page header
 
-- 22px title, 11.5px summary line, actions right-aligned and 32–36px tall.
+- 26px title, 13px summary line, actions right-aligned and 36–40px tall.
 - Primary action: `text` fill with `ink` label. Secondary: transparent with
   `border`. Never two primary buttons in one header.
 
@@ -186,7 +187,7 @@ Maximum four series. No dual axes. Units live in the tick labels and legend.
 
 - Six metrics separated by 1px vertical `divider` rules, top and bottom
   hairlines, no card.
-- Each metric: 8.5px uppercase label, 18–20px value, 9px meta.
+- Each metric: 11px uppercase label, 24px value, 12px meta.
 - Use this instead of stat cards. It must wrap to 3×2 at 1024px and 2×3 at
   390px.
 
@@ -199,12 +200,12 @@ Maximum four series. No dual axes. Units live in the tick labels and legend.
 
 ### 6.6 Tables
 
-- Header: 8.5px uppercase `text-muted`, tracking 8%, hairline below.
-- Rows: 40–48px, hairline `divider` between rows, no vertical rules.
+- Header: 11px uppercase `text-muted`, tracking 8%, hairline below.
+- Rows: 44–52px, hairline `divider` between rows, no vertical rules.
 - Selected row: `selected` fill. Hover: `surface-3` (light) / `#1F1F1F`
   (dark).
 - Numeric columns right-aligned and monospace. Status column combines dot +
-  label. Server column has name (500) over hostname (8.5px mono, `text-muted`),
+  label. Server column has name (500) over hostname (11px mono, `text-muted`),
   with `server_type` as a small secondary label, a `label` chip (asset code such
   as JHD-001), and the primary IP in mono. Provider and location appear in the
   detail view and filters, not as table columns.
@@ -216,7 +217,7 @@ Maximum four series. No dual axes. Units live in the tick labels and legend.
 
 - Master list on the left, detail pane on the right (492px). Below 1024px the
   detail becomes a full-screen route.
-- Alert row: severity dot + uppercase label, title at 12.5px/500, one metadata
+- Alert row: severity dot + uppercase label, title at 13px/500, one metadata
   line, status, and age right-aligned in mono.
 - Detail pane: severity, state + age, title, server line, first/last seen,
   `CONTEXT` definition list, `DELIVERY` table, `TIMELINE`, then
@@ -226,8 +227,8 @@ Maximum four series. No dual axes. Units live in the tick labels and legend.
 
 ### 6.8 Forms
 
-- Labels are 8.5px uppercase `text-muted`; helper text 9px below the field.
-- Inputs: 42–44px tall, `surface-2` fill, `border` 1px, 6px radius, 11.5px
+- Labels are 11px uppercase `text-muted`; helper text 12px below the field.
+- Inputs: 42–44px tall, `surface-2` fill, `border` 1px, 6px radius, 13px
   text. Focus uses a 2px `focus` ring and does not shift layout.
 - Two-column grid at ≥768px, single column below. Long text uses a full-width
   textarea.
@@ -237,7 +238,7 @@ Maximum four series. No dual axes. Units live in the tick labels and legend.
   default and applies to this server only; turning it off closes its active
   alerts without sending recovery messages.
 - Toggles: 36×20 track, 14px knob, `text` fill when on, `surface-2` when off.
-- Errors appear inline under the field in `crit` with an icon-free 9.5px line
+- Errors appear inline under the field in `crit` with an icon-free 12px line
   and `aria-describedby`.
 - Required fields are marked with a 3px `crit` dot, not an asterisk.
 
@@ -265,7 +266,7 @@ Maximum four series. No dual axes. Units live in the tick labels and legend.
   Trap focus, close on `Escape`, restore focus on close.
 - Dropdown menus use `surface`, `border`, 6px radius, 6px padding; 32px
   items.
-- Tooltips are `surface-2` with `border`, 9px text, 4px radius; never the only
+- Tooltips are `surface-2` with `border`, 12px text, 4px radius; never the only
   place information lives.
 
 ### 6.12 Loading and empty states
@@ -344,7 +345,7 @@ Maximum four series. No dual axes. Units live in the tick labels and legend.
   writes `localStorage.theme` and updates `<html data-theme>`.
 - Icons: inline SVG sprite, 1.2–1.6px stroke, 14–20px, `currentColor`.
 - Charts: Chart.js 4.6, lazy-loaded on the detail page only; grid lines use
-  `divider`, ticks `text-muted` at 8.5px.
+  `divider`, ticks `text-muted` at 11px.
 - Fonts self-hosted; no CDN.
 - All interactive copy actions call `navigator.clipboard` with a 2s
   “Copied” confirmation and an `aria-live` announcement.

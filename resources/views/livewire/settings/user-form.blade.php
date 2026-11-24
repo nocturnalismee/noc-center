@@ -15,7 +15,7 @@
             @error('name') aria-invalid="true" @enderror
         >
         @error('name')
-            <p class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+            <p class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
         @enderror
     </div>
 
@@ -36,7 +36,7 @@
             @error('email') aria-invalid="true" @enderror
         >
         @error('email')
-            <p class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+            <p class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
         @enderror
     </div>
 
@@ -47,21 +47,21 @@
                 <option value="{{ $role->value }}">{{ ucfirst($role->value) }}</option>
             @endforeach
         </select>
-        <p class="mt-1.5 text-[9px] text-text-muted">Viewers read the dashboard, operators also act on servers and alerts.</p>
+        <p class="mt-1.5 text-[11px] text-text-muted">Viewers read the dashboard, operators also act on servers and alerts.</p>
         @error('role')
-            <p class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+            <p class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
         @enderror
     </div>
 
     <div>
         <span class="field-label">Account state</span>
-        <label for="user-active" class="mt-2 inline-flex min-h-11 cursor-pointer items-center gap-2.5 text-[11.5px] text-text">
+        <label for="user-active" class="mt-2 inline-flex min-h-11 cursor-pointer items-center gap-2.5 text-[13px] text-text">
             <input id="user-active" type="checkbox" wire:model="isActive" class="h-4 w-4 rounded border-border bg-surface-2">
             Active
         </label>
-        <p class="text-[9px] text-text-muted">Inactive accounts cannot sign in. Alerts skip them.</p>
+        <p class="text-[11px] text-text-muted">Inactive accounts cannot sign in. Alerts skip them.</p>
         @error('isActive')
-            <p class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+            <p class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
         @enderror
     </div>
 
@@ -81,9 +81,9 @@
                 aria-required="true"
                 @error('password') aria-invalid="true" @enderror
             >
-            <p class="mt-1.5 text-[9px] text-text-muted">At least 12 characters. The user must change it at next sign-in.</p>
+            <p class="mt-1.5 text-[11px] text-text-muted">At least 12 characters. The user must change it at next sign-in.</p>
             @error('password')
-                <p class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+                <p class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
             @enderror
         </div>
 

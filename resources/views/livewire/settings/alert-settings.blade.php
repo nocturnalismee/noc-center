@@ -9,8 +9,8 @@
     @endsection
 
     <div class="min-w-0">
-        <h1 class="text-[22px] font-semibold leading-7 tracking-[-0.01em] text-text">Alert settings</h1>
-        <p class="mt-1.5 max-w-[78ch] text-[11.5px] text-text-sub">
+        <h1 class="text-[26px] font-semibold leading-8 tracking-[-0.01em] text-text">Alert settings</h1>
+        <p class="mt-1.5 max-w-[78ch] text-[13px] text-text-sub">
             Thresholds, reminders, and delivery channels. In-app alerts are always on. Threshold changes apply at the next evaluation.
         </p>
     </div>
@@ -18,18 +18,18 @@
     @include('livewire.settings.nav')
 
     @if ($statusMessage)
-        <p class="mt-4 border-y border-divider py-2.5 text-[10.5px] text-text-sub" role="status">{{ $statusMessage }}</p>
+        <p class="mt-4 border-y border-divider py-2.5 text-[13px] text-text-sub" role="status">{{ $statusMessage }}</p>
     @endif
 
     @error('channel')
-        <p class="mt-4 border-y border-divider py-2.5 text-[10.5px] text-critical" role="alert">{{ $message }}</p>
+        <p class="mt-4 border-y border-divider py-2.5 text-[13px] text-critical" role="alert">{{ $message }}</p>
     @enderror
 
     <form wire:submit="save" class="mt-8 flex flex-col gap-10">
         <section class="border-t border-border pt-5" aria-labelledby="thresholds-heading">
             <div class="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
-                <h2 id="thresholds-heading" class="text-[13px] font-semibold text-text">Rules and thresholds</h2>
-                <p class="text-[9px] uppercase tracking-[0.08em] text-text-muted">config/alerts.php defaults</p>
+                <h2 id="thresholds-heading" class="text-[15px] font-semibold text-text">Rules and thresholds</h2>
+                <p class="text-[11px] uppercase tracking-[0.08em] text-text-muted">config/alerts.php defaults</p>
             </div>
 
             <div class="mt-4 border-t border-divider">
@@ -37,8 +37,8 @@
                     <div class="border-b border-divider py-4" wire:key="rule-{{ $rule }}">
                         <div class="flex flex-wrap items-center justify-between gap-3">
                             <div class="min-w-0">
-                                <p class="text-[12px] font-medium text-text">{{ Str::headline($rule) }}</p>
-                                <p class="mt-0.5 text-[9.5px] text-text-muted">
+                                <p class="text-[13px] font-medium text-text">{{ Str::headline($rule) }}</p>
+                                <p class="mt-0.5 text-[12px] text-text-muted">
                                     @switch($rule)
                                         @case('server_offline') Critical when the server passes its offline deadline. @break
                                         @case('server_stale') Warning when no sample arrives before the stale deadline. @break
@@ -59,7 +59,7 @@
                                 </p>
                             </div>
 
-                            <label for="rule-enabled-{{ $rule }}" class="inline-flex min-h-9 cursor-pointer items-center gap-2 text-[10.5px] text-text-sub">
+                            <label for="rule-enabled-{{ $rule }}" class="inline-flex min-h-9 cursor-pointer items-center gap-2 text-[13px] text-text-sub">
                                 <input
                                     id="rule-enabled-{{ $rule }}"
                                     type="checkbox"
@@ -104,7 +104,7 @@
                                             @error('rules.'.$rule.'.'.$key) aria-invalid="true" @enderror
                                         >
                                         @error('rules.'.$rule.'.'.$key)
-                                            <p class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+                                            <p class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
                                         @enderror
                                     </div>
                                 @endforeach
@@ -125,9 +125,9 @@
                     class="field font-mono"
                     @error('reminderHours') aria-invalid="true" @enderror
                 >
-                <p class="mt-1.5 text-[9px] text-text-muted">Open alerts are reminded at most once per window. Acknowledged alerts are not reminded.</p>
+                <p class="mt-1.5 text-[11px] text-text-muted">Open alerts are reminded at most once per window. Acknowledged alerts are not reminded.</p>
                 @error('reminderHours')
-                    <p class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+                    <p class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
                 @enderror
             </div>
         </section>
@@ -135,37 +135,37 @@
         <section class="border-t border-border pt-5" aria-labelledby="email-heading">
             <div class="flex flex-wrap items-start justify-between gap-3">
                 <div class="min-w-0">
-                    <h2 id="email-heading" class="text-[13px] font-semibold text-text">Email via SMTP</h2>
-                    <p class="mt-1 text-[10px] text-text-sub">Configured through MAIL_* environment variables. The password is never shown.</p>
+                    <h2 id="email-heading" class="text-[15px] font-semibold text-text">Email via SMTP</h2>
+                    <p class="mt-1 text-[12px] text-text-sub">Configured through MAIL_* environment variables. The password is never shown.</p>
                 </div>
 
-                <label for="email-enabled" class="inline-flex min-h-9 cursor-pointer items-center gap-2 text-[10.5px] text-text-sub">
+                <label for="email-enabled" class="inline-flex min-h-9 cursor-pointer items-center gap-2 text-[13px] text-text-sub">
                     <input id="email-enabled" type="checkbox" wire:model="emailEnabled" class="h-4 w-4 rounded border-border bg-surface-2">
                     Send email alerts
                 </label>
             </div>
 
-            <dl class="mt-4 grid gap-x-8 gap-y-3 border-t border-divider pt-4 text-[10.5px] sm:grid-cols-2 lg:grid-cols-4">
+            <dl class="mt-4 grid gap-x-8 gap-y-3 border-t border-divider pt-4 text-[13px] sm:grid-cols-2 lg:grid-cols-4">
                 <div>
-                    <dt class="text-[8.5px] uppercase tracking-[0.08em] text-text-muted">Transport</dt>
+                    <dt class="text-[11px] uppercase tracking-[0.08em] text-text-muted">Transport</dt>
                     <dd class="mt-1 font-mono text-text">{{ $smtp['default'] ?: '—' }}</dd>
                 </div>
                 <div>
-                    <dt class="text-[8.5px] uppercase tracking-[0.08em] text-text-muted">Host</dt>
+                    <dt class="text-[11px] uppercase tracking-[0.08em] text-text-muted">Host</dt>
                     <dd class="mt-1 font-mono text-text">{{ $smtp['host'] ?: '—' }}</dd>
                 </div>
                 <div>
-                    <dt class="text-[8.5px] uppercase tracking-[0.08em] text-text-muted">Port / encryption</dt>
+                    <dt class="text-[11px] uppercase tracking-[0.08em] text-text-muted">Port / encryption</dt>
                     <dd class="mt-1 font-mono text-text">{{ $smtp['port'] ?: '—' }} · {{ $smtp['encryption'] }}</dd>
                 </div>
                 <div>
-                    <dt class="text-[8.5px] uppercase tracking-[0.08em] text-text-muted">From</dt>
+                    <dt class="text-[11px] uppercase tracking-[0.08em] text-text-muted">From</dt>
                     <dd class="mt-1 truncate font-mono text-text">{{ $smtp['from'] ?: '—' }}</dd>
                 </div>
             </dl>
 
             <div class="mt-4 flex flex-wrap items-center gap-3">
-                <p class="text-[9.5px] text-text-sub">
+                <p class="text-[12px] text-text-sub">
                     {{ $smtp['configured'] ? 'Configured' : 'Not configured' }}
                     @if ($smtp['username'] !== '')
                         · user {{ $smtp['username'] }}
@@ -179,13 +179,13 @@
         <section class="border-t border-border pt-5" aria-labelledby="telegram-heading">
             <div class="flex flex-wrap items-start justify-between gap-3">
                 <div class="min-w-0">
-                    <h2 id="telegram-heading" class="text-[13px] font-semibold text-text">Telegram</h2>
-                    <p class="mt-1 max-w-[70ch] text-[10px] text-text-sub">
+                    <h2 id="telegram-heading" class="text-[15px] font-semibold text-text">Telegram</h2>
+                    <p class="mt-1 max-w-[70ch] text-[12px] text-text-sub">
                         One global target: a group/channel ID such as -100… or @channelname, plus an optional forum topic ID.
                     </p>
                 </div>
 
-                <label for="telegram-enabled" class="inline-flex min-h-9 cursor-pointer items-center gap-2 text-[10.5px] text-text-sub">
+                <label for="telegram-enabled" class="inline-flex min-h-9 cursor-pointer items-center gap-2 text-[13px] text-text-sub">
                     <input id="telegram-enabled" type="checkbox" wire:model="telegramEnabled" class="h-4 w-4 rounded border-border bg-surface-2">
                     Send Telegram alerts
                 </label>
@@ -197,10 +197,10 @@
 
                     @if ($chatIdConfigured && ! $editingChatId)
                         <div class="mt-1 flex flex-wrap items-center gap-3">
-                            <p class="font-mono text-[11px] text-text">{{ $maskedChatId !== '' ? $maskedChatId : '—' }}</p>
+                            <p class="font-mono text-[13px] text-text">{{ $maskedChatId !== '' ? $maskedChatId : '—' }}</p>
                             <button type="button" wire:click="editChatId" class="secondary-button h-9">Change</button>
                         </div>
-                        <p class="mt-1.5 text-[9px] text-text-muted">Partially masked. Use Change to replace the chat or channel.</p>
+                        <p class="mt-1.5 text-[11px] text-text-muted">Partially masked. Use Change to replace the chat or channel.</p>
                     @else
                         <input
                             id="telegram-chat-id"
@@ -212,9 +212,9 @@
                             placeholder="-1001234567890 or @channelname"
                             @error('chatId') aria-invalid="true" @enderror
                         >
-                        <p class="mt-1.5 text-[9px] text-text-muted">Group IDs may be negative; channel usernames start with @.</p>
+                        <p class="mt-1.5 text-[11px] text-text-muted">Group IDs may be negative; channel usernames start with @.</p>
                         @error('chatId')
-                            <p class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+                            <p class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
                         @enderror
 
                         @if ($chatIdConfigured)
@@ -234,9 +234,9 @@
                         placeholder="Optional"
                         @error('messageThreadId') aria-invalid="true" @enderror
                     >
-                    <p class="mt-1.5 text-[9px] text-text-muted">Positive integer for a forum topic. Leave blank to omit it from the payload.</p>
+                    <p class="mt-1.5 text-[11px] text-text-muted">Positive integer for a forum topic. Leave blank to omit it from the payload.</p>
                     @error('messageThreadId')
-                        <p class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+                        <p class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
                     @enderror
                 </div>
 
@@ -245,11 +245,11 @@
 
                     @if ($tokenConfigured && ! $replacingToken)
                         <div class="mt-1 flex flex-wrap items-center gap-3">
-                            <p class="text-[11px] text-text">Configured</p>
+                            <p class="text-[13px] text-text">Configured</p>
                             <button type="button" wire:click="replaceToken" class="secondary-button h-9">Replace</button>
                             <button type="button" wire:click="clearToken" wire:confirm="Clear the Telegram bot token?" class="secondary-button h-9">Clear</button>
                         </div>
-                        <p class="mt-1.5 text-[9px] text-text-muted">The token is stored encrypted and is never shown again.</p>
+                        <p class="mt-1.5 text-[11px] text-text-muted">The token is stored encrypted and is never shown again.</p>
                     @else
                         <input
                             id="telegram-bot-token"
@@ -261,9 +261,9 @@
                             placeholder="123456789:AA…"
                             @error('botToken') aria-invalid="true" @enderror
                         >
-                        <p class="mt-1.5 text-[9px] text-text-muted">Write-only. Saving replaces the stored token.</p>
+                        <p class="mt-1.5 text-[11px] text-text-muted">Write-only. Saving replaces the stored token.</p>
                         @error('botToken')
-                            <p class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+                            <p class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
                         @enderror
                     @endif
                 </div>

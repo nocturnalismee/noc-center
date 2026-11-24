@@ -3,12 +3,12 @@
 @section('title', 'Sign in — '.config('app.name'))
 
 @section('content')
-    <h1 class="text-[24px] font-semibold leading-8 tracking-[-0.01em] text-text">Sign in</h1>
-    <p class="mt-1 text-[12.5px] text-text-sub">Use your NOC Center account to continue.</p>
+    <h1 class="text-[28px] font-semibold leading-9 tracking-[-0.01em] text-text">Sign in</h1>
+    <p class="mt-1 text-[13.5px] text-text-sub">Use your NOC Center account to continue.</p>
 
     @if ($errors->any())
         <div class="mt-5 rounded-control border border-critical/40 bg-critical/5 px-3 py-2.5" role="alert">
-            <ul class="space-y-1 text-[11px] text-critical">
+            <ul class="space-y-1 text-[13px] text-critical">
                 @foreach ($errors->all() as $error)
                     <li>{{ $error }}</li>
                 @endforeach
@@ -33,7 +33,7 @@
                 aria-describedby="{{ $errors->has('email') ? 'email-error' : '' }}"
             >
             @error('email')
-                <p id="email-error" class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+                <p id="email-error" class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
             @enderror
         </div>
 
@@ -60,12 +60,12 @@
                 </button>
             </div>
             @error('password')
-                <p id="password-error" class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+                <p id="password-error" class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
             @enderror
         </div>
 
         <div class="flex items-center justify-between gap-4">
-            <label for="remember" class="flex min-h-11 cursor-pointer items-center gap-2 text-[11.5px] text-text-sub">
+            <label for="remember" class="flex min-h-11 cursor-pointer items-center gap-2 text-[13px] text-text-sub">
                 <input
                     id="remember"
                     name="remember"
@@ -77,7 +77,7 @@
             </label>
 
             @if (Route::has('password.request'))
-                <a href="{{ route('password.request') }}" class="text-[11.5px] text-focus hover:underline">Forgot password?</a>
+                <a href="{{ route('password.request') }}" class="text-[13px] text-focus hover:underline">Forgot password?</a>
             @endif
         </div>
 
@@ -85,8 +85,8 @@
     </form>
 
     <div class="mt-6 border-t border-divider pt-5">
-        <p class="text-[11px] text-text-sub">Accounts are created by administrators.</p>
-        <p class="mt-0.5 text-[11px] text-text-sub">Public registration is disabled.</p>
-        <p class="mt-2 text-[11px] font-medium text-focus">Read the access policy →</p>
+        <p class="text-[13px] text-text-sub">Accounts are created by administrators.</p>
+        <p class="mt-0.5 text-[13px] text-text-sub">Public registration is disabled.</p>
+        <p class="mt-2 text-[13px] font-medium text-focus">Read the access policy →</p>
     </div>
 @endsection

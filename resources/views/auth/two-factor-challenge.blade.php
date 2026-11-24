@@ -3,12 +3,12 @@
 @section('title', 'Two-factor authentication — '.config('app.name'))
 
 @section('content')
-    <h1 class="text-[24px] font-semibold leading-8 tracking-[-0.01em] text-text">Two-factor authentication</h1>
-    <p class="mt-1 text-[12.5px] text-text-sub">Enter the 6-digit code from your authenticator app to finish signing in.</p>
+    <h1 class="text-[28px] font-semibold leading-9 tracking-[-0.01em] text-text">Two-factor authentication</h1>
+    <p class="mt-1 text-[13.5px] text-text-sub">Enter the 6-digit code from your authenticator app to finish signing in.</p>
 
     @if ($errors->any())
         <div class="mt-5 rounded-control border border-critical/40 bg-critical/5 px-3 py-2.5" role="alert">
-            <ul class="space-y-1 text-[11px] text-critical">
+            <ul class="space-y-1 text-[13px] text-critical">
                 @foreach ($errors->all() as $error)
                     <li>{{ $error }}</li>
                 @endforeach
@@ -34,7 +34,7 @@
                 aria-describedby="{{ $errors->has('code') ? 'code-error' : '' }}"
             >
             @error('code')
-                <p id="code-error" class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+                <p id="code-error" class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
             @enderror
         </div>
 
@@ -42,7 +42,7 @@
     </form>
 
     <div class="mt-6 border-t border-divider pt-5">
-        <p class="text-[11px] text-text-sub">Lost your authenticator device? Use one of your single-use recovery codes instead.</p>
+        <p class="text-[13px] text-text-sub">Lost your authenticator device? Use one of your single-use recovery codes instead.</p>
 
         <form method="POST" action="{{ route('two-factor.login.store') }}" class="mt-4 space-y-4">
             @csrf
@@ -59,7 +59,7 @@
                     aria-describedby="{{ $errors->has('recovery_code') ? 'recovery-code-error' : '' }}"
                 >
                 @error('recovery_code')
-                    <p id="recovery-code-error" class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+                    <p id="recovery-code-error" class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
                 @enderror
             </div>
 
@@ -67,7 +67,7 @@
         </form>
     </div>
 
-    <p class="mt-6 text-[11px] text-text-sub">
+    <p class="mt-6 text-[13px] text-text-sub">
         <a href="{{ route('login') }}" class="text-focus hover:underline">Back to sign in</a>
     </p>
 @endsection

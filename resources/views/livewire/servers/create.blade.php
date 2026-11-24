@@ -8,13 +8,13 @@
 
     <div class="flex flex-wrap items-start justify-between gap-4">
         <div class="min-w-0">
-            <h1 class="text-[22px] font-semibold leading-7 tracking-[-0.01em] text-text">Add server</h1>
-            <p class="mt-1 text-[11.5px] text-text-sub">
+            <h1 class="text-[26px] font-semibold leading-8 tracking-[-0.01em] text-text">Add server</h1>
+            <p class="mt-1 text-[13px] text-text-sub">
                 Register a server and issue its first agent token. The token is shown once.
             </p>
         </div>
 
-        <a href="{{ route('dashboard') }}" class="text-[10.5px] text-focus hover:underline">Need help?</a>
+        <a href="{{ route('dashboard') }}" class="text-[13px] text-focus hover:underline">Need help?</a>
     </div>
 
     <ol class="mt-6 grid grid-cols-3 gap-4 border-b border-divider sm:gap-8" aria-label="Add server steps">
@@ -27,17 +27,17 @@
             <li class="pb-3">
                 <div class="flex items-baseline gap-2">
                     <span @class([
-                        'font-mono text-[10px]',
+                        'font-mono text-[12px]',
                         'text-text' => $active,
                         'text-text-muted' => ! $active,
                     ])>{{ $item['index'] }}</span>
                     <span @class([
-                        'text-[11px]',
+                        'text-[13px]',
                         'font-medium text-text' => $active,
                         'text-text-sub' => ! $active,
                     ])>{{ $item['label'] }}</span>
                 </div>
-                <p class="mt-0.5 text-[9.5px] text-text-muted">{{ $item['hint'] }}</p>
+                <p class="mt-0.5 text-[12px] text-text-muted">{{ $item['hint'] }}</p>
                 <span @class([
                     'mt-2 block h-0.5',
                     'bg-focus' => $active,
@@ -52,8 +52,8 @@
             @if ($step === 1)
                 <form wire:submit="goToReview" class="flex flex-col gap-8">
                     <section class="border-t border-border pt-5" aria-labelledby="identity-heading">
-                        <h2 id="identity-heading" class="text-[13px] font-semibold text-text">Identity</h2>
-                        <p class="mt-1 text-[10px] text-text-sub">How the server appears across the dashboard.</p>
+                        <h2 id="identity-heading" class="text-[15px] font-semibold text-text">Identity</h2>
+                        <p class="mt-1 text-[12px] text-text-sub">How the server appears across the dashboard.</p>
 
                         <div class="mt-5 grid gap-5 sm:grid-cols-2">
                             <div>
@@ -72,9 +72,9 @@
                                     aria-describedby="name-help name-error"
                                     @error('name') aria-invalid="true" @enderror
                                 >
-                                <p id="name-help" class="mt-1.5 text-[9px] text-text-muted">Shown in tables and alerts.</p>
+                                <p id="name-help" class="mt-1.5 text-[11px] text-text-muted">Shown in tables and alerts.</p>
                                 @error('name')
-                                    <p id="name-error" class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+                                    <p id="name-error" class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
                                 @enderror
                             </div>
 
@@ -95,9 +95,9 @@
                                     aria-describedby="hostname-help hostname-error"
                                     @error('hostname') aria-invalid="true" @enderror
                                 >
-                                <p id="hostname-help" class="mt-1.5 text-[9px] text-text-muted">Must match the server FQDN.</p>
+                                <p id="hostname-help" class="mt-1.5 text-[11px] text-text-muted">Must match the server FQDN.</p>
                                 @error('hostname')
-                                    <p id="hostname-error" class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+                                    <p id="hostname-error" class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
                                 @enderror
                             </div>
 
@@ -118,9 +118,9 @@
                                         <option value="{{ $group }}"></option>
                                     @endforeach
                                 </datalist>
-                                <p id="server-type-help" class="mt-1.5 text-[9px] text-text-muted">Used for filtering and search.</p>
+                                <p id="server-type-help" class="mt-1.5 text-[11px] text-text-muted">Used for filtering and search.</p>
                                 @error('server_type')
-                                    <p id="server-type-error" class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+                                    <p id="server-type-error" class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
                                 @enderror
                             </div>
 
@@ -137,9 +137,9 @@
                                         <option value="{{ $interval }}">{{ $interval }} seconds</option>
                                     @endforeach
                                 </select>
-                                <p id="interval-help" class="mt-1.5 text-[9px] text-text-muted">Between 10 and 3600 seconds.</p>
+                                <p id="interval-help" class="mt-1.5 text-[11px] text-text-muted">Between 10 and 3600 seconds.</p>
                                 @error('interval_seconds')
-                                    <p id="interval-error" class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+                                    <p id="interval-error" class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
                                 @enderror
                             </div>
 
@@ -153,17 +153,17 @@
                                     aria-describedby="notes-help notes-error"
                                     @error('notes') aria-invalid="true" @enderror
                                 ></textarea>
-                                <p id="notes-help" class="mt-1.5 text-[9px] text-text-muted">Optional. Visible to admins and operators.</p>
+                                <p id="notes-help" class="mt-1.5 text-[11px] text-text-muted">Optional. Visible to admins and operators.</p>
                                 @error('notes')
-                                    <p id="notes-error" class="mt-1.5 text-[9.5px] text-critical">{{ $message }}</p>
+                                    <p id="notes-error" class="mt-1.5 text-[12px] text-critical">{{ $message }}</p>
                                 @enderror
                             </div>
                         </div>
                     </section>
 
                     <section class="border-t border-border pt-5" aria-labelledby="collection-heading">
-                        <h2 id="collection-heading" class="text-[13px] font-semibold text-text">Collection</h2>
-                        <p class="mt-1 text-[10px] text-text-sub">The agent sends one sample per interval. Thresholds follow the interval.</p>
+                        <h2 id="collection-heading" class="text-[15px] font-semibold text-text">Collection</h2>
+                        <p class="mt-1 text-[12px] text-text-sub">The agent sends one sample per interval. Thresholds follow the interval.</p>
 
                         <div class="mt-5">
                             <p class="field-label">Enable alerts</p>
@@ -178,9 +178,9 @@
                                     aria-hidden="true"
                                     class="relative h-5 w-9 shrink-0 rounded-full bg-surface-2 ring-1 ring-inset ring-border transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-text-muted after:transition-transform after:content-[''] peer-checked:bg-text peer-checked:after:translate-x-4 peer-checked:after:bg-canvas peer-focus-visible:ring-2 peer-focus-visible:ring-focus"
                                 ></span>
-                                <span class="text-[11.5px] text-text-sub">Open alerts for CPU, memory, disk, load, services, and modules.</span>
+                                <span class="text-[13px] text-text-sub">Open alerts for CPU, memory, disk, load, services, and modules.</span>
                             </label>
-                            <p class="mt-2 text-[9px] text-text-muted">
+                            <p class="mt-2 text-[11px] text-text-muted">
                                 A one-time agent token is generated after you review these details. Alerts apply to this server only.
                             </p>
                         </div>
@@ -197,8 +197,8 @@
             @else
                 <form wire:submit="create" class="flex flex-col gap-8">
                     <section class="border-t border-border pt-5" aria-labelledby="review-heading">
-                        <h2 id="review-heading" class="text-[13px] font-semibold text-text">Review</h2>
-                        <p class="mt-1 text-[10px] text-text-sub">
+                        <h2 id="review-heading" class="text-[15px] font-semibold text-text">Review</h2>
+                        <p class="mt-1 text-[12px] text-text-sub">
                             Confirm these details. The server and its first token are created together.
                         </p>
 
@@ -212,13 +212,13 @@
                                 ['label' => 'Notes', 'value' => $notes !== '' ? $notes : '—'],
                             ] as $row)
                                 <div class="grid gap-1 py-3 sm:grid-cols-[180px_minmax(0,1fr)] sm:items-baseline">
-                                    <dt class="text-[8.5px] font-medium uppercase tracking-[0.08em] text-text-muted">{{ $row['label'] }}</dt>
-                                    <dd class="text-[11.5px] text-text">{{ $row['value'] }}</dd>
+                                    <dt class="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">{{ $row['label'] }}</dt>
+                                    <dd class="text-[13px] text-text">{{ $row['value'] }}</dd>
                                 </div>
                             @endforeach
                         </dl>
 
-                        <p class="mt-4 text-[9px] text-text-muted">
+                        <p class="mt-4 text-[11px] text-text-muted">
                             The token is shown once on the next screen. It is never stored in plaintext.
                         </p>
                     </section>
@@ -234,9 +234,9 @@
             @endif
         </div>
 
-        <aside class="flex min-w-0 flex-col gap-8 text-[10px] leading-4 text-text-sub">
+        <aside class="flex min-w-0 flex-col gap-8 text-[12px] leading-5 text-text-sub">
             <section aria-labelledby="next-heading">
-                <h2 id="next-heading" class="text-[13px] font-semibold text-text">What happens next</h2>
+                <h2 id="next-heading" class="text-[15px] font-semibold text-text">What happens next</h2>
                 <ol class="mt-4 border-t border-divider">
                     @foreach ([
                         ['01', 'Register', 'The server and its token are created together.'],
@@ -244,10 +244,10 @@
                         ['03', 'Wait for data', 'The first sample usually arrives within a minute.'],
                     ] as $item)
                         <li class="grid grid-cols-[22px_minmax(0,1fr)] gap-2 border-b border-divider py-3">
-                            <span class="font-mono text-[9.5px] text-text-muted">{{ $item[0] }}</span>
+                            <span class="font-mono text-[12px] text-text-muted">{{ $item[0] }}</span>
                             <span>
-                                <span class="block text-[11px] font-medium text-text">{{ $item[1] }}</span>
-                                <span class="mt-0.5 block text-[9.5px] text-text-muted">{{ $item[2] }}</span>
+                                <span class="block text-[13px] font-medium text-text">{{ $item[1] }}</span>
+                                <span class="mt-0.5 block text-[12px] text-text-muted">{{ $item[2] }}</span>
                             </span>
                         </li>
                     @endforeach
@@ -255,8 +255,8 @@
             </section>
 
             <section aria-labelledby="requirements-heading">
-                <h2 id="requirements-heading" class="text-[13px] font-semibold text-text">Requirements</h2>
-                <ul class="mt-3 flex list-disc flex-col gap-1.5 pl-4 text-[9.5px] text-text-muted">
+                <h2 id="requirements-heading" class="text-[15px] font-semibold text-text">Requirements</h2>
+                <ul class="mt-3 flex list-disc flex-col gap-1.5 pl-4 text-[12px] text-text-muted">
                     <li>Linux or cPanel with Bash 4+</li>
                     <li>curl and standard coreutils</li>
                     <li>Outbound HTTPS to the dashboard</li>
@@ -265,12 +265,12 @@
             </section>
 
             <section aria-labelledby="security-heading">
-                <h2 id="security-heading" class="text-[13px] font-semibold text-text">Token security</h2>
-                <p class="mt-2 text-[9.5px] text-text-muted">
+                <h2 id="security-heading" class="text-[15px] font-semibold text-text">Token security</h2>
+                <p class="mt-2 text-[12px] text-text-muted">
                     Tokens are HMAC-hashed with APP_KEY. Rotate or revoke at any time from the server page.
                     Old tokens keep working for the 24-hour grace period.
                 </p>
-                <a href="{{ route('dashboard') }}" class="mt-3 inline-block text-[9.5px] text-focus hover:underline">Read the agent guide &rarr;</a>
+                <a href="{{ route('dashboard') }}" class="mt-3 inline-block text-[12px] text-focus hover:underline">Read the agent guide &rarr;</a>
             </section>
         </aside>
     </div>

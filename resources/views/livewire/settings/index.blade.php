@@ -7,8 +7,8 @@
     @endsection
 
     <div class="min-w-0">
-        <h1 class="text-[22px] font-semibold leading-7 tracking-[-0.01em] text-text">Settings</h1>
-        <p class="mt-1.5 max-w-[72ch] text-[11.5px] text-text-sub">
+        <h1 class="text-[26px] font-semibold leading-8 tracking-[-0.01em] text-text">Settings</h1>
+        <p class="mt-1.5 max-w-[72ch] text-[13px] text-text-sub">
             Account, access, and alert delivery configuration. Administrators see every area; operators can review activity.
         </p>
     </div>
@@ -62,10 +62,10 @@
             <li class="border-b border-divider">
                 <a href="{{ $entry['href'] }}" class="flex flex-col gap-1 py-4 hover:text-text sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
                     <span class="min-w-0">
-                        <span class="block text-[13px] font-medium text-text">{{ $entry['label'] }}</span>
-                        <span class="mt-0.5 block max-w-[70ch] text-[10.5px] leading-4 text-text-sub">{{ $entry['description'] }}</span>
+                        <span class="block text-[15px] font-medium text-text">{{ $entry['label'] }}</span>
+                        <span class="mt-0.5 block max-w-[70ch] text-[13px] leading-5 text-text-sub">{{ $entry['description'] }}</span>
                     </span>
-                    <span class="shrink-0 text-[9px] uppercase tracking-[0.08em] text-text-muted">{{ $entry['meta'] }}</span>
+                    <span class="shrink-0 text-[11px] uppercase tracking-[0.08em] text-text-muted">{{ $entry['meta'] }}</span>
                 </a>
             </li>
         @endforeach
