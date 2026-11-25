@@ -5,11 +5,13 @@ namespace App\Services\Servers;
 use App\Alerts\AlertEngine;
 use App\Enums\AlertStatus;
 use App\Enums\ServerHealth;
+use App\Events\ServerChanged;
 use App\Models\Alert;
 use App\Models\Server;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\Tokens\TokenService;
+use App\Support\Realtime;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -97,6 +99,11 @@ class ServerService
             $actor?->id,
         );
 
+        Realtime::emit(new ServerChanged(
+            serverId: (string) $server->getKey(),
+            change: 'created',
+        ));
+
         return $server;
     }
 
@@ -143,7 +150,7 @@ class ServerService
 
         $wasEnabled = (bool) $server->alerts_enabled;
 
-        return DB::transaction(function () use ($server, $validated, $wasEnabled, $actor): Server {
+        $updated = DB::transaction(function () use ($server, $validated, $wasEnabled, $actor): Server {
             $payload = [];
 
             foreach (['name', 'hostname', 'server_type', 'provider', 'location', 'ip_address', 'label', 'notes'] as $key) {
@@ -182,6 +189,13 @@ class ServerService
 
             return $server;
         });
+
+        Realtime::emit(new ServerChanged(
+            serverId: (string) $updated->getKey(),
+            change: 'updated',
+        ));
+
+        return $updated;
     }
 
     /**
@@ -194,6 +208,8 @@ class ServerService
      */
     public function delete(Server $server, ?User $actor = null): void
     {
+        $serverId = (string) $server->getKey();
+
         DB::transaction(function () use ($server, $actor): void {
             $revoked = 0;
 
@@ -230,5 +246,10 @@ class ServerService
                 $actor?->getKey(),
             );
         });
+
+        Realtime::emit(new ServerChanged(
+            serverId: $serverId,
+            change: 'deleted',
+        ));
     }
 }

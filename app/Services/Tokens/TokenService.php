@@ -2,10 +2,12 @@
 
 namespace App\Services\Tokens;
 
+use App\Events\ServerChanged;
 use App\Models\Server;
 use App\Models\ServerToken;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Support\Realtime;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -72,7 +74,7 @@ class TokenService
             throw new InvalidArgumentException('Rotation grace minutes must be zero or greater.');
         }
 
-        return DB::transaction(function () use ($server, $graceMinutes, $actor): IssuedToken {
+        $issued = DB::transaction(function () use ($server, $graceMinutes, $actor): IssuedToken {
             $previous = $this->currentToken($server);
 
             $issued = $this->createToken(
@@ -103,6 +105,13 @@ class TokenService
 
             return $issued;
         });
+
+        Realtime::emit(new ServerChanged(
+            serverId: (string) $issued->token->server_id,
+            change: 'token_rotated',
+        ));
+
+        return $issued;
     }
 
     /**
@@ -127,6 +136,11 @@ class TokenService
                 $actor?->id,
             );
         });
+
+        Realtime::emit(new ServerChanged(
+            serverId: (string) $token->server_id,
+            change: 'token_revoked',
+        ));
     }
 
     /**

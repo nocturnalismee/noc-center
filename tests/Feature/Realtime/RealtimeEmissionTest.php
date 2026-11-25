@@ -6,9 +6,11 @@ use App\Alerts\AlertEngine;
 use App\Enums\AlertRule;
 use App\Events\AlertChanged;
 use App\Events\SampleStored;
+use App\Events\ServerChanged;
 use App\Models\MetricSample;
 use App\Models\Server;
 use App\Models\User;
+use App\Services\Servers\ServerService;
 use App\Services\Tokens\TokenService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -185,6 +187,48 @@ class RealtimeEmissionTest extends TestCase
         );
 
         Event::assertNotDispatched(AlertChanged::class);
+    }
+
+    public function test_server_management_changes_emit_server_changed(): void
+    {
+        config(['noc.realtime.enabled' => true]);
+        Event::fake([ServerChanged::class]);
+
+        $admin = User::factory()->create();
+        $service = $this->app->make(ServerService::class);
+
+        $server = $service->create([
+            'name' => 'web-01',
+            'hostname' => 'web-01.example.com',
+        ], $admin);
+
+        Event::assertDispatched(ServerChanged::class, fn (ServerChanged $event): bool => $event->change === 'created'
+            && $event->serverId === (string) $server->getKey());
+
+        $service->update($server, [
+            'name' => 'web-01',
+            'hostname' => 'web-01.example.com',
+        ], $admin);
+
+        Event::assertDispatched(ServerChanged::class, fn (ServerChanged $event): bool => $event->change === 'updated'
+            && $event->serverId === (string) $server->getKey());
+
+        $service->delete($server, $admin);
+
+        Event::assertDispatched(ServerChanged::class, fn (ServerChanged $event): bool => $event->change === 'deleted'
+            && $event->serverId === (string) $server->getKey());
+    }
+
+    public function test_per_sample_server_writes_do_not_emit_server_changed(): void
+    {
+        config(['noc.realtime.enabled' => true]);
+        Event::fake([ServerChanged::class]);
+
+        [$server] = $this->serverWithToken();
+
+        $server->forceFill(['cpu_usage_pct' => 42.5])->save();
+
+        Event::assertNotDispatched(ServerChanged::class);
     }
 
     /**

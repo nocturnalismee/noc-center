@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Tokens;
 
+use App\Events\ServerChanged;
 use App\Models\AuditEvent;
 use App\Models\Server;
 use App\Models\ServerToken;
@@ -11,6 +12,7 @@ use App\Services\Tokens\TokenService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -427,6 +429,34 @@ class TokenServiceTest extends TestCase
         $this->assertSame(26, strlen($event->meta_json['token_id']));
         $this->assertSame($issued->token->token_prefix, $event->meta_json['token_prefix']);
         $this->assertSame(8, strlen($event->meta_json['token_prefix']));
+    }
+
+    public function test_rotation_emits_token_rotated(): void
+    {
+        config(['noc.realtime.enabled' => true]);
+        Event::fake([ServerChanged::class]);
+
+        $server = $this->server();
+        $this->tokens->issue($server);
+
+        $this->tokens->rotate($server);
+
+        Event::assertDispatched(ServerChanged::class, fn (ServerChanged $event): bool => $event->change === 'token_rotated'
+            && $event->serverId === (string) $server->getKey());
+    }
+
+    public function test_revocation_emits_token_revoked(): void
+    {
+        config(['noc.realtime.enabled' => true]);
+        Event::fake([ServerChanged::class]);
+
+        $server = $this->server();
+        $issued = $this->tokens->issue($server);
+
+        $this->tokens->revoke($issued->token);
+
+        Event::assertDispatched(ServerChanged::class, fn (ServerChanged $event): bool => $event->change === 'token_revoked'
+            && $event->serverId === (string) $server->getKey());
     }
 
     public function test_issued_token_debug_info_redacts_the_plaintext(): void
