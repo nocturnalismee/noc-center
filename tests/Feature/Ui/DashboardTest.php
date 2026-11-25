@@ -78,6 +78,15 @@ class DashboardTest extends TestCase
         $this->assertCount(0, DB::getQueryLog());
     }
 
+    public function test_refreshing_the_summary_invalidates_the_fleet_summary_cache(): void
+    {
+        Cache::put(FleetSummary::CACHE_KEY, ['stale' => true], 60);
+
+        (new Dashboard)->refreshSummary();
+
+        $this->assertFalse(Cache::has(FleetSummary::CACHE_KEY));
+    }
+
     public function test_soft_deleted_servers_are_outside_the_fleet_summary(): void
     {
         $this->online('web-01')->delete();
@@ -438,6 +447,7 @@ class DashboardTest extends TestCase
             ->assertSee('SampleStored', false)
             ->assertSee('AlertChanged', false)
             ->assertSee('OperationsChanged', false)
+            ->assertSee("method: 'refreshSummary'", false)
             ->assertSee('wire:poll.60s', false);
     }
 

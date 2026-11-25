@@ -1,7 +1,7 @@
 <div
     @if (config('noc.realtime.enabled'))
         data-realtime="dashboard"
-        x-data="nocRealtimeRefresh({ listeners: [{ channel: 'fleet', event: 'SampleStored' }, { channel: 'alerts', event: 'AlertChanged' }, { channel: 'fleet', event: 'OperationsChanged' }], debounce: {{ (int) config('noc.realtime.debounce_ms', 750) }} })"
+        x-data="nocRealtimeRefresh({ listeners: [{ channel: 'fleet', event: 'SampleStored' }, { channel: 'alerts', event: 'AlertChanged' }, { channel: 'fleet', event: 'OperationsChanged' }], debounce: {{ (int) config('noc.realtime.debounce_ms', 750) }}, method: 'refreshSummary' })"
     @endif
     class="mx-auto w-full max-w-[1440px]"
 >

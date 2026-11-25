@@ -14,19 +14,24 @@ function setStatus(next) {
     document.documentElement.setAttribute('data-realtime-status', next);
 }
 
+function disableRealtime() {
+    echo = null;
+    window.NocRealtime = {
+        enabled: false,
+        subscribe: () => () => {},
+        get status() {
+            return status;
+        },
+    };
+
+    setStatus('unavailable');
+}
+
 export function bootRealtime() {
     const config = realtimeConfig();
 
     if (!config.enabled || !config.key || !config.host) {
-        window.NocRealtime = {
-            enabled: false,
-            subscribe: () => () => {},
-            get status() {
-                return status;
-            },
-        };
-
-        setStatus('unavailable');
+        disableRealtime();
 
         return null;
     }
@@ -34,21 +39,28 @@ export function bootRealtime() {
     window.Pusher = Pusher;
     setStatus('connecting');
 
-    echo = new Echo({
-        broadcaster: 'reverb',
-        key: config.key,
-        wsHost: config.host,
-        wsPort: config.port,
-        wssPort: config.port,
-        forceTLS: config.scheme === 'https',
-        enabledTransports: ['ws', 'wss'],
-        disableStats: true,
-    });
+    try {
+        echo = new Echo({
+            broadcaster: 'reverb',
+            key: config.key,
+            wsHost: config.host,
+            wsPort: config.port,
+            wssPort: config.port,
+            forceTLS: config.scheme === 'https',
+            enabledTransports: ['ws', 'wss'],
+            disableStats: true,
+        });
 
-    echo.connector?.pusher?.connection?.bind('connected', () => setStatus('connected'));
-    echo.connector?.pusher?.connection?.bind('disconnected', () => setStatus('connecting'));
-    echo.connector?.pusher?.connection?.bind('unavailable', () => setStatus('unavailable'));
-    echo.connector?.pusher?.connection?.bind('failed', () => setStatus('unavailable'));
+        echo.connector?.pusher?.connection?.bind('connected', () => setStatus('connected'));
+        echo.connector?.pusher?.connection?.bind('disconnected', () => setStatus('connecting'));
+        echo.connector?.pusher?.connection?.bind('unavailable', () => setStatus('unavailable'));
+        echo.connector?.pusher?.connection?.bind('failed', () => setStatus('unavailable'));
+    } catch (error) {
+        console.error('Realtime could not start; continuing with polling.', error);
+        disableRealtime();
+
+        return null;
+    }
 
     window.NocRealtime = {
         enabled: true,

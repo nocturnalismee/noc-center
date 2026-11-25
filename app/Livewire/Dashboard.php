@@ -25,7 +25,10 @@ class Dashboard extends Component
      * Keep the summary strip in step with the table's 30-second poll.
      */
     #[On('fleet-summary-refresh')]
-    public function refreshSummary(): void {}
+    public function refreshSummary(): void
+    {
+        app(FleetSummary::class)->forget();
+    }
 
     public function render(): View
     {

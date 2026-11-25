@@ -28,4 +28,17 @@ class RealtimeHelperTest extends TestCase
 
         Event::assertDispatched(SampleStored::class);
     }
+
+    public function test_emit_swallows_a_broadcast_failure(): void
+    {
+        config(['noc.realtime.enabled' => true]);
+
+        Event::listen(SampleStored::class, function (): void {
+            throw new \RuntimeException('Reverb is unavailable.');
+        });
+
+        Realtime::emit(new SampleStored('srv-1', 'sample-1', '2026-11-25T01:00:00Z', 'ok', 'online'));
+
+        $this->addToAssertionCount(1);
+    }
 }
