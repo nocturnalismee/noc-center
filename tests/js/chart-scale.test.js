@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { percentageScaleBounds, seriesPointRadius } from '../../resources/js/chart-scale.js';
+import { fitChartToContainer, percentageScaleBounds, seriesPointRadius } from '../../resources/js/chart-scale.js';
 
 test('percentage charts always span zero to one hundred', () => {
     const bounds = percentageScaleBounds();
@@ -14,4 +14,16 @@ test('a single sample is drawn as a visible point', () => {
     assert.equal(seriesPointRadius(1), 2);
     assert.equal(seriesPointRadius(2), 0);
     assert.equal(seriesPointRadius(0), 0);
+});
+
+test('a chart is refitted to its container after a Livewire morph', () => {
+    const calls = [];
+    const chart = {
+        resize: () => calls.push('resize'),
+        update: (mode) => calls.push(`update:${mode}`),
+    };
+
+    fitChartToContainer(chart);
+
+    assert.deepEqual(calls, ['resize', 'update:none']);
 });

@@ -1,4 +1,4 @@
-import { percentageScaleBounds, seriesPointRadius } from './chart-scale.js';
+import { fitChartToContainer, percentageScaleBounds, seriesPointRadius } from './chart-scale.js';
 
 const DEFAULT_SERIES = [
     { metric: 'cpu', label: 'CPU', color: '--chart-cpu' },
@@ -346,7 +346,7 @@ export async function updateSeriesChart(el) {
         }
 
         el.chart.data.datasets = buildDatasets(valid, merged);
-        el.chart.update('none');
+        fitChartToContainer(el.chart);
         el.dataset.chartReady = 'true';
         setChartState(el, 'ready');
     } catch (error) {
@@ -376,6 +376,12 @@ export function refreshSeriesCharts(root = document) {
 export function updateSeriesCharts(root = document) {
     root.querySelectorAll('[data-series-chart]').forEach((el) => {
         updateSeriesChart(el);
+    });
+}
+
+export function fitSeriesCharts(root = document) {
+    root.querySelectorAll('[data-series-chart]').forEach((el) => {
+        fitChartToContainer(el.chart);
     });
 }
 

@@ -39,7 +39,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        View::share('appVersion', 'v1.0.5');
+        View::share('appVersion', 'v1.0.6');
 
         Gate::policy(Server::class, ServerPolicy::class);
         Gate::policy(ServerToken::class, ServerTokenPolicy::class);

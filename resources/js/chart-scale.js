@@ -18,3 +18,17 @@ export function percentageScaleBounds() {
 export function seriesPointRadius(pointCount) {
     return Number(pointCount) === 1 ? 2 : 0;
 }
+
+/**
+ * Livewire morphs can reset the chart canvas width/height attributes to the
+ * server-rendered defaults. Chart.js keeps its internal size, so the next
+ * paint is clipped to a 300x150 corner until resize() recomputes it.
+ */
+export function fitChartToContainer(chart) {
+    if (!chart || typeof chart.resize !== 'function') {
+        return;
+    }
+
+    chart.resize();
+    chart.update('none');
+}
