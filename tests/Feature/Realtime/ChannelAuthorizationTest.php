@@ -19,7 +19,16 @@ class ChannelAuthorizationTest extends TestCase
     {
         parent::setUp();
 
-        config(['broadcasting.default' => 'reverb']);
+        config([
+            'broadcasting.default' => 'reverb',
+            'broadcasting.connections.reverb.key' => 'test-key',
+            'broadcasting.connections.reverb.secret' => 'test-secret',
+            'broadcasting.connections.reverb.app_id' => 'test-app',
+            'broadcasting.connections.reverb.options.host' => 'localhost',
+            'broadcasting.connections.reverb.options.port' => 8080,
+            'broadcasting.connections.reverb.options.scheme' => 'http',
+            'broadcasting.connections.reverb.options.useTLS' => false,
+        ]);
 
         // The application boots with the test suite's null broadcaster, so
         // channel callbacks were registered on that connection. Re-register
