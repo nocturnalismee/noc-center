@@ -87,6 +87,7 @@ This file is the deployment and operations runbook. Design rationale lives in
 - [Update and rollback](#update-and-rollback)
 - [Environment matrix](#environment-matrix)
 - [Scheduler and queue](#scheduler-and-queue)
+- [Realtime updates](#realtime-updates)
 - [Alert channels](#alert-channels)
 - [Backup and restore](#backup-and-restore)
 - [PostgreSQL / TimescaleDB migration rehearsal](#postgresql--timescaledb-migration-rehearsal)
@@ -299,6 +300,10 @@ database; `MAIL_*` and `APP_KEY` live in `.env` (chmod 600).
 | `SESSION_DRIVER` | `file` | `redis` |
 | `QUEUE_CONNECTION` | `database` | `redis` |
 | `QUEUE_SCHEDULED_WORKER` | `true` (scheduler drains queue) | `false` (systemd worker owns it) |
+| `BROADCAST_CONNECTION` | `log` | `reverb` |
+| `NOC_REALTIME` | `false` (polling only) | `true` |
+| `REVERB_SERVER_HOST` / `REVERB_SERVER_PORT` | unused | `127.0.0.1` / `8080` |
+| `REVERB_HOST` / `REVERB_PORT` / `REVERB_SCHEME` | unused | `noc.example.com` / `443` / `https` |
 | `SESSION_SECURE_COOKIE` | `true` under HTTPS | `true` under HTTPS |
 | `LOG_STACK` / `LOG_LEVEL` | `daily` / `warning` | `daily` / `warning` |
 | `MAIL_MAILER` | `smtp` | `smtp` |
@@ -406,6 +411,101 @@ the web process with `database is locked` or `unable to open database file`.
 **Health:** Laravel exposes `GET /up`. Monitor it externally and add a
 dead-man check: alert when `max(servers.last_seen_at)` is older than three
 times the agent's reporting interval.
+
+## Realtime updates
+
+The dashboard, servers list, server detail and charts, alerts list/detail,
+global alert bell, and the “waiting for first sample” page use private Laravel
+Reverb channels when `NOC_REALTIME=true`. Activity, Users, and Settings remain
+normal HTTP pages; the global bell still updates there.
+
+Polling is always retained as a safety net: 60 seconds when Reverb is enabled,
+30 seconds when disabled, and 5 seconds on the waiting page. A Reverb outage
+therefore degrades to the current polling behavior instead of freezing the UI.
+
+### Shared hosting
+
+Keep Reverb disabled. No daemon or WebSocket port is needed:
+
+```dotenv
+BROADCAST_CONNECTION=log
+NOC_REALTIME=false
+```
+
+The dashboard polls as before. `public/build/` still contains the Echo bundle;
+it is inert without the flag, so disabling realtime never requires a rebuild.
+
+### VPS
+
+Reverb runs as a loopback-only systemd service. Nginx terminates TLS and
+proxies both `/app` (browser WebSocket) and `/apps` (Laravel broadcasts) to
+`127.0.0.1:8080`; never expose port 8080 publicly.
+
+1. Generate application credentials once and put them in `shared/.env`:
+
+   ```bash
+   php -r "echo random_int(100000, 999999), PHP_EOL;"   # REVERB_APP_ID
+   openssl rand -hex 16                                  # REVERB_APP_KEY
+   openssl rand -hex 32                                  # REVERB_APP_SECRET
+   ```
+
+   ```dotenv
+   BROADCAST_CONNECTION=reverb
+   NOC_REALTIME=true
+   REVERB_APP_ID=123456
+   REVERB_APP_KEY=replace-with-the-generated-key
+   REVERB_APP_SECRET=replace-with-the-generated-secret
+   REVERB_SERVER_HOST=127.0.0.1
+   REVERB_SERVER_PORT=8080
+   REVERB_HOST=noc.example.com
+   REVERB_PORT=443
+   REVERB_SCHEME=https
+   ```
+
+   `REVERB_APP_KEY` is public by design; `REVERB_APP_SECRET` must never reach
+   the browser or a log. The public client values are the production HTTPS
+   host, not `127.0.0.1`.
+
+2. Rebuild the cached configuration and install the unit:
+
+   ```bash
+   sudo -u www-data php /var/www/noc/current/artisan optimize:clear
+   sudo -u www-data php /var/www/noc/current/artisan config:cache
+   sudo cp ops/vps/noc-reverb.service /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now noc-reverb
+   ```
+
+3. Confirm Nginx contains the `/app` and `/apps` proxy blocks from
+   [`ops/vps/nginx.conf`](ops/vps/nginx.conf), reload it, and check the
+   service:
+
+   ```bash
+   sudo nginx -t && sudo systemctl reload nginx
+   systemctl status noc-reverb --no-pager
+   journalctl -u noc-reverb -f
+   ss -ltnp | grep 8080
+   ```
+
+4. Open the dashboard in two browsers, send a test sample, open an alert, and
+   acknowledge/resolve it. Both browsers should update without a manual
+   refresh. The browser DevTools WebSocket panel should show
+   `wss://noc.example.com/app/...` connected.
+
+After every deploy, restart the workers so they load the new release:
+
+```bash
+sudo -u www-data php /var/www/noc/current/artisan queue:restart
+sudo -u www-data php /var/www/noc/current/artisan reverb:restart
+```
+
+If `reverb:restart` is unavailable after an upgrade, use
+`sudo systemctl restart noc-reverb`.
+
+To roll back realtime, set `NOC_REALTIME=false` in `shared/.env`, run
+`php artisan config:cache`, and stop the service (`sudo systemctl stop
+noc-reverb`). The app falls back to polling without a rebuild. Keep the unit
+installed so re-enabling is only an env change plus `systemctl start`.
 
 ## Alert channels
 

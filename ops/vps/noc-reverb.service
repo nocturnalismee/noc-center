@@ -1,0 +1,36 @@
+# NOC dashboard Reverb WebSocket server.
+#
+# One long-running process for browser subscriptions. Nginx terminates TLS and
+# proxies /app and /apps to this loopback listener, so port 8080 is never
+# exposed publicly. The application is served from the `current` symlink so a
+# deploy is picked up by `systemctl restart noc-reverb`.
+#
+# Install:
+#   sudo cp noc-reverb.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now noc-reverb
+#
+# Set NOC_REALTIME=true and BROADCAST_CONNECTION=reverb in shared/.env, then
+# rebuild the config cache. On shared hosting leave NOC_REALTIME=false and do
+# not install this unit; polling remains the fallback.
+
+[Unit]
+Description=NOC dashboard Reverb WebSocket server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/noc/current
+ExecStart=/usr/bin/env php /var/www/noc/current/artisan reverb:start --host=127.0.0.1 --port=8080
+Restart=always
+RestartSec=5
+MemoryMax=512M
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Environment=APP_ENV=production
+
+[Install]
+WantedBy=multi-user.target
