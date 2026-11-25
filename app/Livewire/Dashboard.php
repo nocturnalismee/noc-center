@@ -50,13 +50,16 @@ class Dashboard extends Component
      */
     private function openAlerts()
     {
-        return Cache::remember('dashboard.open-alerts', now()->addSeconds(10), fn () => Alert::query()
+        // Laravel 13 sets cache.serializable_classes=false. Never cache Eloquent
+        // models or collections here: a serialized object would come back as
+        // __PHP_Incomplete_Class on the next request. This query is small.
+        return Alert::query()
             ->with('server')
             ->where('status', AlertStatus::Open->value)
             ->orderByRaw("CASE WHEN severity = 'critical' THEN 0 ELSE 1 END")
             ->orderByDesc('last_seen_at')
             ->limit(5)
-            ->get());
+            ->get();
     }
 
     /**
@@ -169,12 +172,13 @@ class Dashboard extends Component
      */
     private function activityEvents()
     {
-        return Cache::remember('dashboard.activity-events', now()->addSeconds(10), fn () => AuditEvent::query()
+        // See openAlerts(): models must not cross the cache boundary.
+        return AuditEvent::query()
             ->with('user')
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->limit(4)
-            ->get());
+            ->get();
     }
 
     /**

@@ -154,6 +154,37 @@ class DashboardTest extends TestCase
             ->assertSee('Created server');
     }
 
+    public function test_dashboard_caches_survive_a_serialized_cache_store(): void
+    {
+        config(['cache.default' => 'database']);
+        Cache::setDefaultDriver('database');
+        Cache::flush();
+
+        $admin = User::factory()->create(['role' => 'admin', 'name' => 'Andi Pratama']);
+        $server = $this->online('web-01');
+
+        Alert::query()->create(array_merge($this->alertAttributes($server, 'open'), [
+            'severity' => 'critical',
+            'title' => 'Disk almost full',
+        ]));
+
+        AuditEvent::query()->create([
+            'user_id' => $admin->id,
+            'action' => 'server.created',
+            'target_type' => Server::class,
+            'target_id' => $server->id,
+            'meta_json' => ['server_id' => $server->id],
+        ]);
+
+        $this->actingAs($admin)->get('/dashboard')->assertOk();
+
+        $this->actingAs($admin)
+            ->get('/dashboard')
+            ->assertOk()
+            ->assertSee('Disk almost full')
+            ->assertSee('Created server');
+    }
+
     public function test_open_alerts_put_critical_before_warning(): void
     {
         $server = $this->online('web-01');
