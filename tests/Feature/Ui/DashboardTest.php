@@ -454,6 +454,8 @@ class DashboardTest extends TestCase
 
     public function test_the_table_poll_refreshes_the_fleet_summary(): void
     {
+        config(['noc.realtime.enabled' => false]);
+
         Livewire::test(ServerTable::class)
             ->assertSeeHtml('wire:poll.30s.visible="pollRefresh"')
             ->call('pollRefresh')
