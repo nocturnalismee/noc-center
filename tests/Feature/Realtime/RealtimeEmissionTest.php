@@ -2,9 +2,13 @@
 
 namespace Tests\Feature\Realtime;
 
+use App\Alerts\AlertEngine;
+use App\Enums\AlertRule;
+use App\Events\AlertChanged;
 use App\Events\SampleStored;
 use App\Models\MetricSample;
 use App\Models\Server;
+use App\Models\User;
 use App\Services\Tokens\TokenService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -93,6 +97,94 @@ class RealtimeEmissionTest extends TestCase
         Event::assertDispatched(SampleStored::class, function (SampleStored $event) use ($latest): bool {
             return $event->sampleId === (string) $latest->getKey();
         });
+    }
+
+    public function test_opening_an_alert_emits_alert_changed_once(): void
+    {
+        config(['noc.realtime.enabled' => true]);
+        Event::fake([AlertChanged::class]);
+
+        [$server] = $this->serverWithToken();
+
+        $alert = $this->app->make(AlertEngine::class)->syncRule(
+            $server,
+            AlertRule::CpuHigh,
+            true,
+            ['severity' => 'warning'],
+        );
+
+        $this->app->make(AlertEngine::class)->syncRule(
+            $server,
+            AlertRule::CpuHigh,
+            true,
+            ['severity' => 'warning'],
+        );
+
+        Event::assertDispatchedTimes(AlertChanged::class, 1);
+        Event::assertDispatched(AlertChanged::class, function (AlertChanged $event) use ($alert, $server): bool {
+            return $event->alertId === (string) $alert->getKey()
+                && $event->serverId === (string) $server->getKey()
+                && $event->change === 'opened'
+                && $event->status === 'open'
+                && $event->severity === 'warning';
+        });
+    }
+
+    public function test_acknowledging_an_alert_emits_alert_changed(): void
+    {
+        config(['noc.realtime.enabled' => true]);
+        Event::fake([AlertChanged::class]);
+
+        [$server] = $this->serverWithToken();
+        $engine = $this->app->make(AlertEngine::class);
+        $alert = $engine->syncRule($server, AlertRule::CpuHigh, true, ['severity' => 'warning']);
+        $actor = User::factory()->create();
+
+        $engine->acknowledge($alert, $actor);
+
+        Event::assertDispatched(AlertChanged::class, function (AlertChanged $event) use ($alert, $server): bool {
+            return $event->alertId === (string) $alert->getKey()
+                && $event->serverId === (string) $server->getKey()
+                && $event->change === 'acknowledged'
+                && $event->status === 'acknowledged';
+        });
+    }
+
+    public function test_resolving_an_alert_emits_alert_changed(): void
+    {
+        config(['noc.realtime.enabled' => true]);
+        Event::fake([AlertChanged::class]);
+
+        [$server] = $this->serverWithToken();
+        $engine = $this->app->make(AlertEngine::class);
+        $alert = $engine->syncRule($server, AlertRule::CpuHigh, true, ['severity' => 'warning']);
+        $actor = User::factory()->create();
+
+        $engine->resolve($alert, $actor, 'Fixed');
+
+        Event::assertDispatched(AlertChanged::class, function (AlertChanged $event) use ($alert, $server): bool {
+            return $event->alertId === (string) $alert->getKey()
+                && $event->serverId === (string) $server->getKey()
+                && $event->change === 'resolved'
+                && $event->status === 'resolved';
+        });
+    }
+
+    public function test_alert_events_are_not_emitted_when_realtime_is_disabled(): void
+    {
+        config(['noc.realtime.enabled' => false]);
+        Event::fake([AlertChanged::class]);
+
+        [$server] = $this->serverWithToken();
+
+        $this->app->make(AlertEngine::class)->syncRule(
+            $server,
+            AlertRule::CpuHigh,
+            true,
+            ['severity' => 'warning'],
+        );
+
+        Event::assertNotDispatched(AlertChanged::class);
     }
 
     /**

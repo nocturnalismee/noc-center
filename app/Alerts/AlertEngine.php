@@ -6,12 +6,14 @@ use App\Enums\AlertRule;
 use App\Enums\AlertSeverity;
 use App\Enums\AlertStatus;
 use App\Enums\ServerHealth;
+use App\Events\AlertChanged;
 use App\Issues\IssueSet;
 use App\Models\Alert;
 use App\Models\Server;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\SettingsRepository;
+use App\Support\Realtime;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -117,8 +119,9 @@ class AlertEngine
         }
 
         $key = $server->getKey().':'.$rule->value;
+        $opened = false;
 
-        return DB::transaction(function () use ($server, $rule, $active, $context, $key): ?Alert {
+        $alert = DB::transaction(function () use ($server, $rule, $active, $context, $key, &$opened): ?Alert {
             $existing = Alert::query()->where('active_key', $key)->first();
 
             if (! $active) {
@@ -151,10 +154,24 @@ class AlertEngine
                 'notification_count' => 0,
             ]);
 
+            $opened = true;
+
             $this->notifier->dispatch($alert, 'opened');
 
             return $alert;
         });
+
+        if ($opened && $alert !== null) {
+            Realtime::emit(new AlertChanged(
+                alertId: (string) $alert->getKey(),
+                serverId: (string) $alert->server_id,
+                change: 'opened',
+                status: $alert->status->value,
+                severity: $alert->severity->value,
+            ));
+        }
+
+        return $alert;
     }
 
     /**
@@ -409,6 +426,14 @@ class AlertEngine
             ], static fn (mixed $value): bool => $value !== null),
             $actor?->getKey(),
         );
+
+        Realtime::emit(new AlertChanged(
+            alertId: (string) $resolved->getKey(),
+            serverId: (string) $resolved->server_id,
+            change: 'resolved',
+            status: $resolved->status->value,
+            severity: $resolved->severity->value,
+        ));
     }
 
     /**
@@ -445,6 +470,14 @@ class AlertEngine
             ['server_id' => $acknowledged->server_id, 'rule_key' => $acknowledged->rule_key->value],
             $actor->getKey(),
         );
+
+        Realtime::emit(new AlertChanged(
+            alertId: (string) $acknowledged->getKey(),
+            serverId: (string) $acknowledged->server_id,
+            change: 'acknowledged',
+            status: $acknowledged->status->value,
+            severity: $acknowledged->severity->value,
+        ));
     }
 
     private function touch(Alert $alert, AlertSeverity $severity, array $context): void
