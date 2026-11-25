@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Services\Metrics\RetentionService;
+use App\Services\Operations\RunTracker;
 use Illuminate\Console\Command;
 
 /**
@@ -18,7 +19,14 @@ class PruneData extends Command
 
     protected $description = 'Prune metric, alert, audit, and token rows past their retention windows';
 
-    public function handle(RetentionService $retention): int
+    public function handle(RunTracker $tracker, RetentionService $retention): int
+    {
+        $task = (bool) $this->option('dry-run') ? 'prune-dry-run' : 'prune';
+
+        return $tracker->run($task, fn (): int => $this->perform($retention));
+    }
+
+    private function perform(RetentionService $retention): int
     {
         $counts = $retention->prune((bool) $this->option('dry-run'));
 

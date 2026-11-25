@@ -424,7 +424,7 @@ class AlertCenterTest extends TestCase
         Livewire::test(AlertBell::class)
             ->assertViewHas('count', 2)
             ->assertSeeHtml('wire:poll.30s.visible="refresh"')
-            ->assertSee('href="/alerts"', false)
+            ->assertSee('href="'.route('alerts.index').'"', false)
             ->assertSeeHtml('bg-critical');
     }
 

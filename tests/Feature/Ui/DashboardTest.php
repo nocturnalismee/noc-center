@@ -382,7 +382,7 @@ class DashboardTest extends TestCase
     {
         Livewire::test(ServerTable::class)
             ->assertSee('No servers yet. Register the first server to start collecting metrics.')
-            ->assertSee('href="/servers/create"', false);
+            ->assertSee('href="'.route('servers.create').'"', false);
     }
 
     public function test_a_filter_with_no_matches_offers_a_clear_action_without_the_empty_fleet_cta(): void

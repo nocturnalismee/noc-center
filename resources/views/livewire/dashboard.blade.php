@@ -13,7 +13,7 @@
             </p>
         </div>
 
-        <a href="/servers/create" class="primary-button">Add server</a>
+        <a href="{{ route('servers.create') }}" class="primary-button">Add server</a>
     </div>
 
     <dl class="mt-6 grid grid-cols-2 gap-px overflow-hidden border-y border-divider bg-divider sm:grid-cols-3 xl:grid-cols-6">
@@ -46,7 +46,7 @@
             <section aria-labelledby="open-alerts-heading">
                 <div class="flex items-baseline justify-between gap-3">
                     <h2 id="open-alerts-heading" class="text-[15px] font-semibold text-text">Open alerts</h2>
-                    <a href="/alerts" class="text-[12px] text-focus hover:underline">View all</a>
+                    <a href="{{ route('alerts.index') }}" class="text-[12px] text-focus hover:underline">View all</a>
                 </div>
 
                 @if ($openAlerts->isEmpty())
@@ -64,7 +64,7 @@
                                     <div class="min-w-0">
                                         <div class="flex items-center gap-2">
                                             <span class="size-1.5 shrink-0 rounded-full {{ $severityDot }}" aria-hidden="true"></span>
-                                            <a href="/alerts/{{ $alert->id }}" class="truncate text-[13px] font-medium text-text hover:underline">{{ $alert->title }}</a>
+                                            <a href="{{ route('alerts.show', $alert) }}" class="truncate text-[13px] font-medium text-text hover:underline">{{ $alert->title }}</a>
                                         </div>
                                         <p class="mt-1 pl-3.5 text-[12px] leading-5 text-text-muted">
                                             {{ $alert->server?->name ?? 'Unknown server' }} · {{ $alert->message }}
@@ -89,8 +89,16 @@
                         <dd class="font-mono text-text">{{ $collection['agents'] }}</dd>
                     </div>
                     <div class="flex items-baseline justify-between gap-4 border-b border-divider py-2.5">
+                        <dt class="text-text-muted">Scheduler heartbeat</dt>
+                        <dd class="font-mono {{ str_starts_with($collection['scheduler_heartbeat'], 'Delayed') || $collection['scheduler_heartbeat'] === 'Not yet' ? 'text-critical' : 'text-text' }}">{{ $collection['scheduler_heartbeat'] }}</dd>
+                    </div>
+                    <div class="flex items-baseline justify-between gap-4 border-b border-divider py-2.5">
                         <dt class="text-text-muted">Last rollup</dt>
-                        <dd class="font-mono text-text">{{ $collection['last_rollup'] }}</dd>
+                        <dd class="font-mono {{ str_contains($collection['last_rollup'], 'Delayed') || str_contains($collection['last_rollup'], 'failed') || $collection['last_rollup'] === 'Not yet' ? 'text-critical' : (str_starts_with($collection['last_rollup'], 'Running') ? 'text-warning' : 'text-text') }}">{{ $collection['last_rollup'] }}</dd>
+                    </div>
+                    <div class="flex items-baseline justify-between gap-4 border-b border-divider py-2.5">
+                        <dt class="text-text-muted">Last prune</dt>
+                        <dd class="font-mono {{ str_contains($collection['last_prune'], 'Delayed') || str_contains($collection['last_prune'], 'failed') || $collection['last_prune'] === 'Not yet' ? 'text-critical' : (str_starts_with($collection['last_prune'], 'Running') ? 'text-warning' : 'text-text') }}">{{ $collection['last_prune'] }}</dd>
                     </div>
                     <div class="flex items-baseline justify-between gap-4 border-b border-divider py-2.5">
                         <dt class="text-text-muted">Next retention</dt>
@@ -116,7 +124,7 @@
                 <section aria-labelledby="activity-heading">
                     <div class="flex items-baseline justify-between gap-3">
                         <h2 id="activity-heading" class="text-[15px] font-semibold text-text">Activity</h2>
-                        <a href="/activity" class="text-[12px] text-focus hover:underline">Open audit log</a>
+                        <a href="{{ route('activity.index') }}" class="text-[12px] text-focus hover:underline">Open audit log</a>
                     </div>
 
                     @if ($activityEvents->isEmpty())

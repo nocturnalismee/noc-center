@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\Server;
 use App\Services\Metrics\RollupService;
+use App\Services\Operations\RunTracker;
 use Carbon\CarbonImmutable;
 use Carbon\Exceptions\InvalidFormatException;
 use Illuminate\Console\Command;
@@ -43,7 +44,12 @@ class RollupMetrics extends Command
 
     private const ORDER = [RollupService::FIVE_MINUTES, RollupService::HOUR, RollupService::DAY];
 
-    public function handle(RollupService $rollups): int
+    public function handle(RunTracker $tracker, RollupService $rollups): int
+    {
+        return $tracker->run('rollup', fn (): int => $this->perform($rollups));
+    }
+
+    private function perform(RollupService $rollups): int
     {
         $resolutions = $this->resolutions();
         if ($resolutions === null) {

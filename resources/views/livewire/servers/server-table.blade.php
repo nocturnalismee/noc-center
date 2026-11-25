@@ -59,7 +59,7 @@
                 <x-empty-state>
                     No servers yet. Register the first server to start collecting metrics.
                     <x-slot:action>
-                        <a href="/servers/create" class="primary-button">Add server</a>
+                        <a href="{{ route('servers.create') }}" class="primary-button">Add server</a>
                     </x-slot:action>
                 </x-empty-state>
             @else
@@ -76,24 +76,24 @@
             <table class="w-full min-w-[940px] table-fixed border-collapse">
                 <thead>
                     <tr class="h-10 border-b border-divider text-left">
-                        <th class="w-[112px] pl-5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col">
-                            <button type="button" wire:click="sortBy('status')" class="hover:text-text-sub">Status</button>
+                        <th class="w-[112px] pl-5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col" @if ($sort === 'status') aria-sort="{{ $dir === 'asc' ? 'ascending' : 'descending' }}" @endif>
+                            <button type="button" wire:click="sortBy('status')" class="hover:text-text-sub">Status <span aria-hidden="true">{{ $sort === 'status' ? ($dir === 'asc' ? '↑' : '↓') : '' }}</span></button>
                         </th>
-                        <th class="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col">
-                            <button type="button" wire:click="sortBy('hostname')" class="hover:text-text-sub">Server</button>
+                        <th class="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col" @if ($sort === 'hostname') aria-sort="{{ $dir === 'asc' ? 'ascending' : 'descending' }}" @endif>
+                            <button type="button" wire:click="sortBy('hostname')" class="hover:text-text-sub">Server <span aria-hidden="true">{{ $sort === 'hostname' ? ($dir === 'asc' ? '↑' : '↓') : '' }}</span></button>
                         </th>
                         <th class="w-[112px] text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col">Provider</th>
-                        <th class="w-[64px] text-right text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col">
-                            <button type="button" wire:click="sortBy('cpu')" class="hover:text-text-sub">CPU</button>
+                        <th class="w-[64px] text-right text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col" @if ($sort === 'cpu') aria-sort="{{ $dir === 'asc' ? 'ascending' : 'descending' }}" @endif>
+                            <button type="button" wire:click="sortBy('cpu')" class="hover:text-text-sub">CPU <span aria-hidden="true">{{ $sort === 'cpu' ? ($dir === 'asc' ? '↑' : '↓') : '' }}</span></button>
                         </th>
-                        <th class="w-[64px] text-right text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col">
-                            <button type="button" wire:click="sortBy('memory')" class="hover:text-text-sub">Mem</button>
+                        <th class="w-[64px] text-right text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col" @if ($sort === 'memory') aria-sort="{{ $dir === 'asc' ? 'ascending' : 'descending' }}" @endif>
+                            <button type="button" wire:click="sortBy('memory')" class="hover:text-text-sub">Mem <span aria-hidden="true">{{ $sort === 'memory' ? ($dir === 'asc' ? '↑' : '↓') : '' }}</span></button>
                         </th>
-                        <th class="w-[64px] text-right text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col">
-                            <button type="button" wire:click="sortBy('disk')" class="hover:text-text-sub">Disk</button>
+                        <th class="w-[64px] text-right text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col" @if ($sort === 'disk') aria-sort="{{ $dir === 'asc' ? 'ascending' : 'descending' }}" @endif>
+                            <button type="button" wire:click="sortBy('disk')" class="hover:text-text-sub">Disk <span aria-hidden="true">{{ $sort === 'disk' ? ($dir === 'asc' ? '↑' : '↓') : '' }}</span></button>
                         </th>
-                        <th class="w-[78px] pr-3 text-right text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col">
-                            <button type="button" wire:click="sortBy('load')" class="hover:text-text-sub">Load</button>
+                        <th class="w-[78px] pr-3 text-right text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col" @if ($sort === 'load') aria-sort="{{ $dir === 'asc' ? 'ascending' : 'descending' }}" @endif>
+                            <button type="button" wire:click="sortBy('load')" class="hover:text-text-sub">Load <span aria-hidden="true">{{ $sort === 'load' ? ($dir === 'asc' ? '↑' : '↓') : '' }}</span></button>
                         </th>
                         <th class="w-[120px] pl-3 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col">Last sample</th>
                         <th class="w-[152px] pr-5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col">Issues</th>
@@ -107,7 +107,7 @@
                             </td>
                             <td class="min-w-0 pr-3">
                                 <div class="flex min-w-0 items-center gap-1.5">
-                                    <a href="/servers/{{ $server->id }}" class="truncate text-[13px] font-medium text-text hover:underline" title="{{ $server->name }}{{ $server->server_type ? ' · '.$server->server_type : '' }}">{{ $server->name }}</a>
+                                    <a href="{{ route('servers.show', $server) }}" class="truncate text-[13px] font-medium text-text hover:underline" title="{{ $server->name }}{{ $server->server_type ? ' · '.$server->server_type : '' }}">{{ $server->name }}</a>
                                     @if ($server->label)
                                         <span class="shrink-0 rounded border border-border px-1 py-0.5 text-[11px] leading-none text-text-muted">{{ $server->label }}</span>
                                     @endif
@@ -155,7 +155,7 @@
 
         <div class="divide-y divide-divider border-t border-divider md:hidden">
             @foreach ($servers as $server)
-                <a href="/servers/{{ $server->id }}" wire:key="mobile-server-{{ $server->id }}" class="block px-4 py-3 hover:bg-selected">
+                <a href="{{ route('servers.show', $server) }}" wire:key="mobile-server-{{ $server->id }}" class="block px-4 py-3 hover:bg-selected">
                     <div class="flex items-center justify-between gap-3">
                         <x-status :state="$this->displayState($server)" />
                         <p class="font-mono text-[11px] text-text-muted">{{ $this->sampleAge($server->last_sample_at) }}</p>

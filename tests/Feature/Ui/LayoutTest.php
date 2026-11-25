@@ -31,14 +31,14 @@ class LayoutTest extends TestCase
         $response->assertSee('id="main"', false);
 
         foreach ([
-            '/dashboard',
-            '/servers',
-            '/alerts',
-            '/activity',
-            '/settings',
-            '/settings/users',
-        ] as $path) {
-            $response->assertSee('href="'.$path.'"', false);
+            'dashboard',
+            'servers.index',
+            'alerts.index',
+            'activity.index',
+            'settings.index',
+            'settings.users',
+        ] as $name) {
+            $response->assertSee('href="'.route($name).'"', false);
         }
 
         $response->assertSee('aria-current="page"', false);
@@ -103,7 +103,7 @@ class LayoutTest extends TestCase
         $this->actingAs($viewer)
             ->get('/dashboard')
             ->assertOk()
-            ->assertDontSee('href="/activity"', false)
+            ->assertDontSee('href="'.route('activity.index').'"', false)
             ->assertDontSee('aria-label="Activity"', false);
     }
 

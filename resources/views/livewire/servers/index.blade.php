@@ -8,7 +8,7 @@
             </p>
         </div>
 
-        <a href="/servers/create" class="primary-button">Add server</a>
+        <a href="{{ route('servers.create') }}" class="primary-button">Add server</a>
     </div>
 
     <div class="mt-8">

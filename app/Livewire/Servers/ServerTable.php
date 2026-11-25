@@ -10,6 +10,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\WithPagination;
@@ -118,13 +119,13 @@ class ServerTable extends Component
 
         $counts = $this->tabCounts($now);
 
-        $providers = Server::query()
+        $providers = Cache::remember('fleet.providers', now()->addMinute(), fn (): array => Server::query()
             ->whereNotNull('provider')
             ->where('provider', '!=', '')
             ->distinct()
             ->orderBy('provider')
             ->pluck('provider')
-            ->all();
+            ->all());
 
         $settings = app(SettingsRepository::class);
 
@@ -369,10 +370,16 @@ class ServerTable extends Component
      */
     private function tabCounts(string $now): array
     {
-        $row = $this->filteredQuery($now)
-            ->toBase()
-            ->selectRaw(
-                <<<'SQL'
+        $cacheKey = 'fleet.tab-counts.'.hash('sha256', serialize([
+            'provider' => $this->provider,
+            'query' => trim($this->q),
+        ]));
+
+        return Cache::remember($cacheKey, now()->addSeconds(10), function () use ($now): array {
+            $row = $this->filteredQuery($now)
+                ->toBase()
+                ->selectRaw(
+                    <<<'SQL'
                 COUNT(*) AS all_count,
                 COALESCE(SUM(CASE
                     WHEN last_seen_at IS NOT NULL
@@ -398,18 +405,19 @@ class ServerTable extends Component
                     THEN 1 ELSE 0 END), 0) AS offline_count,
                 COALESCE(SUM(CASE WHEN last_seen_at IS NULL THEN 1 ELSE 0 END), 0) AS never_count
                 SQL,
-                [$now, $now, $now, $now, $now],
-            )
-            ->first();
+                    [$now, $now, $now, $now, $now],
+                )
+                ->first();
 
-        return [
-            'all' => (int) $row->all_count,
-            'online' => (int) $row->online_count,
-            'attention' => (int) $row->attention_count,
-            'stale' => (int) $row->stale_count,
-            'offline' => (int) $row->offline_count,
-            'never' => (int) $row->never_count,
-        ];
+            return [
+                'all' => (int) $row->all_count,
+                'online' => (int) $row->online_count,
+                'attention' => (int) $row->attention_count,
+                'stale' => (int) $row->stale_count,
+                'offline' => (int) $row->offline_count,
+                'never' => (int) $row->never_count,
+            ];
+        });
     }
 
     private function asCarbon(\DateTimeInterface|string $value): Carbon

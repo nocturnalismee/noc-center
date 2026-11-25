@@ -1,6 +1,6 @@
 <div wire:poll.30s.visible="refresh">
     <a
-        href="/alerts"
+        href="{{ route('alerts.index') }}"
         class="icon-button relative"
         aria-label="{{ $count > 0 ? $count.' active alerts' : 'Alerts' }}"
     >

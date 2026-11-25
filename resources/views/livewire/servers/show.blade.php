@@ -47,11 +47,11 @@
 
         <div class="flex flex-wrap items-center gap-2">
             @if ($canViewSnapshot)
-                <a href="/servers/{{ $server->id }}/snapshot" class="secondary-button">Stored snapshot</a>
+                <a href="{{ route('servers.snapshot', $server) }}" class="secondary-button">Stored snapshot</a>
             @endif
             @if ($canOperate)
-                <a href="/servers/{{ $server->id }}/tokens" class="secondary-button">Manage tokens</a>
-                <a href="/servers/{{ $server->id }}/edit" class="secondary-button">Edit server</a>
+                <a href="{{ route('servers.tokens', $server) }}" class="secondary-button">Manage tokens</a>
+                <a href="{{ route('servers.edit', $server) }}" class="secondary-button">Edit server</a>
             @endif
         </div>
     </div>
@@ -120,6 +120,7 @@
                     </div>
                 </div>
 
+                <p class="mt-1 text-[12px] text-text-muted">Data as of {{ $sample?->collected_at?->timezone('Asia/Jakarta')->format('d M Y H:i:s') ?? 'no sample received' }}{{ $sample ? ' WIB' : '' }}</p>
                 <div
                     class="relative mt-4 h-[280px]"
                     data-series-chart
@@ -127,10 +128,15 @@
                     data-series="{{ json_encode($series) }}"
                     data-interval="{{ max(1, (int) $server->interval_seconds) }}"
                     data-summary="{{ $sample ? 'CPU '.$this->pct($sample->cpu_usage_pct).', memory '.$this->pct($sample->mem_used_pct).', disk '.$this->pct($sample->disk_used_pct).'. Last hour.' : 'No samples recorded.' }}"
-                    role="img"
-                    aria-label="{{ $sample ? 'CPU, memory, and disk usage for the last hour' : 'No samples recorded for this server' }}"
+                    data-chart-has-sample="{{ $sample ? 'true' : 'false' }}"
+                    aria-busy="false"
                 >
-                    <canvas></canvas>
+                    <canvas role="img" aria-label="{{ $sample ? 'CPU, memory, and disk usage for the last hour' : 'No samples recorded for this server' }}"></canvas>
+                    <div data-chart-status class="pointer-events-none absolute left-3 top-2 z-10 text-[12px] text-text-muted" role="status" aria-live="polite" hidden></div>
+                    <div data-chart-error class="absolute inset-x-3 bottom-3 z-20 flex items-center justify-between gap-3 border border-border bg-canvas px-3 py-2 text-[12px] text-critical" role="alert" hidden>
+                        <span>Chart data could not be loaded.</span>
+                        <button type="button" data-chart-retry class="pointer-events-auto underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus">Try again</button>
+                    </div>
                     @if (! $sample)
                         <div class="absolute inset-0 z-10 flex items-center justify-center border-y border-divider bg-canvas">
                             <div class="max-w-[36ch] text-center">
@@ -212,6 +218,7 @@
                 @endforeach
             </div>
 
+            <p class="mt-1 text-[12px] text-text-muted">Data as of {{ $sample?->collected_at?->timezone('Asia/Jakarta')->format('d M Y H:i:s') ?? 'no sample received' }}{{ $sample ? ' WIB' : '' }}</p>
             <div
                 class="relative mt-4 h-[340px]"
                 data-series-chart
@@ -219,10 +226,15 @@
                 data-series="{{ json_encode($series) }}"
                 data-interval="{{ max(1, (int) $server->interval_seconds) }}"
                 data-summary="{{ $sample ? 'CPU '.$this->pct($sample->cpu_usage_pct).', memory '.$this->pct($sample->mem_used_pct).', disk '.$this->pct($sample->disk_used_pct).' over '.$range.'.' : 'No samples recorded.' }}"
-                role="img"
-                aria-label="CPU, memory, and disk usage over {{ $range }}"
+                data-chart-has-sample="{{ $sample ? 'true' : 'false' }}"
+                aria-busy="false"
             >
-                <canvas></canvas>
+                <canvas role="img" aria-label="CPU, memory, and disk usage over {{ $range }}"></canvas>
+                <div data-chart-status class="pointer-events-none absolute left-3 top-2 z-10 text-[12px] text-text-muted" role="status" aria-live="polite" hidden></div>
+                <div data-chart-error class="absolute inset-x-3 bottom-3 z-20 flex items-center justify-between gap-3 border border-border bg-canvas px-3 py-2 text-[12px] text-critical" role="alert" hidden>
+                    <span>Chart data could not be loaded.</span>
+                    <button type="button" data-chart-retry class="pointer-events-auto underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus">Try again</button>
+                </div>
                 @if (! $sample)
                     <div class="absolute inset-0 z-10 flex items-center justify-center border-y border-divider bg-canvas">
                         <div class="max-w-[36ch] text-center">

@@ -602,7 +602,7 @@ class IngestAuthTest extends TestCase
 
         $this->assertNotSame([], $calls, 'Expected at least one log call.');
 
-        return implode("\n", array_map(
+        return implode(' ', array_map(
             static fn (MethodCall $call): string => (string) json_encode($call->getArgs()),
             $calls,
         ));

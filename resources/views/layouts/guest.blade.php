@@ -28,7 +28,7 @@
 
     <div class="guest-shell">
         <header class="flex items-center justify-between gap-4 px-5 py-4 sm:px-8">
-            <a href="/login" class="flex min-w-0 items-center gap-3" aria-label="NOC Center">
+            <a href="{{ route('login') }}" class="flex min-w-0 items-center gap-3" aria-label="NOC Center">
                 <span class="flex h-6 w-6 items-center justify-center rounded-[6px] bg-text" aria-hidden="true">
                     <span class="flex h-3.5 items-end gap-[2px]">
                         <span class="h-1.5 w-[3px] rounded-[1px] bg-ink"></span>

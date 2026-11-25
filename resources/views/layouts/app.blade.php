@@ -34,7 +34,7 @@
     <div class="app-shell">
         <aside id="sidebar" class="sidebar" aria-label="Primary" tabindex="-1">
             <div class="sidebar-header flex h-16 items-center justify-between gap-2 border-b border-divider px-4">
-                <a href="/dashboard" class="sidebar-brand flex min-w-0 items-center gap-3" aria-label="NOC Center dashboard">
+                <a href="{{ route('dashboard') }}" class="sidebar-brand flex min-w-0 items-center gap-3" aria-label="NOC Center dashboard">
                     <span class="flex h-5 items-end gap-[2px]" aria-hidden="true">
                         <span class="h-2.5 w-[3px] rounded-[1px] bg-text"></span>
                         <span class="h-5 w-[3px] rounded-[1px] bg-text"></span>
@@ -62,24 +62,24 @@
                     <p class="sidebar-group-label px-2 pb-2 text-[11px] font-medium uppercase tracking-[0.1em] text-text-muted">Fleet</p>
 
                     <div class="flex flex-col gap-0.5">
-                        <a href="/dashboard" @if (request()->is('dashboard')) aria-current="page" @endif class="nav-link" title="Dashboard" aria-label="Dashboard">
+                        <a href="{{ route('dashboard') }}" @if (request()->routeIs('dashboard')) aria-current="page" @endif class="nav-link" title="Dashboard" aria-label="Dashboard">
                             <x-heroicon-o-squares-2x2 class="h-5 w-5 shrink-0" />
                             <span class="sidebar-label">Dashboard</span>
                         </a>
 
-                        <a href="/servers" @if (request()->is('servers*')) aria-current="page" @endif class="nav-link" title="Servers" aria-label="Servers">
+                        <a href="{{ route('servers.index') }}" @if (request()->routeIs('servers.*')) aria-current="page" @endif class="nav-link" title="Servers" aria-label="Servers">
                             <x-heroicon-o-server-stack class="h-5 w-5 shrink-0" />
                             <span class="sidebar-label">Servers</span>
                         </a>
 
-                        <a href="/alerts" @if (request()->is('alerts*')) aria-current="page" @endif class="nav-link" title="Alerts" aria-label="Alerts">
+                        <a href="{{ route('alerts.index') }}" @if (request()->routeIs('alerts.*')) aria-current="page" @endif class="nav-link" title="Alerts" aria-label="Alerts">
                             <x-heroicon-o-bell-alert class="h-5 w-5 shrink-0" />
                             <span class="sidebar-label">Alerts</span>
                         </a>
 
                         @auth
                             @if (auth()->user()->canOperate())
-                                <a href="/activity" @if (request()->is('activity*')) aria-current="page" @endif class="nav-link" title="Activity" aria-label="Activity">
+                                <a href="{{ route('activity.index') }}" @if (request()->routeIs('activity.index')) aria-current="page" @endif class="nav-link" title="Activity" aria-label="Activity">
                                     <x-heroicon-o-signal class="h-5 w-5 shrink-0" />
                                     <span class="sidebar-label">Activity</span>
                                 </a>
@@ -92,14 +92,14 @@
                     <p class="sidebar-group-label px-2 pb-2 text-[11px] font-medium uppercase tracking-[0.1em] text-text-muted">Admin</p>
 
                     <div class="flex flex-col gap-0.5">
-                        <a href="/settings" @if (request()->is('settings*')) aria-current="page" @endif class="nav-link" title="Settings" aria-label="Settings">
+                        <a href="{{ route('settings.index') }}" @if (request()->routeIs('settings.*')) aria-current="page" @endif class="nav-link" title="Settings" aria-label="Settings">
                             <x-heroicon-o-cog-6-tooth class="h-5 w-5 shrink-0" />
                             <span class="sidebar-label">Settings</span>
                         </a>
 
                         @auth
                             @if (auth()->user()->isAdmin())
-                                <a href="/settings/users" @if (request()->is('settings/users*')) aria-current="page" @endif class="nav-link" title="Users" aria-label="Users">
+                                <a href="{{ route('settings.users') }}" @if (request()->routeIs('settings.users')) aria-current="page" @endif class="nav-link" title="Users" aria-label="Users">
                                     <x-heroicon-o-users class="h-5 w-5 shrink-0" />
                                     <span class="sidebar-label">Users</span>
                                 </a>
@@ -277,7 +277,7 @@
             </main>
 
             <footer class="flex flex-wrap items-center justify-between gap-2 border-t border-divider px-4 py-4 text-[11px] text-text-muted lg:px-6 xl:px-8">
-                <p>NOC Center {{ $appVersion ?? 'v1.0.0' }} · UTC in storage · Asia/Jakarta display</p>
+                <p>NOC Center {{ $appVersion ?? 'v1.0.1' }} · UTC in storage · Asia/Jakarta display</p>
                 <p>Internal operations console</p>
             </footer>
         </div>

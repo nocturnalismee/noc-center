@@ -19,6 +19,10 @@ Artisan::command('inspire', function () {
 */
 
 // Liveness rules for servers that stopped sending samples: every minute.
+Schedule::command('noc:scheduler-heartbeat')
+    ->everyMinute()
+    ->withoutOverlapping(2);
+
 Schedule::command('noc:evaluate-liveness')
     ->everyMinute()
     ->withoutOverlapping(5);

@@ -28,3 +28,4 @@ Homestead.yaml
 Thumbs.db
 agent/config/agent.conf
 agent/config/token
+.worktrees

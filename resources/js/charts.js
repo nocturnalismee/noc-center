@@ -195,6 +195,27 @@ function buildDatasets(series, merged) {
     }));
 }
 
+function setChartState(el, state, message = '') {
+    const status = el.querySelector('[data-chart-status]');
+    const error = el.querySelector('[data-chart-error]');
+    const retry = el.querySelector('[data-chart-retry]');
+
+    el.setAttribute('aria-busy', state === 'loading' ? 'true' : 'false');
+
+    if (status) {
+        status.hidden = !['loading', 'empty'].includes(state);
+        status.textContent = message;
+    }
+
+    if (error) {
+        error.hidden = state !== 'error';
+    }
+
+    if (retry) {
+        retry.disabled = state === 'loading';
+    }
+}
+
 /**
  * Mount a time-series chart from one or more `servers.series` URLs.
  *
@@ -222,6 +243,12 @@ export async function mountSeriesChart(el, url = null) {
     }
 
     el.dataset.chartMounted = 'true';
+    setChartState(el, 'loading', 'Loading chart data…');
+
+    if (el.dataset.chartHasSample === 'false') {
+        setChartState(el, 'empty', 'No samples received yet.');
+        return;
+    }
 
     try {
         const [chartModule, , ...payloads] = await Promise.all([
@@ -233,6 +260,7 @@ export async function mountSeriesChart(el, url = null) {
         const merged = mergePoints(payloads, Number(el.dataset.interval) || 60);
 
         if (merged.length === 0) {
+            setChartState(el, 'empty', 'No metric points are available for this range.');
             return;
         }
 
@@ -243,9 +271,11 @@ export async function mountSeriesChart(el, url = null) {
         });
 
         el.dataset.chartReady = 'true';
+        setChartState(el, 'ready');
     } catch (error) {
         console.warn('Series chart unavailable', error);
         el.dataset.chartError = 'true';
+        setChartState(el, 'error');
     }
 }
 
@@ -263,6 +293,29 @@ export function refreshSeriesCharts(root = document) {
         delete el.dataset.chartReady;
         delete el.dataset.chartError;
         mountSeriesChart(el);
+    });
+}
+
+if (typeof document !== 'undefined') {
+    document.addEventListener('click', (event) => {
+        const target = event.target;
+
+        if (!(target instanceof Element)) {
+            return;
+        }
+
+        const retry = target.closest('[data-chart-retry]');
+        const chart = retry?.closest('[data-series-chart]');
+
+        if (chart) {
+            event.preventDefault();
+            chart.chart?.destroy();
+            chart.chart = null;
+            delete chart.dataset.chartMounted;
+            delete chart.dataset.chartReady;
+            delete chart.dataset.chartError;
+            mountSeriesChart(chart);
+        }
     });
 }
 
