@@ -112,6 +112,19 @@ async function fetchPayload(series) {
     return response.json();
 }
 
+async function loadSeriesData(el, series) {
+    const [chartModule, , ...payloads] = await Promise.all([
+        import('chart.js/auto'),
+        import('chartjs-adapter-date-fns'),
+        ...series.map((line) => fetchPayload(line)),
+    ]);
+
+    return {
+        Chart: chartModule.default,
+        merged: mergePoints(payloads, Number(el.dataset.interval) || 60),
+    };
+}
+
 function chartOptions() {
     const divider = cssColor('--divider');
     const muted = cssColor('--text-muted');
@@ -251,13 +264,7 @@ export async function mountSeriesChart(el, url = null) {
     }
 
     try {
-        const [chartModule, , ...payloads] = await Promise.all([
-            import('chart.js/auto'),
-            import('chartjs-adapter-date-fns'),
-            ...valid.map((line) => fetchPayload(line)),
-        ]);
-        const Chart = chartModule.default;
-        const merged = mergePoints(payloads, Number(el.dataset.interval) || 60);
+        const { Chart, merged } = await loadSeriesData(el, valid);
 
         if (merged.length === 0) {
             setChartState(el, 'empty', 'No metric points are available for this range.');
@@ -279,6 +286,73 @@ export async function mountSeriesChart(el, url = null) {
     }
 }
 
+/**
+ * Update an already-mounted chart without destroying its canvas.
+ *
+ * Realtime refreshes should leave the previous line visible while the next
+ * payload is loading. A destroy-and-remount creates a blank chart for the
+ * duration of the three series requests.
+ */
+export async function updateSeriesChart(el) {
+    if (!(el instanceof HTMLElement)) {
+        return;
+    }
+
+    const canvas = el.querySelector('canvas');
+
+    if (!canvas) {
+        return;
+    }
+
+    if (!el.chart || el.chart.canvas !== canvas) {
+        el.chart?.destroy();
+        el.chart = null;
+        delete el.dataset.chartMounted;
+        delete el.dataset.chartReady;
+        delete el.dataset.chartError;
+        await mountSeriesChart(el);
+
+        return;
+    }
+
+    const series = parseSeries(el);
+    const valid = series.filter((line) => typeof line.url === 'string' && line.url !== '');
+
+    if (valid.length === 0) {
+        return;
+    }
+
+    if (el.dataset.chartHasSample === 'false') {
+        el.chart.destroy();
+        el.chart = null;
+        delete el.dataset.chartMounted;
+        delete el.dataset.chartReady;
+        delete el.dataset.chartError;
+        setChartState(el, 'empty', 'No samples received yet.');
+
+        return;
+    }
+
+    try {
+        const { merged } = await loadSeriesData(el, valid);
+
+        if (merged.length === 0) {
+            setChartState(el, 'empty', 'No metric points are available for this range.');
+
+            return;
+        }
+
+        el.chart.data.datasets = buildDatasets(valid, merged);
+        el.chart.update('none');
+        el.dataset.chartReady = 'true';
+        setChartState(el, 'ready');
+    } catch (error) {
+        console.warn('Series chart refresh unavailable', error);
+        el.dataset.chartError = 'true';
+        setChartState(el, 'error');
+    }
+}
+
 export function initSeriesCharts(root = document) {
     root.querySelectorAll('[data-series-chart]').forEach((el) => {
         mountSeriesChart(el);
@@ -293,6 +367,12 @@ export function refreshSeriesCharts(root = document) {
         delete el.dataset.chartReady;
         delete el.dataset.chartError;
         mountSeriesChart(el);
+    });
+}
+
+export function updateSeriesCharts(root = document) {
+    root.querySelectorAll('[data-series-chart]').forEach((el) => {
+        updateSeriesChart(el);
     });
 }
 

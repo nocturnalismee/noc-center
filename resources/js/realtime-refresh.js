@@ -27,7 +27,7 @@ export function registerRealtimeRefresh(Alpine) {
                     }
 
                     if (options.refreshCharts) {
-                        window.NocCharts?.refreshSeriesCharts(this.$el);
+                        window.NocCharts?.updateSeriesCharts(this.$el);
                     }
                 }, debounce);
             };

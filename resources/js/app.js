@@ -3,12 +3,12 @@ import '@fontsource/jetbrains-mono/400.css';
 
 import { Alpine, Livewire } from '../../vendor/livewire/livewire/dist/livewire.esm';
 import { initAlertSound } from './alert-sound';
-import { initSeriesCharts, refreshSeriesCharts } from './charts';
+import { initSeriesCharts, refreshSeriesCharts, updateSeriesCharts } from './charts';
 import { bootRealtime } from './realtime';
 import { registerRealtimeRefresh } from './realtime-refresh';
 
 window.Alpine = Alpine;
-window.NocCharts = { refreshSeriesCharts };
+window.NocCharts = { refreshSeriesCharts, updateSeriesCharts };
 
 registerRealtimeRefresh(Alpine);
 bootRealtime();
