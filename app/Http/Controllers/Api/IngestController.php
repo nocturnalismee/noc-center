@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Alerts\AlertEngine;
+use App\Events\SampleStored;
 use App\Http\Controllers\Controller;
 use App\Models\ServerToken;
 use App\Services\Ingest\StoreSample;
+use App\Support\Realtime;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -85,6 +87,14 @@ class IngestController extends Controller
         } catch (Throwable $exception) {
             report($exception);
         }
+
+        Realtime::emit(new SampleStored(
+            serverId: (string) $result->server->getKey(),
+            sampleId: (string) $result->sample->getKey(),
+            collectedAt: $result->sample->collected_at->toIso8601String(),
+            health: $result->issues->health->value,
+            status: $result->server->status()->value,
+        ));
 
         return $this->respond(['status' => 'accepted'], 202);
     }
