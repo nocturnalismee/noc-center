@@ -1,5 +1,9 @@
 <div
     class="mx-auto w-full max-w-[1000px]"
+    @if (config('noc.realtime.enabled'))
+        data-realtime="waiting"
+        x-data="nocRealtimeRefresh({ listeners: [{ channel: 'server.{{ $server->getKey() }}', event: 'SampleStored' }], debounce: {{ (int) config('noc.realtime.debounce_ms', 750) }}, method: 'poll' })"
+    @endif
     @if ($polling) wire:poll.5s.visible="poll" @endif
 >
     @section('title')
