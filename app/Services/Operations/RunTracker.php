@@ -2,7 +2,9 @@
 
 namespace App\Services\Operations;
 
+use App\Events\OperationsChanged;
 use App\Models\OperationalRun;
+use App\Support\Realtime;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -56,6 +58,12 @@ class RunTracker
                 'duration_ms' => round((hrtime(true) - $startedAt) / 1_000_000, 2),
             ]);
 
+            Realtime::emit(new OperationsChanged(
+                taskKey: $task,
+                status: $success ? 'succeeded' : 'failed',
+                finishedAt: $finished->toIso8601String(),
+            ));
+
             return $exitCode;
         } catch (Throwable $exception) {
             $finished = CarbonImmutable::now('UTC');
@@ -71,6 +79,12 @@ class RunTracker
                 'exception' => $exception::class,
                 'duration_ms' => round((hrtime(true) - $startedAt) / 1_000_000, 2),
             ]);
+
+            Realtime::emit(new OperationsChanged(
+                taskKey: $task,
+                status: 'failed',
+                finishedAt: $finished->toIso8601String(),
+            ));
 
             throw $exception;
         }

@@ -5,11 +5,13 @@ namespace Tests\Feature\Realtime;
 use App\Alerts\AlertEngine;
 use App\Enums\AlertRule;
 use App\Events\AlertChanged;
+use App\Events\OperationsChanged;
 use App\Events\SampleStored;
 use App\Events\ServerChanged;
 use App\Models\MetricSample;
 use App\Models\Server;
 use App\Models\User;
+use App\Services\Operations\RunTracker;
 use App\Services\Servers\ServerService;
 use App\Services\Tokens\TokenService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -18,6 +20,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
+use RuntimeException;
 use Tests\TestCase;
 
 class RealtimeEmissionTest extends TestCase
@@ -229,6 +232,51 @@ class RealtimeEmissionTest extends TestCase
         $server->forceFill(['cpu_usage_pct' => 42.5])->save();
 
         Event::assertNotDispatched(ServerChanged::class);
+    }
+
+    public function test_successful_operation_emits_operations_changed(): void
+    {
+        config(['noc.realtime.enabled' => true]);
+        Event::fake([OperationsChanged::class]);
+
+        $exitCode = $this->app->make(RunTracker::class)->run('rollup', fn (): int => 0);
+
+        $this->assertSame(0, $exitCode);
+        Event::assertDispatched(OperationsChanged::class, function (OperationsChanged $event): bool {
+            return $event->taskKey === 'rollup'
+                && $event->status === 'succeeded'
+                && $event->finishedAt !== '';
+        });
+    }
+
+    public function test_failed_operation_emits_operations_changed_before_rethrowing(): void
+    {
+        config(['noc.realtime.enabled' => true]);
+        Event::fake([OperationsChanged::class]);
+
+        try {
+            $this->app->make(RunTracker::class)->run('rollup', function (): int {
+                throw new RuntimeException('rollup failed');
+            });
+        } catch (RuntimeException) {
+            // Expected: the tracker preserves the original exception.
+        }
+
+        Event::assertDispatched(OperationsChanged::class, function (OperationsChanged $event): bool {
+            return $event->taskKey === 'rollup'
+                && $event->status === 'failed'
+                && $event->finishedAt !== '';
+        });
+    }
+
+    public function test_operation_event_is_not_emitted_when_realtime_is_disabled(): void
+    {
+        config(['noc.realtime.enabled' => false]);
+        Event::fake([OperationsChanged::class]);
+
+        $this->app->make(RunTracker::class)->run('rollup', fn (): int => 0);
+
+        Event::assertNotDispatched(OperationsChanged::class);
     }
 
     /**
