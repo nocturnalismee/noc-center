@@ -45,6 +45,7 @@ Schedule::command('noc:rollup')
 // `onOneServer()`: the dashboard is a single node without an atomic cache lock.
 Schedule::command('noc:prune')
     ->dailyAt('03:30')
+    ->timezone('Asia/Jakarta')
     ->withoutOverlapping(60);
 
 // Shared hosting has no supervisor: drain the queue from the scheduler instead

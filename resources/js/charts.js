@@ -1,3 +1,5 @@
+import { percentageScaleBounds, seriesPointRadius } from './chart-scale.js';
+
 const DEFAULT_SERIES = [
     { metric: 'cpu', label: 'CPU', color: '--chart-cpu' },
     { metric: 'memory', label: 'Memory', color: '--chart-memory' },
@@ -128,6 +130,7 @@ async function loadSeriesData(el, series) {
 function chartOptions() {
     const divider = cssColor('--divider');
     const muted = cssColor('--text-muted');
+    const percentage = percentageScaleBounds();
 
     return {
         responsive: true,
@@ -179,11 +182,11 @@ function chartOptions() {
                 },
             },
             y: {
-                beginAtZero: true,
-                suggestedMax: 100,
+                ...percentage,
                 grid: { color: divider, drawTicks: false },
                 border: { display: false },
                 ticks: {
+                    ...percentage.ticks,
                     color: muted,
                     font: { size: 11 },
                     padding: 8,
@@ -201,7 +204,7 @@ function buildDatasets(series, merged) {
         borderColor: cssColor(line.color || DEFAULT_SERIES[index]?.color || '--chart-cpu'),
         backgroundColor: 'transparent',
         borderWidth: 1.8,
-        pointRadius: 0,
+        pointRadius: seriesPointRadius(merged.length),
         pointHitRadius: 8,
         spanGaps: false,
         tension: 0,

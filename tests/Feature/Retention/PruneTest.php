@@ -445,6 +445,7 @@ class PruneTest extends TestCase
 
         $this->assertCount(1, $events);
         $this->assertSame('30 3 * * *', $events[0]->expression);
+        $this->assertSame('Asia/Jakarta', $events[0]->timezone);
         $this->assertTrue($events[0]->withoutOverlapping);
         // Shorter than a day so a killed run cannot strand the lock.
         $this->assertSame(60, $events[0]->expiresAt);
