@@ -1,4 +1,13 @@
-<div wire:poll.30s.visible="pollRefresh" class="rounded-panel border border-border bg-surface">
+<div
+    @if (config('noc.realtime.enabled'))
+        wire:poll.60s.visible="pollRefresh"
+        data-realtime="server-table"
+        x-data="nocRealtimeRefresh({ listeners: [{ channel: 'fleet', event: 'SampleStored' }, { channel: 'fleet', event: 'ServerChanged' }], debounce: {{ (int) config('noc.realtime.debounce_ms', 750) }} })"
+    @else
+        wire:poll.30s.visible="pollRefresh"
+    @endif
+    class="rounded-panel border border-border bg-surface"
+>
     <div class="flex flex-wrap items-end justify-between gap-3 px-4 pt-3 lg:px-5">
         <nav class="flex min-w-0 gap-5 overflow-x-auto" aria-label="Filter servers by status">
             @foreach ([

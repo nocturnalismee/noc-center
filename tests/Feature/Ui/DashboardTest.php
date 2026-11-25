@@ -427,6 +427,31 @@ class DashboardTest extends TestCase
             ->assertDontSee('No servers yet.');
     }
 
+    public function test_dashboard_renders_realtime_hooks_when_enabled(): void
+    {
+        config(['noc.realtime.enabled' => true]);
+
+        $this->actingAs(User::factory()->create())
+            ->get('/dashboard')
+            ->assertOk()
+            ->assertSee('data-realtime', false)
+            ->assertSee('SampleStored', false)
+            ->assertSee('AlertChanged', false)
+            ->assertSee('OperationsChanged', false)
+            ->assertSee('wire:poll.60s', false);
+    }
+
+    public function test_dashboard_keeps_polling_without_realtime(): void
+    {
+        config(['noc.realtime.enabled' => false]);
+
+        $this->actingAs(User::factory()->create())
+            ->get('/dashboard')
+            ->assertOk()
+            ->assertDontSee('data-realtime', false)
+            ->assertSee('wire:poll.30s', false);
+    }
+
     public function test_the_table_poll_refreshes_the_fleet_summary(): void
     {
         Livewire::test(ServerTable::class)

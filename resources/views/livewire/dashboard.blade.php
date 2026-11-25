@@ -1,4 +1,10 @@
-<div class="mx-auto w-full max-w-[1440px]">
+<div
+    @if (config('noc.realtime.enabled'))
+        data-realtime="dashboard"
+        x-data="nocRealtimeRefresh({ listeners: [{ channel: 'fleet', event: 'SampleStored' }, { channel: 'alerts', event: 'AlertChanged' }, { channel: 'fleet', event: 'OperationsChanged' }], debounce: {{ (int) config('noc.realtime.debounce_ms', 750) }} })"
+    @endif
+    class="mx-auto w-full max-w-[1440px]"
+>
     <div class="flex flex-wrap items-start justify-between gap-4">
         <div class="min-w-0">
             <h1 class="text-[26px] font-semibold leading-8 tracking-[-0.01em] text-text">Fleet</h1>

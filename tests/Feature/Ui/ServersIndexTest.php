@@ -44,6 +44,30 @@ class ServersIndexTest extends TestCase
             ->assertDontSee('db-01.nusantara.id');
     }
 
+    public function test_the_server_table_renders_realtime_hooks_when_enabled(): void
+    {
+        config(['noc.realtime.enabled' => true]);
+
+        $this->actingAs(User::factory()->create())
+            ->get(route('servers.index'))
+            ->assertOk()
+            ->assertSee('data-realtime', false)
+            ->assertSee('SampleStored', false)
+            ->assertSee('ServerChanged', false)
+            ->assertSee('wire:poll.60s', false);
+    }
+
+    public function test_the_server_table_keeps_polling_without_realtime(): void
+    {
+        config(['noc.realtime.enabled' => false]);
+
+        $this->actingAs(User::factory()->create())
+            ->get(route('servers.index'))
+            ->assertOk()
+            ->assertDontSee('data-realtime', false)
+            ->assertSee('wire:poll.30s', false);
+    }
+
     public function test_the_servers_page_shows_the_empty_state_when_the_fleet_is_empty(): void
     {
         $user = User::factory()->create();
