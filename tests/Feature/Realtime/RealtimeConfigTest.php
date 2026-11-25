@@ -12,6 +12,9 @@ class RealtimeConfigTest extends TestCase
         $this->assertIsBool(config('noc.realtime.enabled'));
         $this->assertSame(750, config('noc.realtime.debounce_ms'));
         $this->assertArrayHasKey('key', config('reverb.apps.apps.0'));
-        $this->assertSame([config('app.url')], config('reverb.apps.apps.0.allowed_origins'));
+        $this->assertSame(
+            [parse_url((string) config('app.url'), PHP_URL_HOST)],
+            config('reverb.apps.apps.0.allowed_origins'),
+        );
     }
 }
