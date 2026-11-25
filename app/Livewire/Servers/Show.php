@@ -101,6 +101,8 @@ class Show extends Component
         ]);
     }
 
+    public function pollRefresh(): void {}
+
     public function displayStatus(): string
     {
         return $this->server->status()->value;

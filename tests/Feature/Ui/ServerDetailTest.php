@@ -273,6 +273,37 @@ class ServerDetailTest extends TestCase
             ->assertSee('Performance');
     }
 
+    public function test_server_detail_renders_realtime_hooks_and_fallback_poll(): void
+    {
+        config(['noc.realtime.enabled' => true]);
+        $viewer = User::factory()->create();
+        $server = $this->server();
+
+        $this->actingAs($viewer)
+            ->get(route('servers.show', ['server' => $server, 'tab' => 'performance', 'range' => '7d']))
+            ->assertOk()
+            ->assertSee('data-realtime', false)
+            ->assertSee('server.'.$server->id, false)
+            ->assertSee('SampleStored', false)
+            ->assertSee('ServerChanged', false)
+            ->assertSee('AlertChanged', false)
+            ->assertSee('range=7d', false)
+            ->assertSee('wire:poll.60s', false);
+    }
+
+    public function test_server_detail_keeps_polling_without_realtime(): void
+    {
+        config(['noc.realtime.enabled' => false]);
+        $viewer = User::factory()->create();
+        $server = $this->server();
+
+        $this->actingAs($viewer)
+            ->get(route('servers.show', $server))
+            ->assertOk()
+            ->assertDontSee('data-realtime', false)
+            ->assertSee('wire:poll.30s', false);
+    }
+
     public function test_the_chart_container_carries_each_series_url_and_the_selected_range(): void
     {
         $viewer = User::factory()->create();

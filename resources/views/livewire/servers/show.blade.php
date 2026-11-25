@@ -1,4 +1,13 @@
-<div class="mx-auto w-full max-w-[1440px]">
+<div
+    @if (config('noc.realtime.enabled'))
+        wire:poll.60s.visible="pollRefresh"
+        data-realtime="server-detail"
+        x-data="nocRealtimeRefresh({ listeners: [{ channel: 'server.{{ $server->getKey() }}', event: 'SampleStored' }, { channel: 'server.{{ $server->getKey() }}', event: 'ServerChanged' }, { channel: 'server.{{ $server->getKey() }}', event: 'AlertChanged' }], debounce: {{ (int) config('noc.realtime.debounce_ms', 750) }}, refreshCharts: true })"
+    @else
+        wire:poll.30s.visible="pollRefresh"
+    @endif
+    class="mx-auto w-full max-w-[1440px]"
+>
     @section('title')
         {{ $server->name }} · NOC Center
     @endsection
