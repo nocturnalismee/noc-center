@@ -23,6 +23,21 @@
         })();
     </script>
 
+    @php
+        $realtimeConfig = [
+            'enabled' => (bool) config('noc.realtime.enabled'),
+            'key' => config('reverb.apps.apps.0.key'),
+            'host' => config('reverb.apps.apps.0.options.host'),
+            'port' => (int) config('reverb.apps.apps.0.options.port', 8080),
+            'scheme' => config('reverb.apps.apps.0.options.scheme', 'http'),
+            'debounce_ms' => (int) config('noc.realtime.debounce_ms', 750),
+        ];
+    @endphp
+
+    <script nonce="{{ $cspNonce }}">
+        window.__NOC_REALTIME__ = {!! json_encode($realtimeConfig, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) !!};
+    </script>
+
     @livewireStyles
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>

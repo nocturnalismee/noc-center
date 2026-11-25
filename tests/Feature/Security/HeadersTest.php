@@ -115,6 +115,37 @@ class HeadersTest extends TestCase
         );
     }
 
+    public function test_realtime_websocket_origin_is_added_to_connect_src_only_when_enabled(): void
+    {
+        config([
+            'noc.realtime.enabled' => true,
+            'reverb.apps.apps.0.options.host' => 'noc.example.com',
+            'reverb.apps.apps.0.options.port' => 443,
+            'reverb.apps.apps.0.options.scheme' => 'https',
+        ]);
+
+        $response = $this->actingAs(User::factory()->create())->get('/dashboard');
+        $response->assertOk();
+
+        $this->assertStringContainsString(
+            "connect-src 'self' wss://noc.example.com",
+            (string) $response->headers->get('Content-Security-Policy'),
+        );
+    }
+
+    public function test_realtime_websocket_origin_is_absent_when_disabled(): void
+    {
+        config(['noc.realtime.enabled' => false]);
+
+        $response = $this->actingAs(User::factory()->create())->get('/dashboard');
+        $response->assertOk();
+
+        $csp = (string) $response->headers->get('Content-Security-Policy');
+
+        $this->assertStringContainsString("connect-src 'self'", $csp);
+        $this->assertStringNotContainsString('wss://', $csp);
+    }
+
     public function test_the_content_security_policy_contains_the_expected_directives(): void
     {
         $response = $this->get('/login');

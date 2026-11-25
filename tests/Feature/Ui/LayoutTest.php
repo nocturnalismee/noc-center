@@ -71,6 +71,29 @@ class LayoutTest extends TestCase
         }
     }
 
+    public function test_the_layout_renders_public_realtime_configuration_without_the_app_secret(): void
+    {
+        config([
+            'noc.realtime.enabled' => true,
+            'reverb.apps.apps.0.key' => 'test-key',
+            'reverb.apps.apps.0.secret' => 'test-secret',
+            'reverb.apps.apps.0.options.host' => 'noc.example.com',
+            'reverb.apps.apps.0.options.port' => 443,
+            'reverb.apps.apps.0.options.scheme' => 'https',
+        ]);
+
+        $response = $this->actingAs(User::factory()->create())->get('/dashboard');
+
+        $response->assertOk();
+        $response->assertSee('window.__NOC_REALTIME__', false);
+        $response->assertSee('"enabled":true', false);
+        $response->assertSee('"key":"test-key"', false);
+        $response->assertSee('"host":"noc.example.com"', false);
+        $response->assertSee('"port":443', false);
+        $response->assertSee('"scheme":"https"', false);
+        $response->assertDontSee('test-secret');
+    }
+
     public function test_the_topbar_search_submits_a_query_to_the_server_list(): void
     {
         $user = User::factory()->create();
