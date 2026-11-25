@@ -96,7 +96,7 @@ Browser (Laravel Echo)
 |---|---|---|---|
 | `SampleStored` | `server_id`, `sample_id`, `collected_at`, `health`, `status` | `fleet`, `server.{serverId}` | ingest after store/alert evaluation |
 | `AlertChanged` | `alert_id`, `server_id`, `change` (`opened`/`acknowledged`/`resolved`), `status`, `severity` | `alerts`, `alert.{alertId}`, `server.{serverId}` | alert engine |
-| `ServerChanged` | `server_id`, `change` (`created`/`updated`/`deleted`/`token_rotated`/`token_revoked`/`alerts_toggled`) | `fleet`, `server.{serverId}` | server/token services |
+| `ServerChanged` | `server_id`, `change` (`created`/`updated`/`deleted`/`token_rotated`/`token_revoked`) | `fleet`, `server.{serverId}` | server/token services |
 | `OperationsChanged` | `task_key`, `status`, `finished_at` | `fleet` | `RunTracker` |
 
 Event names are broadcast without a leading dot and subscribed with Laravel Echo’s `.` prefix (`listen('.SampleStored', ...)`).
