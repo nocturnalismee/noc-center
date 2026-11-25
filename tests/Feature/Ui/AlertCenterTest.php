@@ -400,6 +400,55 @@ class AlertCenterTest extends TestCase
             ->assertStatus(403);
     }
 
+    public function test_alert_pages_render_realtime_hooks_and_fallbacks(): void
+    {
+        config(['noc.realtime.enabled' => true]);
+
+        $admin = User::factory()->create(['role' => 'admin']);
+        $alert = $this->alert($this->server());
+
+        $this->actingAs($admin)
+            ->get(route('alerts.index'))
+            ->assertOk()
+            ->assertSee('data-realtime="alerts-index"', false)
+            ->assertSeeHtml('wire:poll.60s.visible="pollRefresh"');
+
+        $this->actingAs($admin)
+            ->get(route('alerts.show', $alert))
+            ->assertOk()
+            ->assertSee('data-realtime="alert-detail"', false)
+            ->assertSeeHtml('wire:poll.60s.visible="pollRefresh"');
+
+        Livewire::test(AlertBell::class)
+            ->assertSeeHtml('wire:poll.30s.visible="refresh"')
+            ->assertSeeHtml("method: 'refresh'")
+            ->assertSeeHtml("channel: 'alerts'");
+    }
+
+    public function test_alert_pages_keep_polling_when_realtime_is_disabled(): void
+    {
+        config(['noc.realtime.enabled' => false]);
+
+        $admin = User::factory()->create(['role' => 'admin']);
+        $alert = $this->alert($this->server());
+
+        $this->actingAs($admin)
+            ->get(route('alerts.index'))
+            ->assertOk()
+            ->assertSeeHtml('wire:poll.30s.visible="pollRefresh"')
+            ->assertDontSee('data-realtime', false);
+
+        $this->actingAs($admin)
+            ->get(route('alerts.show', $alert))
+            ->assertOk()
+            ->assertSeeHtml('wire:poll.30s.visible="pollRefresh"')
+            ->assertDontSee('data-realtime', false);
+
+        Livewire::test(AlertBell::class)
+            ->assertSeeHtml('wire:poll.30s.visible="refresh"')
+            ->assertDontSee('data-realtime', false);
+    }
+
     public function test_the_bell_counts_open_and_acknowledged_alerts_and_excludes_resolved(): void
     {
         $operator = User::factory()->create(['role' => 'operator']);

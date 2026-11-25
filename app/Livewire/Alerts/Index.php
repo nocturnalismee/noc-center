@@ -37,6 +37,11 @@ class Index extends Component
         Gate::authorize('viewAny', Alert::class);
     }
 
+    public function pollRefresh(): void
+    {
+        // A no-op render target for the Livewire polling safety net.
+    }
+
     public function updated(string $property): void
     {
         if (in_array($property, ['status', 'severity', 'serverId'], true)) {

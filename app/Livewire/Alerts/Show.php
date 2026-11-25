@@ -35,6 +35,11 @@ class Show extends Component
         $this->alert = $alert;
     }
 
+    public function pollRefresh(): void
+    {
+        // A no-op render target for the Livewire polling safety net.
+    }
+
     /**
      * Acknowledge without resolving: the alert stays visible, reminders stop,
      * and the engine writes `alert.acknowledged` with the actor.

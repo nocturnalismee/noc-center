@@ -17,7 +17,9 @@ export function registerRealtimeRefresh(Alpine) {
 
                 this.refreshTimer = window.setTimeout(async () => {
                     try {
-                        await this.$wire.$refresh();
+                        await (options.method
+                            ? this.$wire.call(options.method)
+                            : this.$wire.$refresh());
                     } catch (error) {
                         console.error('Realtime refresh failed.', error);
 

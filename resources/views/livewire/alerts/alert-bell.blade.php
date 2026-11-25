@@ -1,4 +1,12 @@
-<div wire:poll.30s.visible="refresh">
+<div
+    @if (config('noc.realtime.enabled'))
+        wire:poll.30s.visible="refresh"
+        data-realtime="alert-bell"
+        x-data="nocRealtimeRefresh({ listeners: [{ channel: 'alerts', event: 'AlertChanged' }], debounce: {{ (int) config('noc.realtime.debounce_ms', 750) }}, method: 'refresh' })"
+    @else
+        wire:poll.30s.visible="refresh"
+    @endif
+>
     <a
         href="{{ route('alerts.index') }}"
         class="icon-button relative"

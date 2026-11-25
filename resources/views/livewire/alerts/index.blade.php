@@ -1,4 +1,13 @@
-<div class="mx-auto w-full max-w-[1440px]">
+<div
+    @if (config('noc.realtime.enabled'))
+        wire:poll.60s.visible="pollRefresh"
+        data-realtime="alerts-index"
+        x-data="nocRealtimeRefresh({ listeners: [{ channel: 'alerts', event: 'AlertChanged' }], debounce: {{ (int) config('noc.realtime.debounce_ms', 750) }} })"
+    @else
+        wire:poll.30s.visible="pollRefresh"
+    @endif
+    class="mx-auto w-full max-w-[1440px]"
+>
     @section('title', 'Alerts · NOC Center')
     @section('breadcrumb')
         <a href="{{ route('dashboard') }}" class="hover:text-text">Fleet</a>
