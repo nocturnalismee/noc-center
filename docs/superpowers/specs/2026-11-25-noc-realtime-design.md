@@ -161,7 +161,7 @@ An Alpine data component, `nocRealtimeRefresh`, subscribes to one or more channe
 | Screen | Realtime trigger | Fallback |
 |---|---|---:|
 | Dashboard | `fleet`, `alerts`, `operations` | 60 s |
-| Server table / servers list | `fleet`, `server.{id}` | 60 s |
+| Server table / servers list | `fleet` | 60 s |
 | Server detail | `server.{id}`, `alerts` | 60 s |
 | Alerts index | `alerts` | 60 s |
 | Alert detail | `alert.{id}`, `server.{id}` | 60 s |

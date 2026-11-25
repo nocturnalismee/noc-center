@@ -593,7 +593,7 @@ git commit -m "feat: broadcast scheduled operation status"
 - Test: `tests/Feature/Ui/ServersIndexTest.php`
 
 **Interfaces:**
-- Consumes: `nocRealtimeRefresh` Alpine data, `fleet`, `alerts`, `operations`, `server.{id}` channels.
+- Consumes: `nocRealtimeRefresh` Alpine data, `fleet`, `alerts`, `operations` channels. The fleet table does not subscribe to per-server channels.
 - Produces: dashboard and table refresh without manual reload.
 
 - [ ] **Step 1: Write the failing render tests**
