@@ -67,6 +67,7 @@ Heavy checks are **never** run every minute:
 | `agent/systemd/` | Service, module template, and four timer units. |
 | `agent/config/agent.conf.example` | Fully commented config with every key and its default. |
 | `agent/install.sh`, `agent/uninstall.sh` | Installer and uninstaller. |
+| `agent/update.sh` | Safe manual upgrade wrapper with backup and rollback. |
 | `tools/mock-ingest.py` | Loopback mock of the ingest endpoint (testing only). |
 | `tools/test-agent.sh`, `tools/tests/` | One-command test runner and the test suites. |
 
@@ -220,6 +221,42 @@ A prefixed non-root install automatically behaves like `--no-systemctl`
 (a scratch install cannot manage the host's systemd). `http://` URLs are
 accepted only for `127.0.0.1`/`localhost`, and the generated config then also
 sets `ALLOW_INSECURE_HTTP=1`.
+
+### Update an existing install
+
+`update.sh` wraps the same idempotent installer. It never overwrites
+`/etc/noc-agent/agent.conf` or `/etc/noc-agent/token`, and it snapshots the
+previous installed files before making changes.
+
+```bash
+# download the newer bundle and extract it outside the installed tree
+sudo curl -fsSL https://monitor.example.com/agent/download -o /root/noc-agent.tar.gz
+sudo rm -rf /root/noc-agent-new
+sudo mkdir -p /root/noc-agent-new
+sudo tar -xzpf /root/noc-agent.tar.gz -C /root/noc-agent-new --strip-components=1
+
+# inspect versions and preview the update
+sudo /root/noc-agent-new/update.sh --check
+sudo /root/noc-agent-new/update.sh --dry-run
+
+# apply
+sudo /root/noc-agent-new/update.sh
+```
+
+The updater:
+
+- keeps the existing config and token byte-for-byte;
+- stores snapshots under `/var/lib/noc-agent/updates/` and keeps the five
+  newest;
+- restores the previous collector, units, config, and token if the new
+  installer fails, then exits `2`;
+- accepts `--source DIR` when the new source tree is elsewhere;
+- forwards `--no-systemctl`, `--no-prime`, and `--test` to the installer;
+- calls `systemctl` only when systemd is enabled and the process has the
+  permission to use it.
+
+`--check` and `--dry-run` do not create snapshots or change the install.
+There is still no automatic update from the dashboard.
 
 ---
 
@@ -650,8 +687,9 @@ install prefix. `--no-systemctl` skips all systemd calls.
 - **No dashboard, storage, alerting, or offline spooling** in this stage: if
   the endpoint is unreachable the payload for that run is dropped (exit 3) and
   the next timer run tries again.
-- **No auto-update.** Upgrading means re-running the installer from a newer
-  source tree.
+- **No auto-update.** Upgrading is manual: run `agent/update.sh` from a newer
+  source tree. It backs up and rolls back, but it does not fetch updates by
+  itself.
 - **systemd only** (no SysV/OpenRC); Linux only.
 - **Root required in production**, because panel and module commands need it.
 - Cache is read from `STATE_DIR` only; no multi-filesystem disk breakdown,
