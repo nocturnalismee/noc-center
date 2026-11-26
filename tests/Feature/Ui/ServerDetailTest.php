@@ -304,20 +304,45 @@ class ServerDetailTest extends TestCase
             ->assertSee('wire:poll.30s', false);
     }
 
-    public function test_the_chart_container_carries_each_series_url_and_the_selected_range(): void
+    public function test_performance_tab_renders_five_unit_aware_charts(): void
     {
         $viewer = User::factory()->create();
         $server = $this->server();
+        $this->sample($server);
 
         $this->actingAs($viewer)
             ->get(route('servers.show', ['server' => $server, 'tab' => 'performance', 'range' => '7d']))
             ->assertOk()
-            ->assertSee('metric=cpu', false)
-            ->assertSee('metric=memory', false)
-            ->assertSee('metric=disk', false)
+            ->assertSee('data-chart-key="cpu"', false)
+            ->assertSee('data-chart-unit="percent"', false)
+            ->assertSee('data-chart-key="memory"', false)
+            ->assertSee('data-chart-unit="bytes"', false)
+            ->assertSee('data-chart-key="disk"', false)
+            ->assertSee('data-chart-key="load"', false)
+            ->assertSee('data-chart-key="network"', false)
+            ->assertSee('metric=memory_bytes', false)
+            ->assertSee('metric=disk_bytes', false)
+            ->assertSee('metric=rx', false)
+            ->assertSee('metric=tx', false)
             ->assertSee('range=7d', false)
-            ->assertSee('data-series-url', false)
             ->assertSee('data-interval="60"', false);
+    }
+
+    public function test_overview_adds_a_combined_load_and_network_chart(): void
+    {
+        $viewer = User::factory()->create();
+        $server = $this->server();
+        $this->sample($server);
+
+        $this->actingAs($viewer)
+            ->get(route('servers.show', ['server' => $server, 'tab' => 'overview']))
+            ->assertOk()
+            ->assertSee('data-chart-key="resources"', false)
+            ->assertSee('data-chart-key="load-network"', false)
+            ->assertSee('data-chart-unit="mixed"', false)
+            ->assertSee('metric=load', false)
+            ->assertSee('metric=rx', false)
+            ->assertSee('metric=tx', false);
     }
 
     public function test_livewire_normalises_an_unknown_tab_and_range(): void

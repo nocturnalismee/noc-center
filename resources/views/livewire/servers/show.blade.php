@@ -113,57 +113,16 @@
 
     @if ($tab === 'overview')
         <div class="mt-6 grid gap-8 xl:grid-cols-[minmax(0,1fr)_340px]">
-            <section aria-labelledby="performance-heading">
-                <div class="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                        <h2 id="performance-heading" class="text-[15px] font-semibold text-text">Performance</h2>
-                        <p class="mt-1 text-[12px] text-text-muted">Last hour · {{ $server->interval_seconds }}s collector samples · WIB</p>
-                    </div>
-                    <div class="flex items-center gap-4 text-[12px]">
-                        @foreach ($series as $line)
-                            <span class="flex items-center gap-1.5 text-text-sub">
-                                <span class="h-0.5 w-3" style="background: var({{ $line['color'] }})"></span>
-                                {{ $line['label'] }}
-                            </span>
-                        @endforeach
-                    </div>
+            <section aria-labelledby="performance-heading" class="space-y-8">
+                <div>
+                    <h2 id="performance-heading" class="text-[15px] font-semibold text-text">Performance</h2>
+                    <p class="mt-1 text-[12px] text-text-muted">Last hour · {{ $server->interval_seconds }}s collector samples · WIB</p>
                 </div>
 
-                <p class="mt-1 text-[12px] text-text-muted">Data as of {{ $sample?->collected_at?->timezone('Asia/Jakarta')->format('d M Y H:i:s') ?? 'no sample received' }}{{ $sample ? ' WIB' : '' }}</p>
-                <div
-                    class="relative mt-4 h-[280px]"
-                    data-series-chart
-                    data-series-url="{{ $series[0]['url'] ?? '' }}"
-                    data-series="{{ json_encode($series) }}"
-                    data-interval="{{ max(1, (int) $server->interval_seconds) }}"
-                    data-summary="{{ $sample ? 'CPU '.$this->pct($sample->cpu_usage_pct).', memory '.$this->pct($sample->mem_used_pct).', disk '.$this->pct($sample->disk_used_pct).'. Last hour.' : 'No samples recorded.' }}"
-                    data-chart-has-sample="{{ $sample ? 'true' : 'false' }}"
-                    aria-busy="false"
-                >
-                    <canvas role="img" aria-label="{{ $sample ? 'CPU, memory, and disk usage for the last hour' : 'No samples recorded for this server' }}"></canvas>
-                    <div data-chart-status class="pointer-events-none absolute left-3 top-2 z-10 text-[12px] text-text-muted" role="status" aria-live="polite" hidden></div>
-                    <div data-chart-error class="absolute inset-x-3 bottom-3 z-20 flex items-center justify-between gap-3 border border-border bg-canvas px-3 py-2 text-[12px] text-critical" role="alert" hidden>
-                        <span>Chart data could not be loaded.</span>
-                        <button type="button" data-chart-retry class="pointer-events-auto underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus">Try again</button>
-                    </div>
-                    @if (! $sample)
-                        <div class="absolute inset-0 z-10 flex items-center justify-center border-y border-divider bg-canvas">
-                            <div class="max-w-[36ch] text-center">
-                                <p class="text-[13.5px] font-medium text-text">No samples yet</p>
-                                <p class="mt-1 text-[12px] text-text-muted">The chart appears after this server sends its first sample.</p>
-                            </div>
-                        </div>
-                    @endif
-                    <noscript>
-                        <p class="py-8 text-[13px] text-text-sub">
-                            Charts require JavaScript. The latest values are shown in the summary strip above.
-                        </p>
-                    </noscript>
-                </div>
+                <p class="text-[12px] text-text-muted">Data as of {{ $sample?->collected_at?->timezone('Asia/Jakarta')->format('d M Y H:i:s') ?? 'no sample received' }}{{ $sample ? ' WIB' : '' }}</p>
 
-                <p class="border-t border-divider pt-3 text-[12px] text-text-muted">
-                    {{ $sample ? 'Current: CPU '.$this->pct($sample->cpu_usage_pct).' · memory '.$this->pct($sample->mem_used_pct).' · disk '.$this->pct($sample->disk_used_pct).'. Gaps are left blank, not filled with zero.' : 'No samples recorded yet.' }}
-                </p>
+                <x-series-chart :chart="$charts['resources']" :sample="$sample" :interval="$server->interval_seconds" :height="280" />
+                <x-series-chart :chart="$charts['load-network']" :sample="$sample" :interval="$server->interval_seconds" :height="280" />
             </section>
 
             <aside class="space-y-6">
@@ -218,48 +177,15 @@
                 </div>
             </div>
 
-            <div class="mt-4 flex items-center gap-4 text-[12px]">
-                @foreach ($series as $line)
-                    <span class="flex items-center gap-1.5 text-text-sub">
-                        <span class="h-0.5 w-3" style="background: var({{ $line['color'] }})"></span>
-                        {{ $line['label'] }}
-                    </span>
+            <p class="mt-4 text-[12px] text-text-muted">Data as of {{ $sample?->collected_at?->timezone('Asia/Jakarta')->format('d M Y H:i:s') ?? 'no sample received' }}{{ $sample ? ' WIB' : '' }}</p>
+
+            <div class="mt-4 grid gap-8 xl:grid-cols-2">
+                @foreach ($charts as $chart)
+                    <x-series-chart :chart="$chart" :sample="$sample" :interval="$server->interval_seconds" />
                 @endforeach
             </div>
 
-            <p class="mt-1 text-[12px] text-text-muted">Data as of {{ $sample?->collected_at?->timezone('Asia/Jakarta')->format('d M Y H:i:s') ?? 'no sample received' }}{{ $sample ? ' WIB' : '' }}</p>
-            <div
-                class="relative mt-4 h-[340px]"
-                data-series-chart
-                data-series-url="{{ $series[0]['url'] ?? '' }}"
-                data-series="{{ json_encode($series) }}"
-                data-interval="{{ max(1, (int) $server->interval_seconds) }}"
-                data-summary="{{ $sample ? 'CPU '.$this->pct($sample->cpu_usage_pct).', memory '.$this->pct($sample->mem_used_pct).', disk '.$this->pct($sample->disk_used_pct).' over '.$range.'.' : 'No samples recorded.' }}"
-                data-chart-has-sample="{{ $sample ? 'true' : 'false' }}"
-                aria-busy="false"
-            >
-                <canvas role="img" aria-label="CPU, memory, and disk usage over {{ $range }}"></canvas>
-                <div data-chart-status class="pointer-events-none absolute left-3 top-2 z-10 text-[12px] text-text-muted" role="status" aria-live="polite" hidden></div>
-                <div data-chart-error class="absolute inset-x-3 bottom-3 z-20 flex items-center justify-between gap-3 border border-border bg-canvas px-3 py-2 text-[12px] text-critical" role="alert" hidden>
-                    <span>Chart data could not be loaded.</span>
-                    <button type="button" data-chart-retry class="pointer-events-auto underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus">Try again</button>
-                </div>
-                @if (! $sample)
-                    <div class="absolute inset-0 z-10 flex items-center justify-center border-y border-divider bg-canvas">
-                        <div class="max-w-[36ch] text-center">
-                            <p class="text-[13.5px] font-medium text-text">No samples yet</p>
-                            <p class="mt-1 text-[12px] text-text-muted">The chart appears after this server sends its first sample.</p>
-                        </div>
-                    </div>
-                @endif
-                <noscript>
-                    <p class="py-8 text-[13px] text-text-sub">
-                        Charts require JavaScript. The range and latest values are shown above.
-                    </p>
-                </noscript>
-            </div>
-
-            <p class="border-t border-divider pt-3 text-[12px] text-text-muted">
+            <p class="mt-6 border-t border-divider pt-3 text-[12px] text-text-muted">
                 Series are read from raw samples up to 24 hours and from rollups for longer ranges. Missing data stays blank.
             </p>
         </section>

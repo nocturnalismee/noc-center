@@ -86,7 +86,9 @@ class Show extends Component
             'ranges' => $ranges,
             'sample' => $sample,
             'metrics' => $this->metrics($sample),
-            'series' => $this->series($chartRange),
+            'charts' => in_array($tab, ['overview', 'performance'], true)
+                ? $this->charts($tab, $chartRange)
+                : [],
             'alerts' => $alerts,
             'history' => $history,
             'actors' => $actors,
@@ -168,15 +170,101 @@ class Show extends Component
     }
 
     /**
-     * @return list<array{metric:string,label:string,color:string,url:string}>
+     * @return array<string, array{key:string,title:string,subtitle:string,unit:string,series:list<array{metric:string,label:string,color:string,url:string,axis?:string,format?:string}>,summary:string}>
      */
-    private function series(string $range): array
+    private function charts(string $tab, string $range): array
     {
-        return collect([
-            ['metric' => 'cpu', 'label' => 'CPU', 'color' => '--chart-cpu'],
-            ['metric' => 'memory', 'label' => 'Memory', 'color' => '--chart-memory'],
-            ['metric' => 'disk', 'label' => 'Disk', 'color' => '--chart-disk'],
-        ])->map(fn (array $series): array => [
+        if ($tab === 'overview') {
+            return [
+                'resources' => $this->chart(
+                    'resources',
+                    'Resource summary',
+                    'Last hour · '.(int) $this->server->interval_seconds.'s collector samples · WIB',
+                    'percent',
+                    $this->seriesLines($range, [
+                        ['metric' => 'cpu', 'label' => 'CPU', 'color' => '--chart-cpu'],
+                        ['metric' => 'memory', 'label' => 'Memory', 'color' => '--chart-memory'],
+                        ['metric' => 'disk', 'label' => 'Disk', 'color' => '--chart-disk'],
+                    ]),
+                    $this->summary('resources'),
+                ),
+                'load-network' => $this->chart(
+                    'load-network',
+                    'Load and network',
+                    'Last hour · load 1m and network throughput · WIB',
+                    'mixed',
+                    $this->seriesLines($range, [
+                        ['metric' => 'load', 'label' => 'Load 1m', 'color' => '--chart-load', 'axis' => 'y', 'format' => 'load'],
+                        ['metric' => 'rx', 'label' => 'Network in', 'color' => '--chart-network', 'axis' => 'y1', 'format' => 'rate'],
+                        ['metric' => 'tx', 'label' => 'Network out', 'color' => '--chart-network-out', 'axis' => 'y1', 'format' => 'rate'],
+                    ]),
+                    $this->summary('load-network'),
+                ),
+            ];
+        }
+
+        return [
+            'cpu' => $this->chart(
+                'cpu',
+                'CPU',
+                (int) $this->server->interval_seconds.'s collector · percent · WIB',
+                'percent',
+                $this->seriesLines($range, [
+                    ['metric' => 'cpu', 'label' => 'CPU', 'color' => '--chart-cpu'],
+                ]),
+                $this->summary('cpu'),
+            ),
+            'memory' => $this->chart(
+                'memory',
+                'Memory',
+                (int) $this->server->interval_seconds.'s collector · used bytes · WIB',
+                'bytes',
+                $this->seriesLines($range, [
+                    ['metric' => 'memory_bytes', 'label' => 'Memory used', 'color' => '--chart-memory'],
+                ]),
+                $this->summary('memory'),
+            ),
+            'disk' => $this->chart(
+                'disk',
+                'Disk',
+                (int) $this->server->interval_seconds.'s collector · used bytes · WIB',
+                'bytes',
+                $this->seriesLines($range, [
+                    ['metric' => 'disk_bytes', 'label' => 'Disk used', 'color' => '--chart-disk'],
+                ]),
+                $this->summary('disk'),
+            ),
+            'load' => $this->chart(
+                'load',
+                'Load',
+                (int) $this->server->interval_seconds.'s collector · 1m load average · WIB',
+                'load',
+                $this->seriesLines($range, [
+                    ['metric' => 'load', 'label' => 'Load 1m', 'color' => '--chart-load'],
+                ]),
+                $this->summary('load'),
+            ),
+            'network' => $this->chart(
+                'network',
+                'Network',
+                (int) $this->server->interval_seconds.'s collector · bytes per second · WIB',
+                'rate',
+                $this->seriesLines($range, [
+                    ['metric' => 'rx', 'label' => 'Network in', 'color' => '--chart-network'],
+                    ['metric' => 'tx', 'label' => 'Network out', 'color' => '--chart-network-out'],
+                ]),
+                $this->summary('network'),
+            ),
+        ];
+    }
+
+    /**
+     * @param  list<array{metric:string,label:string,color:string,axis?:string,format?:string}>  $definitions
+     * @return list<array{metric:string,label:string,color:string,url:string,axis?:string,format?:string}>
+     */
+    private function seriesLines(string $range, array $definitions): array
+    {
+        return collect($definitions)->map(fn (array $series): array => [
             ...$series,
             'url' => route('servers.series', [
                 'server' => $this->server,
@@ -184,6 +272,41 @@ class Show extends Component
                 'range' => $range,
             ]),
         ])->all();
+    }
+
+    /**
+     * @param  list<array{metric:string,label:string,color:string,url:string,axis?:string,format?:string}>  $series
+     * @return array{key:string,title:string,subtitle:string,unit:string,series:list<array{metric:string,label:string,color:string,url:string,axis?:string,format?:string}>,summary:string}
+     */
+    private function chart(
+        string $key,
+        string $title,
+        string $subtitle,
+        string $unit,
+        array $series,
+        string $summary,
+    ): array {
+        return compact('key', 'title', 'subtitle', 'unit', 'series', 'summary');
+    }
+
+    private function summary(string $key): string
+    {
+        $sample = $this->server->latestSample()->first();
+
+        if ($sample === null) {
+            return 'No samples recorded yet.';
+        }
+
+        return match ($key) {
+            'cpu' => 'Current CPU '.$this->pct($sample->cpu_usage_pct).' · '.$sample->cpu_cores.' cores.',
+            'memory' => 'Current memory '.$this->bytes($sample->mem_used_bytes).' of '.$this->bytes($sample->mem_total_bytes).'.',
+            'disk' => 'Current disk '.$this->bytes($sample->disk_used_bytes).' of '.$this->bytes($sample->disk_total_bytes).'.',
+            'load' => 'Current load '.number_format($sample->load1, 2).' · 5m '.number_format($sample->load5, 2).' · 15m '.number_format($sample->load15, 2).'.',
+            'network' => 'Current '.$this->rateCompact($sample->net_rx_bps).' '.$this->rateUnit($sample->net_rx_bps).'/s in · '.$this->rateCompact($sample->net_tx_bps).' '.$this->rateUnit($sample->net_tx_bps).'/s out.',
+            'resources' => 'Current CPU '.$this->pct($sample->cpu_usage_pct).', memory '.$this->pct($sample->mem_used_pct).', disk '.$this->pct($sample->disk_used_pct).'. Last hour.',
+            'load-network' => 'Current load '.number_format($sample->load1, 2).' · '.$this->rateCompact($sample->net_rx_bps).' '.$this->rateUnit($sample->net_rx_bps).'/s in · '.$this->rateCompact($sample->net_tx_bps).' '.$this->rateUnit($sample->net_tx_bps).'/s out.',
+            default => 'No samples recorded yet.',
+        };
     }
 
     private function lastSeen(): string
@@ -268,6 +391,22 @@ class Show extends Component
         $gb = $bytes / 1024 ** 3;
 
         return ($gb >= 10 ? number_format($gb, 1) : number_format($gb, 2)).' GB';
+    }
+
+    private function bytes(int $bytes): string
+    {
+        $units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+        $value = (float) max(0, $bytes);
+        $unit = 0;
+
+        while ($value >= 1024 && $unit < count($units) - 1) {
+            $value /= 1024;
+            $unit++;
+        }
+
+        $decimals = $value >= 100 ? 0 : ($value >= 10 ? 1 : 2);
+
+        return rtrim(rtrim(number_format($value, $decimals, '.', ''), '0'), '.').' '.$units[$unit];
     }
 
     private function rateCompact(int $bps): string
