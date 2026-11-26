@@ -557,7 +557,7 @@ class SeriesApiTest extends TestCase
     // Response contract
     // ------------------------------------------------------------------
 
-    public function test_the_response_has_the_exact_shape_and_private_cache_header(): void
+    public function test_the_response_has_the_exact_shape_and_is_not_browser_cached(): void
     {
         $this->actingAs(User::factory()->create());
         $server = $this->server();
@@ -575,11 +575,11 @@ class SeriesApiTest extends TestCase
                 ],
             ]);
 
-        $cacheControl = $response->headers->get('Cache-Control');
+        $cacheControl = (string) $response->headers->get('Cache-Control');
 
-        $this->assertSame('max-age=15, private', $cacheControl);
-        $this->assertStringNotContainsString('public', (string) $cacheControl);
-        $this->assertStringNotContainsString('no-cache', (string) $cacheControl);
+        $this->assertSame('no-store, private', $cacheControl);
+        $this->assertStringNotContainsString('max-age', $cacheControl);
+        $this->assertStringNotContainsString('public', $cacheControl);
     }
 
     // ------------------------------------------------------------------

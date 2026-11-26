@@ -81,8 +81,14 @@
             @endif
         </div>
     @else
-        <div class="hidden overflow-x-auto border-t border-divider md:block">
+        <div
+            class="hidden overflow-x-auto border-t border-divider md:block"
+            role="region"
+            aria-label="Servers table"
+            tabindex="0"
+        >
             <table class="w-full min-w-[940px] table-fixed border-collapse">
+                <caption class="sr-only">Servers</caption>
                 <thead>
                     <tr class="h-10 border-b border-divider text-left">
                         <th class="w-[112px] pl-5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col" @if ($sort === 'status') aria-sort="{{ $dir === 'asc' ? 'ascending' : 'descending' }}" @endif>

@@ -57,6 +57,19 @@ class ServersIndexTest extends TestCase
             ->assertSee('wire:poll.60s', false);
     }
 
+    public function test_the_desktop_server_table_is_a_named_keyboard_scroll_region(): void
+    {
+        $this->server(['name' => 'web-01', 'hostname' => 'web-01.nusantara.id']);
+
+        $this->actingAs(User::factory()->create())
+            ->get(route('servers.index'))
+            ->assertOk()
+            ->assertSee('role="region"', false)
+            ->assertSee('aria-label="Servers table"', false)
+            ->assertSee('tabindex="0"', false)
+            ->assertSee('<caption class="sr-only">Servers</caption>', false);
+    }
+
     public function test_the_server_table_keeps_polling_without_realtime(): void
     {
         config(['noc.realtime.enabled' => false]);
