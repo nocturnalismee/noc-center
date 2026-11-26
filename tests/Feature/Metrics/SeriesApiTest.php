@@ -553,6 +553,70 @@ class SeriesApiTest extends TestCase
         $this->getJson($this->url($server, 'cpu', '24h'))->assertNotFound();
     }
 
+    public function test_raw_memory_and_disk_byte_metrics_use_their_exact_columns(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $server = $this->server();
+
+        $this->sample($server, '2026-11-23 11:59:00', [
+            'mem_used_bytes' => 1_500_000_000,
+            'disk_used_bytes' => 20_000_000_000,
+        ]);
+
+        $this->assertSame(
+            1_500_000_000.0,
+            (float) $this->getJson($this->url($server, 'memory_bytes', '1h'))->json('points.0.v'),
+        );
+        $this->assertSame(
+            20_000_000_000.0,
+            (float) $this->getJson($this->url($server, 'disk_bytes', '1h'))->json('points.0.v'),
+        );
+    }
+
+    public function test_rollup_byte_metrics_use_exact_byte_sums_when_present(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $server = $this->server();
+
+        $this->rollup($server, '2026-11-20 00:00:00', 300, 4, [
+            'mem_used_bytes_sum' => 4_000_000_000,
+            'disk_used_bytes_sum' => 8_000_000_000,
+        ]);
+
+        $this->assertSame(
+            1_000_000_000.0,
+            (float) $this->getJson($this->url($server, 'memory_bytes', '7d'))->json('points.0.v'),
+        );
+        $this->assertSame(
+            2_000_000_000.0,
+            (float) $this->getJson($this->url($server, 'disk_bytes', '7d'))->json('points.0.v'),
+        );
+    }
+
+    public function test_legacy_rollup_byte_metrics_fall_back_to_capacity_times_percentage(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $server = $this->server();
+
+        $this->sample($server, '2026-11-23 11:59:00', [
+            'mem_total_bytes' => 2_000_000_000,
+            'disk_total_bytes' => 10_000_000_000,
+        ]);
+        $this->rollup($server, '2026-11-20 00:00:00', 300, 4, [
+            'mem_used_pct_sum' => 200,
+            'disk_used_pct_sum' => 400,
+        ]);
+
+        $this->assertSame(
+            1_000_000_000.0,
+            (float) $this->getJson($this->url($server, 'memory_bytes', '7d'))->json('points.0.v'),
+        );
+        $this->assertSame(
+            10_000_000_000.0,
+            (float) $this->getJson($this->url($server, 'disk_bytes', '7d'))->json('points.0.v'),
+        );
+    }
+
     // ------------------------------------------------------------------
     // Response contract
     // ------------------------------------------------------------------
@@ -618,14 +682,14 @@ class SeriesApiTest extends TestCase
             'load1' => $values['load1'] ?? 0,
             'load5' => 0,
             'load15' => 0,
-            'mem_total_bytes' => 1000,
-            'mem_used_bytes' => 0,
+            'mem_total_bytes' => $values['mem_total_bytes'] ?? 1000,
+            'mem_used_bytes' => $values['mem_used_bytes'] ?? 0,
             'mem_used_pct' => $values['mem_used_pct'] ?? 0,
             'swap_total_bytes' => 0,
             'swap_used_bytes' => 0,
             'swap_used_pct' => $values['swap_used_pct'] ?? 0,
-            'disk_total_bytes' => 1000,
-            'disk_used_bytes' => 0,
+            'disk_total_bytes' => $values['disk_total_bytes'] ?? 1000,
+            'disk_used_bytes' => $values['disk_used_bytes'] ?? 0,
             'disk_used_pct' => $values['disk_used_pct'] ?? 0,
             'disk_inode_pct' => $values['disk_inode_pct'] ?? 0,
             'net_rx_bps' => $values['net_rx_bps'] ?? 0,
@@ -692,7 +756,9 @@ class SeriesApiTest extends TestCase
             'cpu_usage_sum' => $sums['cpu_usage_sum'] ?? 0,
             'cpu_iowait_sum' => 0,
             'mem_used_pct_sum' => $sums['mem_used_pct_sum'] ?? 0,
-            'disk_used_pct_sum' => 0,
+            'mem_used_bytes_sum' => $sums['mem_used_bytes_sum'] ?? null,
+            'disk_used_pct_sum' => $sums['disk_used_pct_sum'] ?? 0,
+            'disk_used_bytes_sum' => $sums['disk_used_bytes_sum'] ?? null,
             'swap_used_pct_sum' => $sums['swap_used_pct_sum'] ?? 0,
             'disk_inode_pct_sum' => $sums['disk_inode_pct_sum'] ?? 0,
             'load1_sum' => 0,

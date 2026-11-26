@@ -2,6 +2,7 @@
 
 namespace App\Services\Metrics;
 
+use App\Models\MetricSample;
 use App\Models\Server;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -54,9 +55,22 @@ class MetricSeriesRepository
         $now = CarbonImmutable::now('UTC');
         $from = $now->subSeconds($rangeSeconds);
 
+        $fallbackColumn = $metricConfig['fallback_rollup'] ?? null;
+        $totalColumn = $metricConfig['total'] ?? null;
+        $total = $totalColumn === null ? null : $this->latestTotal($server, $totalColumn);
+
         $points = $isRaw
             ? $this->rawPoints($server, $metricConfig['raw'], $from, $now, $resolution)
-            : $this->rollupPoints($server, $metricConfig['rollup'], max(1, (int) $rangeConfig['resolution']), $from, $now, $resolution);
+            : $this->rollupPoints(
+                $server,
+                $metricConfig['rollup'],
+                max(1, (int) $rangeConfig['resolution']),
+                $from,
+                $now,
+                $resolution,
+                $fallbackColumn,
+                $total,
+            );
 
         // A window that is not aligned to the effective bucket can intersect
         // one more bucket than `range / resolution` (e.g. 24h at 12:00:30).
@@ -117,9 +131,17 @@ class MetricSeriesRepository
         CarbonImmutable $from,
         CarbonImmutable $to,
         int $resolution,
+        ?string $fallbackColumn = null,
+        ?int $total = null,
     ): array {
+        $columns = ['bucket_start', 'samples', $column];
+
+        if ($fallbackColumn !== null) {
+            $columns[] = $fallbackColumn;
+        }
+
         $rows = DB::table('metric_rollups')
-            ->select(['bucket_start', 'samples', $column])
+            ->select($columns)
             ->where('server_id', $server->getKey())
             ->where('resolution_seconds', $sourceResolution)
             ->where('bucket_start', '>=', $from)
@@ -138,16 +160,39 @@ class MetricSeriesRepository
                 continue;
             }
 
+            $value = $row->{$column};
+
+            // Byte history predates this migration as null. Derive a
+            // comparable value from the recorded percentage and the latest
+            // capacity rather than turning missing history into zero bytes.
+            if ($value === null && $fallbackColumn !== null && $total !== null && isset($row->{$fallbackColumn})) {
+                $value = ((float) $row->{$fallbackColumn} / 100) * $total;
+            }
+
+            if ($value === null) {
+                continue;
+            }
+
             $bucket = $this->bucket(
                 CarbonImmutable::parse((string) $row->bucket_start, 'UTC')->getTimestamp(),
                 $resolution,
             );
 
-            $sums[$bucket] = ($sums[$bucket] ?? 0.0) + (float) $row->{$column};
+            $sums[$bucket] = ($sums[$bucket] ?? 0.0) + (float) $value;
             $counts[$bucket] = ($counts[$bucket] ?? 0) + $samples;
         }
 
         return $this->points($sums, $counts);
+    }
+
+    private function latestTotal(Server $server, string $column): ?int
+    {
+        $total = MetricSample::query()
+            ->where('server_id', $server->getKey())
+            ->latest('collected_at')
+            ->value($column);
+
+        return $total === null ? null : (int) $total;
     }
 
     /**
