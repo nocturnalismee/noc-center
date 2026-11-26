@@ -24,6 +24,7 @@ class AgentDownloadTest extends TestCase
 
         foreach ([
             'noc-agent/install.sh',
+            'noc-agent/update.sh',
             'noc-agent/uninstall.sh',
             'noc-agent/collector.sh',
             'noc-agent/config/agent.conf.example',

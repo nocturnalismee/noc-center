@@ -31,6 +31,7 @@ SUITES=(
   http_test.sh
   payload_test.sh
   install_test.sh
+  update_test.sh
 )
 
 # The loopback port for the mock end-to-end check. http_test.sh also uses
@@ -106,7 +107,7 @@ SC_EXCLUDE=(SC2034 SC1091)
 if [ -n "$SC" ]; then
   "$SC" -S warning -e "$(IFS=,; echo "${SC_EXCLUDE[*]}")" \
     agent/collector.sh agent/lib/*.sh agent/panels/*.sh \
-    agent/modules/*.sh agent/install.sh agent/uninstall.sh \
+    agent/modules/*.sh agent/install.sh agent/update.sh agent/uninstall.sh \
     tools/test-agent.sh tools/tests/*.sh \
     || fail "shellcheck reported problems ($SC)"
   echo "test-agent: shellcheck OK ($SC)"
