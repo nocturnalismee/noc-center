@@ -292,7 +292,7 @@
             </main>
 
             <footer class="flex flex-wrap items-center justify-between gap-2 border-t border-divider px-4 py-4 text-[11px] text-text-muted lg:px-6 xl:px-8">
-                <p>NOC Center {{ $appVersion ?? 'v1.0.6' }} · UTC in storage · Asia/Jakarta display</p>
+                <p>NOC Center {{ $appVersion ?? 'v1.1.0' }} · UTC in storage · Asia/Jakarta display</p>
                 <p>Internal operations console</p>
             </footer>
         </div>
