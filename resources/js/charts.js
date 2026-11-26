@@ -1,4 +1,5 @@
-import { fitChartToContainer, percentageScaleBounds, seriesPointRadius } from './chart-scale.js';
+import { chartAxis, fitChartToContainer, seriesPointRadius } from './chart-scale.js';
+import { formatMetricValue } from './chart-format.js';
 
 const DEFAULT_SERIES = [
     { metric: 'cpu', label: 'CPU', color: '--chart-cpu' },
@@ -127,10 +128,62 @@ async function loadSeriesData(el, series) {
     };
 }
 
-function chartOptions() {
+function chartOptions(el, series) {
     const divider = cssColor('--divider');
     const muted = cssColor('--text-muted');
-    const percentage = percentageScaleBounds();
+    const unit = el.dataset.chartUnit || 'percent';
+    const axis = chartAxis(unit === 'mixed' ? 'load' : unit);
+    const yTicks = axis.ticks ?? {};
+    const y = {
+        ...axis,
+        grid: { color: divider, drawTicks: false },
+        border: { display: false },
+        ticks: {
+            ...yTicks,
+            color: muted,
+            font: { size: 11 },
+            padding: 8,
+        },
+    };
+    const scales = {
+        x: {
+            type: 'time',
+            time: { tooltipFormat: 'dd MMM HH:mm', displayFormats: { hour: 'HH:mm', day: 'dd MMM' } },
+            grid: { color: divider, drawTicks: false },
+            border: { color: divider },
+            ticks: {
+                color: muted,
+                font: { size: 11 },
+                maxRotation: 0,
+                autoSkipPadding: 18,
+                callback(value) {
+                    const span = Number(this.max) - Number(this.min);
+                    const formatter = span > 2 * 24 * 60 * 60 * 1000 ? jakartaTickDay : jakartaTickTime;
+
+                    return formatJakarta(value, formatter);
+                },
+            },
+        },
+        y,
+    };
+
+    if (unit === 'mixed') {
+        const rateAxis = chartAxis('rate');
+        const rateTicks = rateAxis.ticks ?? {};
+
+        scales.y1 = {
+            ...rateAxis,
+            position: 'right',
+            grid: { display: false },
+            border: { display: false },
+            ticks: {
+                ...rateTicks,
+                color: muted,
+                font: { size: 11 },
+                padding: 8,
+            },
+        };
+    }
 
     return {
         responsive: true,
@@ -159,41 +212,16 @@ function chartOptions() {
                             ? ''
                             : `${formatJakarta(timestamp, jakartaTooltip)} WIB`;
                     },
-                },
-            },
-        },
-        scales: {
-            x: {
-                type: 'time',
-                time: { tooltipFormat: 'dd MMM HH:mm', displayFormats: { hour: 'HH:mm', day: 'dd MMM' } },
-                grid: { color: divider, drawTicks: false },
-                border: { color: divider },
-                ticks: {
-                    color: muted,
-                    font: { size: 11 },
-                    maxRotation: 0,
-                    autoSkipPadding: 18,
-                    callback(value) {
-                        const span = Number(this.max) - Number(this.min);
-                        const formatter = span > 2 * 24 * 60 * 60 * 1000 ? jakartaTickDay : jakartaTickTime;
+                    label: (context) => {
+                        const line = series[context.datasetIndex] ?? {};
+                        const format = line.format ?? (unit === 'mixed' ? 'load' : unit);
 
-                        return formatJakarta(value, formatter);
+                        return `${context.dataset.label}: ${formatMetricValue(context.parsed?.y, format)}`;
                     },
                 },
             },
-            y: {
-                ...percentage,
-                grid: { color: divider, drawTicks: false },
-                border: { display: false },
-                ticks: {
-                    ...percentage.ticks,
-                    color: muted,
-                    font: { size: 11 },
-                    padding: 8,
-                    callback: (value) => `${value}%`,
-                },
-            },
         },
+        scales,
     };
 }
 
@@ -204,6 +232,7 @@ function buildDatasets(series, merged) {
         borderColor: cssColor(line.color || DEFAULT_SERIES[index]?.color || '--chart-cpu'),
         backgroundColor: 'transparent',
         borderWidth: 1.8,
+        yAxisID: line.axis === 'y1' ? 'y1' : 'y',
         pointRadius: seriesPointRadius(merged.length),
         pointHitRadius: 8,
         spanGaps: false,
@@ -277,7 +306,7 @@ export async function mountSeriesChart(el, url = null) {
         el.chart = new Chart(canvas, {
             type: 'line',
             data: { datasets: buildDatasets(valid, merged) },
-            options: chartOptions(),
+            options: chartOptions(el, valid),
         });
 
         el.dataset.chartReady = 'true';

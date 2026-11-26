@@ -1,10 +1,12 @@
+import { formatBytes, formatLoad, formatRate } from './chart-format.js';
+
 /**
- * Chart scales and point visibility for the percentage series.
+ * Chart scales and point visibility.
  *
- * The dashboard plots CPU, memory, and disk percentages. Always pin the
- * axis to 0-100 so a low-value fleet does not get clipped above the visible
- * range, and keep a single collected sample visible instead of hiding it
- * behind a zero-radius line point.
+ * CPU is pinned to 0-100 percent. Memory and disk use a zero-based byte
+ * axis, network uses bytes per second, and load is a plain number. Keep a
+ * single collected sample visible instead of hiding it behind a zero-radius
+ * line point.
  */
 
 export function percentageScaleBounds() {
@@ -12,6 +14,23 @@ export function percentageScaleBounds() {
         min: 0,
         max: 100,
         ticks: { stepSize: 20 },
+    };
+}
+
+export function chartAxis(unit) {
+    if (unit === 'percent') {
+        return percentageScaleBounds();
+    }
+
+    const formatter = unit === 'bytes'
+        ? formatBytes
+        : unit === 'rate'
+            ? formatRate
+            : formatLoad;
+
+    return {
+        min: 0,
+        ticks: { callback: (value) => formatter(value) },
     };
 }
 
