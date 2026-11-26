@@ -87,7 +87,7 @@ class Show extends Component
             'sample' => $sample,
             'metrics' => $this->metrics($sample),
             'charts' => in_array($tab, ['overview', 'performance'], true)
-                ? $this->charts($tab, $chartRange)
+                ? $this->charts($tab, $chartRange, $sample)
                 : [],
             'alerts' => $alerts,
             'history' => $history,
@@ -172,7 +172,7 @@ class Show extends Component
     /**
      * @return array<string, array{key:string,title:string,subtitle:string,unit:string,series:list<array{metric:string,label:string,color:string,url:string,axis?:string,format?:string}>,summary:string}>
      */
-    private function charts(string $tab, string $range): array
+    private function charts(string $tab, string $range, ?MetricSample $sample): array
     {
         if ($tab === 'overview') {
             return [
@@ -186,7 +186,7 @@ class Show extends Component
                         ['metric' => 'memory', 'label' => 'Memory', 'color' => '--chart-memory'],
                         ['metric' => 'disk', 'label' => 'Disk', 'color' => '--chart-disk'],
                     ]),
-                    $this->summary('resources'),
+                    $this->summary('resources', $sample),
                 ),
                 'load-network' => $this->chart(
                     'load-network',
@@ -198,7 +198,7 @@ class Show extends Component
                         ['metric' => 'rx', 'label' => 'Network in', 'color' => '--chart-network', 'axis' => 'y1', 'format' => 'rate'],
                         ['metric' => 'tx', 'label' => 'Network out', 'color' => '--chart-network-out', 'axis' => 'y1', 'format' => 'rate'],
                     ]),
-                    $this->summary('load-network'),
+                    $this->summary('load-network', $sample),
                 ),
             ];
         }
@@ -212,7 +212,7 @@ class Show extends Component
                 $this->seriesLines($range, [
                     ['metric' => 'cpu', 'label' => 'CPU', 'color' => '--chart-cpu'],
                 ]),
-                $this->summary('cpu'),
+                $this->summary('cpu', $sample),
             ),
             'memory' => $this->chart(
                 'memory',
@@ -222,7 +222,7 @@ class Show extends Component
                 $this->seriesLines($range, [
                     ['metric' => 'memory_bytes', 'label' => 'Memory used', 'color' => '--chart-memory'],
                 ]),
-                $this->summary('memory'),
+                $this->summary('memory', $sample),
             ),
             'disk' => $this->chart(
                 'disk',
@@ -232,7 +232,7 @@ class Show extends Component
                 $this->seriesLines($range, [
                     ['metric' => 'disk_bytes', 'label' => 'Disk used', 'color' => '--chart-disk'],
                 ]),
-                $this->summary('disk'),
+                $this->summary('disk', $sample),
             ),
             'load' => $this->chart(
                 'load',
@@ -242,7 +242,7 @@ class Show extends Component
                 $this->seriesLines($range, [
                     ['metric' => 'load', 'label' => 'Load 1m', 'color' => '--chart-load'],
                 ]),
-                $this->summary('load'),
+                $this->summary('load', $sample),
             ),
             'network' => $this->chart(
                 'network',
@@ -253,7 +253,7 @@ class Show extends Component
                     ['metric' => 'rx', 'label' => 'Network in', 'color' => '--chart-network'],
                     ['metric' => 'tx', 'label' => 'Network out', 'color' => '--chart-network-out'],
                 ]),
-                $this->summary('network'),
+                $this->summary('network', $sample),
             ),
         ];
     }
@@ -289,10 +289,8 @@ class Show extends Component
         return compact('key', 'title', 'subtitle', 'unit', 'series', 'summary');
     }
 
-    private function summary(string $key): string
+    private function summary(string $key, ?MetricSample $sample): string
     {
-        $sample = $this->server->latestSample()->first();
-
         if ($sample === null) {
             return 'No samples recorded yet.';
         }

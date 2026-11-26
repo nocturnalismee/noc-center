@@ -308,6 +308,7 @@ export async function mountSeriesChart(el, url = null) {
             data: { datasets: buildDatasets(valid, merged) },
             options: chartOptions(el, valid),
         });
+        el.chart.__chartUnit = el.dataset.chartUnit || 'percent';
 
         el.dataset.chartReady = 'true';
         setChartState(el, 'ready');
@@ -338,6 +339,19 @@ export async function updateSeriesChart(el) {
 
     if (!el.chart || el.chart.canvas !== canvas) {
         el.chart?.destroy();
+        el.chart = null;
+        delete el.dataset.chartMounted;
+        delete el.dataset.chartReady;
+        delete el.dataset.chartError;
+        await mountSeriesChart(el);
+
+        return;
+    }
+
+    const unit = el.dataset.chartUnit || 'percent';
+
+    if (el.chart.__chartUnit !== unit) {
+        el.chart.destroy();
         el.chart = null;
         delete el.dataset.chartMounted;
         delete el.dataset.chartReady;
