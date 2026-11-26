@@ -77,6 +77,17 @@ class RollupService
     ];
 
     /**
+     * Nullable byte sums. Legacy rollup rows have null here because exact
+     * byte history did not exist before the byte-series migration.
+     *
+     * @var array<string, array{0: string, 1: string}>
+     */
+    private const BYTE_SUMS = [
+        'mem_used_bytes_sum' => ['mem_used_bytes_sum', 'mem_used_bytes'],
+        'disk_used_bytes_sum' => ['disk_used_bytes_sum', 'disk_used_bytes'],
+    ];
+
+    /**
      * Min/max metrics: target column => [min|max, rollup source column, raw sample column].
      *
      * `cpu_iowait_sum`, `load1_sum`, and the network sums have no min/max
@@ -177,7 +188,7 @@ class RollupService
         $aggregates = [];
 
         MetricSample::query()
-            ->select(['id', 'collected_at', 'cpu_usage_pct', 'cpu_iowait_pct', 'mem_used_pct', 'disk_used_pct', 'swap_used_pct', 'disk_inode_pct', 'load1', 'net_rx_bps', 'net_tx_bps', 'processes_running', 'processes_blocked'])
+            ->select(['id', 'collected_at', 'cpu_usage_pct', 'cpu_iowait_pct', 'mem_used_pct', 'mem_used_bytes', 'disk_used_pct', 'disk_used_bytes', 'swap_used_pct', 'disk_inode_pct', 'load1', 'net_rx_bps', 'net_tx_bps', 'processes_running', 'processes_blocked'])
             ->where('server_id', $server->getKey())
             ->where('collected_at', '>=', $from)
             ->where('collected_at', '<', $to)
@@ -262,6 +273,14 @@ class RollupService
             $aggregate[$target] += (int) $this->value($row, $rollupColumn, $sampleColumn);
         }
 
+        foreach (self::BYTE_SUMS as $target => [$rollupColumn, $sampleColumn]) {
+            $value = $this->nullableValue($row, $rollupColumn, $sampleColumn);
+
+            if ($value !== null) {
+                $aggregate[$target] = ($aggregate[$target] ?? 0) + $value;
+            }
+        }
+
         foreach (self::EXTREMES as $target => [$side, $rollupColumn, $sampleColumn]) {
             $value = $this->value($row, $rollupColumn, $sampleColumn);
 
@@ -284,6 +303,19 @@ class RollupService
         }
 
         return isset($row->{$sampleColumn}) ? (float) $row->{$sampleColumn} : 0.0;
+    }
+
+    /**
+     * Return null when neither the rollup column nor the raw column exists,
+     * so a legacy row does not turn missing byte history into zero bytes.
+     */
+    private function nullableValue(object $row, string $rollupColumn, string $sampleColumn): ?int
+    {
+        if (isset($row->{$rollupColumn})) {
+            return (int) $row->{$rollupColumn};
+        }
+
+        return isset($row->{$sampleColumn}) ? (int) $row->{$sampleColumn} : null;
     }
 
     /**
@@ -323,7 +355,9 @@ class RollupService
             'cpu_usage_sum' => 0.0,
             'cpu_iowait_sum' => 0.0,
             'mem_used_pct_sum' => 0.0,
+            'mem_used_bytes_sum' => null,
             'disk_used_pct_sum' => 0.0,
+            'disk_used_bytes_sum' => null,
             'swap_used_pct_sum' => 0.0,
             'disk_inode_pct_sum' => 0.0,
             'load1_sum' => 0.0,
@@ -373,7 +407,9 @@ class RollupService
                     'cpu_usage_sum',
                     'cpu_iowait_sum',
                     'mem_used_pct_sum',
+                    'mem_used_bytes_sum',
                     'disk_used_pct_sum',
+                    'disk_used_bytes_sum',
                     'swap_used_pct_sum',
                     'disk_inode_pct_sum',
                     'load1_sum',

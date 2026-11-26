@@ -57,6 +57,80 @@ class RollupTest extends TestCase
     // Aggregation from raw samples (5m)
     // ------------------------------------------------------------------
 
+    public function test_five_minute_rollups_sum_exact_memory_and_disk_bytes(): void
+    {
+        $server = $this->server();
+
+        $this->sample($server, '2026-11-23 11:59:00', [
+            'mem_used_bytes' => 1_000,
+            'disk_used_bytes' => 2_000,
+        ]);
+        $this->sample($server, '2026-11-23 11:59:30', [
+            'mem_used_bytes' => 3_000,
+            'disk_used_bytes' => 4_000,
+        ]);
+
+        $this->service()->rollup(
+            $server,
+            RollupService::FIVE_MINUTES,
+            CarbonImmutable::parse('2026-11-23 11:55:00', 'UTC'),
+            CarbonImmutable::parse('2026-11-23 12:00:00', 'UTC'),
+        );
+
+        $rollup = MetricRollup::query()
+            ->where('server_id', $server->getKey())
+            ->where('resolution_seconds', RollupService::FIVE_MINUTES)
+            ->sole();
+
+        $this->assertSame(4_000, $rollup->mem_used_bytes_sum);
+        $this->assertSame(6_000, $rollup->disk_used_bytes_sum);
+    }
+
+    public function test_legacy_rollups_without_byte_sums_propagate_null_not_zero(): void
+    {
+        $server = $this->server();
+
+        MetricRollup::query()->create([
+            'server_id' => $server->getKey(),
+            'resolution_seconds' => RollupService::FIVE_MINUTES,
+            'bucket_start' => '2026-11-23 11:55:00',
+            'samples' => 2,
+            'cpu_usage_sum' => 100,
+            'cpu_iowait_sum' => 0,
+            'mem_used_pct_sum' => 50,
+            'disk_used_pct_sum' => 60,
+            'swap_used_pct_sum' => 0,
+            'disk_inode_pct_sum' => 0,
+            'load1_sum' => 2,
+            'net_rx_bps_sum' => 100,
+            'net_tx_bps_sum' => 200,
+            'processes_running_sum' => 2,
+            'processes_blocked_sum' => 0,
+            'cpu_usage_min' => 40,
+            'cpu_usage_max' => 60,
+            'mem_used_pct_min' => 20,
+            'mem_used_pct_max' => 30,
+            'disk_used_pct_min' => 25,
+            'disk_used_pct_max' => 35,
+            'load1_max' => 2,
+        ]);
+
+        $this->service()->rollup(
+            $server,
+            RollupService::HOUR,
+            CarbonImmutable::parse('2026-11-23 11:00:00', 'UTC'),
+            CarbonImmutable::parse('2026-11-23 12:00:00', 'UTC'),
+        );
+
+        $rollup = MetricRollup::query()
+            ->where('server_id', $server->getKey())
+            ->where('resolution_seconds', RollupService::HOUR)
+            ->sole();
+
+        $this->assertNull($rollup->mem_used_bytes_sum);
+        $this->assertNull($rollup->disk_used_bytes_sum);
+    }
+
     public function test_five_minute_buckets_align_to_utc_boundaries_and_aggregate_correctly(): void
     {
         $server = $this->server();
@@ -1299,13 +1373,13 @@ class RollupTest extends TestCase
             'load5' => 0,
             'load15' => 0,
             'mem_total_bytes' => 1000,
-            'mem_used_bytes' => 0,
+            'mem_used_bytes' => $values['mem_used_bytes'] ?? 0,
             'mem_used_pct' => $values['mem_used_pct'] ?? 0,
             'swap_total_bytes' => 0,
             'swap_used_bytes' => 0,
             'swap_used_pct' => $values['swap_used_pct'] ?? 0,
             'disk_total_bytes' => 1000,
-            'disk_used_bytes' => 0,
+            'disk_used_bytes' => $values['disk_used_bytes'] ?? 0,
             'disk_used_pct' => $values['disk_used_pct'] ?? 0,
             'disk_inode_pct' => $values['disk_inode_pct'] ?? 0,
             'net_rx_bps' => $values['net_rx_bps'] ?? 0,
