@@ -1,13 +1,13 @@
 #!/bin/bash
 # NOC monitoring agent updater.
 #
-# Upgrades an existing install from a newer source tree. The installer remains
-# the only component that writes the install; this wrapper verifies the source,
-# snapshots the previous install, preserves config/token, and rolls back when
-# the new installer fails.
+# Upgrades an existing install from the dashboard bundle URL or a local
+# source tree. The installer remains the only component that writes the
+# install; this wrapper verifies the source, snapshots the previous install,
+# preserves config/token, and rolls back when the new installer fails.
 #
 # Options:
-#   --source DIR       newer agent source tree (default: this script's directory)
+#   --source DIR       newer agent source tree (bypasses the bundle download)
 #   --prefix DIR       update underneath DIR (default /); required for tests
 #   --check            print installed/source versions and exit
 #   --dry-run          print the update plan without changing anything
@@ -25,6 +25,18 @@ export LC_ALL=C
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/install.sh
 source "$SELF_DIR/lib/install.sh"
+
+# Default update source. Override NOC_AGENT_UPDATE_URL for a different
+# dashboard host or for offline/test use (file:// is accepted by curl).
+DEFAULT_SOURCE_URL="${NOC_AGENT_UPDATE_URL:-https://panel.developers.web.id/agent/download}"
+TMP_WORK=""
+cleanup() {
+  if [[ -n $TMP_WORK ]]; then
+    rm -rf -- "$TMP_WORK"
+  fi
+  return 0
+}
+trap cleanup EXIT
 
 OPT_SOURCE=""
 OPT_NO_PRIME=0
@@ -78,6 +90,45 @@ run_installer() {
   bash "$source/install.sh" "${args[@]}"
 }
 
+download_source() {
+  local archive extract
+
+  case $DEFAULT_SOURCE_URL in
+    https://*|file://*) ;;
+    *) _err "update URL must be https:// (or file:// for tests): $DEFAULT_SOURCE_URL"; return 1 ;;
+  esac
+
+  for required in curl tar; do
+    which_cmd "$required" || { _err "$required is required to download the update"; return 1; }
+  done
+
+  TMP_WORK=$(mktemp -d "${TMPDIR:-/tmp}/noc-agent-update.XXXXXX") || {
+    _err "cannot create a temporary update directory"
+    return 1
+  }
+  archive="$TMP_WORK/noc-agent.tar.gz"
+  extract="$TMP_WORK/source"
+
+  printf 'noc-agent: downloading %s\n' "$DEFAULT_SOURCE_URL" >&2
+  if ! curl -fsSL --max-time 60 "$DEFAULT_SOURCE_URL" -o "$archive"; then
+    _err "could not download $DEFAULT_SOURCE_URL"
+    return 1
+  fi
+
+  if tar -tzf "$archive" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+    _err "downloaded bundle contains an unsafe path"
+    return 1
+  fi
+
+  mkdir -p -- "$extract" || return 1
+  if ! tar -xzf "$archive" -C "$extract" --strip-components=1; then
+    _err "could not extract the downloaded bundle"
+    return 1
+  fi
+
+  DOWNLOADED_SOURCE="$extract"
+}
+
 restore() {
   local backup=${1-} unit
 
@@ -124,7 +175,14 @@ main() {
     OPT_NO_SYSTEMCTL=1
   fi
 
-  local source=${OPT_SOURCE:-$SELF_DIR}
+  local source
+  if [[ -n $OPT_SOURCE ]]; then
+    source=$OPT_SOURCE
+  else
+    download_source || return 1
+    source=$DOWNLOADED_SOURCE
+  fi
+
   if [[ ! -d $source ]]; then
     _err "--source is not a directory: $source"
     return 1

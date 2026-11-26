@@ -6,6 +6,7 @@ printf 'abcdefghijklmnop\n' > "$tmp/token"; chmod 600 "$tmp/token"
 agent/install.sh --prefix "$tmp" --api-url "http://127.0.0.1:18787/api/v1/ingest" \
   --token-file "$tmp/token" --interval 30 --no-systemctl --no-prime
 [ -x "$tmp/usr/local/libexec/noc-agent/collector.sh" ] || exit 1
+[ -x "$tmp/usr/local/libexec/noc-agent/update.sh" ] || exit 1
 [ -f "$tmp/etc/systemd/system/noc-agent.timer" ] || exit 1
 grep -q 'OnUnitActiveSec=30s' "$tmp/etc/systemd/system/noc-agent.timer" || exit 1
 [ "$(stat -c %a "$tmp/etc/noc-agent/agent.conf")" = 600 ] || exit 1

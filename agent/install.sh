@@ -41,7 +41,7 @@ OPT_HELP=0
 
 TIMERS=(noc-agent.timer noc-agent-smart.timer noc-agent-diskquota.timer noc-agent-imunify.timer)
 PRIME_UNITS=(noc-agent@smart.service noc-agent@diskquota.service noc-agent@imunify.service)
-SCRIPTS=(collector.sh)
+SCRIPTS=(collector.sh update.sh)
 
 usage() {
   sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'

@@ -76,6 +76,19 @@ if agent/update.sh --source "$tmp/does-not-exist" --prefix "$prefix" --no-system
 fi
 [ "$(find "$updates" -mindepth 1 -maxdepth 1 -type d | wc -l)" = "$before_backups" ] || fail "missing source created a backup"
 
+# The built-in URL mode downloads the dashboard bundle and extracts it safely.
+grep -q 'panel.developers.web.id/agent/download' agent/update.sh || fail "default source URL is missing"
+cp -a agent "$tmp/url-source"
+printf '\n# url-marker\n' >> "$tmp/url-source/collector.sh"
+mkdir -p "$tmp/url-bundle"
+cp -a "$tmp/url-source" "$tmp/url-bundle/noc-agent"
+tar -czf "$tmp/agent.tar.gz" -C "$tmp/url-bundle" noc-agent
+NOC_AGENT_UPDATE_URL="file://$tmp/agent.tar.gz" \
+  agent/update.sh --prefix "$prefix" --no-systemctl --no-prime >"$tmp/url.out" 2>&1 \
+  || { cat "$tmp/url.out" >&2; fail "URL update failed"; }
+grep -q 'url-marker' "$collector" || fail "URL update did not install the bundle"
+grep -q 'downloading file://' "$tmp/url.out" || fail "URL update did not report the download"
+
 # The source tree cannot change the paths resolved from --prefix.
 cp -a agent "$tmp/prefix-source"
 out=$(agent/update.sh --source "$tmp/prefix-source" --prefix "$prefix" --dry-run --no-systemctl --no-prime)

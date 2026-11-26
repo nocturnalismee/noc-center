@@ -226,22 +226,30 @@ sets `ALLOW_INSECURE_HTTP=1`.
 
 `update.sh` wraps the same idempotent installer. It never overwrites
 `/etc/noc-agent/agent.conf` or `/etc/noc-agent/token`, and it snapshots the
-previous installed files before making changes.
+previous installed files before making changes. The installer also places the
+updater at `/usr/local/libexec/noc-agent/update.sh`.
+
+The default update URL is embedded in `update.sh`
+(`https://panel.developers.web.id/agent/download`). Override it with
+`NOC_AGENT_UPDATE_URL` for another dashboard or a local `file://` bundle.
 
 ```bash
-# download the newer bundle and extract it outside the installed tree
+# first install (or an old agent without the installed updater): one-time bundle
 sudo curl -fsSL https://monitor.example.com/agent/download -o /root/noc-agent.tar.gz
 sudo rm -rf /root/noc-agent-new
 sudo mkdir -p /root/noc-agent-new
 sudo tar -xzpf /root/noc-agent.tar.gz -C /root/noc-agent-new --strip-components=1
 
 # inspect versions and preview the update
-sudo /root/noc-agent-new/update.sh --check
-sudo /root/noc-agent-new/update.sh --dry-run
+sudo /usr/local/libexec/noc-agent/update.sh --check
+sudo /usr/local/libexec/noc-agent/update.sh --dry-run
 
 # apply
-sudo /root/noc-agent-new/update.sh
+sudo /usr/local/libexec/noc-agent/update.sh
 ```
+
+For an offline update, use the new source tree explicitly:
+`sudo /usr/local/libexec/noc-agent/update.sh --source /path/to/noc-agent`.
 
 The updater:
 
@@ -250,7 +258,7 @@ The updater:
   newest;
 - restores the previous collector, units, config, and token if the new
   installer fails, then exits `2`;
-- accepts `--source DIR` when the new source tree is elsewhere;
+- downloads the latest bundle by default, or accepts `--source DIR` for an offline/local source tree;
 - forwards `--no-systemctl`, `--no-prime`, and `--test` to the installer;
 - calls `systemctl` only when systemd is enabled and the process has the
   permission to use it.
@@ -687,9 +695,9 @@ install prefix. `--no-systemctl` skips all systemd calls.
 - **No dashboard, storage, alerting, or offline spooling** in this stage: if
   the endpoint is unreachable the payload for that run is dropped (exit 3) and
   the next timer run tries again.
-- **No auto-update.** Upgrading is manual: run `agent/update.sh` from a newer
-  source tree. It backs up and rolls back, but it does not fetch updates by
-  itself.
+- **No auto-update.** Upgrading is manual: run the installed `update.sh` (or
+  the one in a newer source tree). It fetches the latest bundle when invoked,
+  backs up and rolls back, but it never schedules itself.
 - **systemd only** (no SysV/OpenRC); Linux only.
 - **Root required in production**, because panel and module commands need it.
 - Cache is read from `STATE_DIR` only; no multi-filesystem disk breakdown,
