@@ -45,7 +45,7 @@
                     <div class="mt-2 overflow-x-auto">
                         <table class="w-full border-collapse text-left">
                             <thead>
-                                <tr class="border-y border-border text-[11px] uppercase tracking-[0.08em] text-text-muted">
+                                <tr class="border-y border-border table-heading">
                                     <th class="py-2 pr-4 font-medium">Service</th>
                                     <th class="py-2 pr-4 font-medium">Installed</th>
                                     <th class="py-2 pr-4 font-medium">Enabled</th>
@@ -91,7 +91,7 @@
                     <div class="mt-2 overflow-x-auto">
                         <table class="w-full border-collapse text-left">
                             <thead>
-                                <tr class="border-y border-border text-[11px] uppercase tracking-[0.08em] text-text-muted">
+                                <tr class="border-y border-border table-heading">
                                     <th class="py-2 pr-4 font-medium">Time</th>
                                     <th class="py-2 pr-4 font-medium">User</th>
                                     <th class="py-2 pr-4 font-medium">Database</th>

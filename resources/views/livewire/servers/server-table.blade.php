@@ -90,28 +90,28 @@
             <table class="w-full min-w-[940px] table-fixed border-collapse">
                 <caption class="sr-only">Servers</caption>
                 <thead>
-                    <tr class="h-10 border-b border-divider text-left">
-                        <th class="w-[112px] pl-5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col" @if ($sort === 'status') aria-sort="{{ $dir === 'asc' ? 'ascending' : 'descending' }}" @endif>
+                    <tr class="h-10 border-b border-divider text-left table-heading">
+                        <th class="w-[112px] pl-5 font-medium" scope="col" @if ($sort === 'status') aria-sort="{{ $dir === 'asc' ? 'ascending' : 'descending' }}" @endif>
                             <button type="button" wire:click="sortBy('status')" class="hover:text-text-sub">Status <span aria-hidden="true">{{ $sort === 'status' ? ($dir === 'asc' ? '↑' : '↓') : '' }}</span></button>
                         </th>
-                        <th class="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col" @if ($sort === 'hostname') aria-sort="{{ $dir === 'asc' ? 'ascending' : 'descending' }}" @endif>
+                        <th class="font-medium" scope="col" @if ($sort === 'hostname') aria-sort="{{ $dir === 'asc' ? 'ascending' : 'descending' }}" @endif>
                             <button type="button" wire:click="sortBy('hostname')" class="hover:text-text-sub">Server <span aria-hidden="true">{{ $sort === 'hostname' ? ($dir === 'asc' ? '↑' : '↓') : '' }}</span></button>
                         </th>
-                        <th class="w-[112px] text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col">Provider</th>
-                        <th class="w-[64px] text-right text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col" @if ($sort === 'cpu') aria-sort="{{ $dir === 'asc' ? 'ascending' : 'descending' }}" @endif>
+                        <th class="w-[112px] font-medium" scope="col">Provider</th>
+                        <th class="w-[64px] text-right font-medium" scope="col" @if ($sort === 'cpu') aria-sort="{{ $dir === 'asc' ? 'ascending' : 'descending' }}" @endif>
                             <button type="button" wire:click="sortBy('cpu')" class="hover:text-text-sub">CPU <span aria-hidden="true">{{ $sort === 'cpu' ? ($dir === 'asc' ? '↑' : '↓') : '' }}</span></button>
                         </th>
-                        <th class="w-[64px] text-right text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col" @if ($sort === 'memory') aria-sort="{{ $dir === 'asc' ? 'ascending' : 'descending' }}" @endif>
+                        <th class="w-[64px] text-right font-medium" scope="col" @if ($sort === 'memory') aria-sort="{{ $dir === 'asc' ? 'ascending' : 'descending' }}" @endif>
                             <button type="button" wire:click="sortBy('memory')" class="hover:text-text-sub">Mem <span aria-hidden="true">{{ $sort === 'memory' ? ($dir === 'asc' ? '↑' : '↓') : '' }}</span></button>
                         </th>
-                        <th class="w-[64px] text-right text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col" @if ($sort === 'disk') aria-sort="{{ $dir === 'asc' ? 'ascending' : 'descending' }}" @endif>
+                        <th class="w-[64px] text-right font-medium" scope="col" @if ($sort === 'disk') aria-sort="{{ $dir === 'asc' ? 'ascending' : 'descending' }}" @endif>
                             <button type="button" wire:click="sortBy('disk')" class="hover:text-text-sub">Disk <span aria-hidden="true">{{ $sort === 'disk' ? ($dir === 'asc' ? '↑' : '↓') : '' }}</span></button>
                         </th>
-                        <th class="w-[78px] pr-3 text-right text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col" @if ($sort === 'load') aria-sort="{{ $dir === 'asc' ? 'ascending' : 'descending' }}" @endif>
+                        <th class="w-[78px] pr-3 text-right font-medium" scope="col" @if ($sort === 'load') aria-sort="{{ $dir === 'asc' ? 'ascending' : 'descending' }}" @endif>
                             <button type="button" wire:click="sortBy('load')" class="hover:text-text-sub">Load <span aria-hidden="true">{{ $sort === 'load' ? ($dir === 'asc' ? '↑' : '↓') : '' }}</span></button>
                         </th>
-                        <th class="w-[120px] pl-3 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col">Last sample</th>
-                        <th class="w-[152px] pr-5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted" scope="col">Issues</th>
+                        <th class="w-[120px] pl-3 font-medium" scope="col">Last sample</th>
+                        <th class="w-[152px] pr-5 font-medium" scope="col">Issues</th>
                     </tr>
                 </thead>
                 <tbody>

@@ -34,7 +34,7 @@
     <div class="mt-6 overflow-x-auto">
         <table class="w-full border-collapse text-left">
             <thead>
-                <tr class="border-y border-border text-[11px] uppercase tracking-[0.08em] text-text-muted">
+                <tr class="border-y border-border table-heading">
                     <th scope="col" class="py-2 pr-4 font-medium">Prefix</th>
                     <th scope="col" class="py-2 pr-4 font-medium">Status</th>
                     <th scope="col" class="py-2 pr-4 font-medium">Label</th>

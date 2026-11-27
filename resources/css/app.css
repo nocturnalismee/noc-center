@@ -318,6 +318,18 @@
         text-transform: uppercase;
     }
 
+    .table-heading {
+        font-size: 0.75rem;
+        font-weight: 500;
+        letter-spacing: normal;
+        text-transform: none;
+        color: var(--text-muted);
+    }
+
+    .table-heading th {
+        text-wrap: balance;
+    }
+
     .primary-button {
         display: inline-flex;
         height: 40px;

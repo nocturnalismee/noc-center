@@ -45,7 +45,7 @@
                     <div class="mt-2 overflow-x-auto">
                         <table class="w-full border-collapse text-left">
                             <thead>
-                                <tr class="border-y border-border text-[11px] uppercase tracking-[0.08em] text-text-muted">
+                                <tr class="border-y border-border table-heading">
                                     <th class="py-2 pr-4 font-medium">Disk</th>
                                     <th class="py-2 pr-4 font-medium">Health</th>
                                     <th class="py-2 pr-4 font-medium">Reallocated</th>
@@ -83,15 +83,15 @@
                 <h3 id="modules-quota" class="text-[13px] font-semibold text-text">Disk quota</h3>
                 <dl class="mt-2 grid grid-cols-1 border-t border-divider sm:grid-cols-3">
                     <div class="flex items-baseline justify-between gap-4 border-b border-divider py-2 sm:block sm:pr-4">
-                        <dt class="text-[11px] uppercase tracking-[0.08em] text-text-muted">Accounts</dt>
+                        <dt class="text-[12px] font-medium text-text-muted">Accounts</dt>
                         <dd class="font-mono text-[13px] text-text">{{ $quota['accounts'] ?? 'Not reported' }}</dd>
                     </div>
                     <div class="flex items-baseline justify-between gap-4 border-b border-divider py-2 sm:block sm:px-4">
-                        <dt class="text-[11px] uppercase tracking-[0.08em] text-text-muted">Over quota</dt>
+                        <dt class="text-[12px] font-medium text-text-muted">Over quota</dt>
                         <dd class="font-mono text-[13px] {{ $quotaOverWarning ? 'text-warning' : 'text-text' }}">{{ $quotaOver }}</dd>
                     </div>
                     <div class="flex items-baseline justify-between gap-4 border-b border-divider py-2 sm:block sm:pl-4">
-                        <dt class="text-[11px] uppercase tracking-[0.08em] text-text-muted">Cache age</dt>
+                        <dt class="text-[12px] font-medium text-text-muted">Cache age</dt>
                         <dd class="font-mono text-[13px] text-text">{{ $quota['cache_age'] ?? 'Not reported' }}</dd>
                     </div>
                 </dl>
@@ -101,7 +101,7 @@
                 @else
                     <table class="mt-2 w-full border-collapse text-left">
                         <thead>
-                            <tr class="border-y border-border text-[11px] uppercase tracking-[0.08em] text-text-muted">
+                            <tr class="border-y border-border table-heading">
                                 <th class="py-2 pr-4 font-medium">Account</th>
                                 <th class="py-2 text-right font-medium">Used</th>
                             </tr>

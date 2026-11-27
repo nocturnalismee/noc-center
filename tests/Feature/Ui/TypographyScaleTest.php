@@ -53,6 +53,29 @@ class TypographyScaleTest extends TestCase
         $this->assertMatchesRegularExpression('/body\s*\{[^}]*font-size:\s*14px/s', $css);
     }
 
+    public function test_table_headers_share_one_typography_class(): void
+    {
+        $views = [
+            'alerts/index.blade.php',
+            'alerts/show.blade.php',
+            'activity/index.blade.php',
+            'servers/server-table.blade.php',
+            'servers/show.blade.php',
+            'servers/tabs/modules.blade.php',
+            'servers/tabs/panel.blade.php',
+            'servers/tokens.blade.php',
+            'settings/deleted-servers.blade.php',
+            'settings/users.blade.php',
+        ];
+
+        foreach ($views as $view) {
+            $contents = File::get(resource_path('views/livewire/'.$view));
+
+            $this->assertStringContainsString('table-heading', $contents, $view);
+            $this->assertStringNotContainsString('uppercase tracking-[0.08em]', $contents, $view);
+        }
+    }
+
     public function test_chart_ticks_follow_the_same_scale(): void
     {
         $js = File::get(resource_path('js/charts.js'));
