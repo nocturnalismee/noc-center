@@ -59,7 +59,8 @@ It provides `_emit KEY TYPE VALUE` (validates the key and the `n`/`b`/`s` value
 and prints the line), `_safe_str VALUE` (flatten a string to one printable line)
 and `_safe_name VALUE` (sanitize to `[A-Za-z0-9_.-]`). Do **not** copy
 `_safe_str`, `_safe_name`, or `_emit` into each file — a missing library makes
-the script exit 2, which the core treats as "ignore this module".
+the script exit 2, which in auto-scan `detect` is ignored as "not this module"
+but in `--module` mode is a failed module run (exit 4, cache preserved).
 
 ## Modes
 

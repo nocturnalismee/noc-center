@@ -31,7 +31,7 @@ case ${1:-} in
   collect)
     # Emit typed metric lines here with the shared helpers, e.g.:
     #   _emit name.value n "$(some-cli ... 2>/dev/null)"
-    #   _emit name.status s "$(_safe_str "$(some-cli status)")"
+    #   _emit name.status s "$(some-cli status 2>/dev/null)"
     exit 0
     ;;
   *)

@@ -80,14 +80,18 @@ only — no arrays or nested objects in schema v1.
 ```bash
 #!/bin/bash
 set -u
+export LC_ALL=C
+
+# shellcheck source=../lib/metrics.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/metrics.sh" || exit 2
 
 case ${1:-} in
   detect)
     [ -x /usr/local/example/panel ] || exit 1
     ;;
   collect)
-    printf 'panel.version\ts\t%s\n' "$(cat /usr/local/example/version 2>/dev/null)"
-    printf 'panel.accounts\tn\t%s\n' "$(find /var/example/users -maxdepth 1 -type f | wc -l)"
+    _emit panel.version s "$(cat /usr/local/example/version 2>/dev/null)"
+    _emit panel.accounts n "$(find /var/example/users -maxdepth 1 -type f | wc -l)"
     ;;
   *)
     exit 2
