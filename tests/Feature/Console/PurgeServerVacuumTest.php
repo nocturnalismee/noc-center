@@ -2,8 +2,6 @@
 
 namespace Tests\Feature\Console;
 
-use App\Console\Commands\PhysicsCalls;
-use App\Console\Commands\PurgeServer;
 use App\Models\MetricSample;
 use App\Models\Server;
 use App\Models\ServerToken;
@@ -15,8 +13,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
-require_once __DIR__.'/Support/PurgePhysicsShim.php';
-
 /**
  * `noc:purge-server --vacuum` against a real SQLite file.
  *
@@ -24,7 +20,9 @@ require_once __DIR__.'/Support/PurgePhysicsShim.php';
  * used here: the test runs migrations against a file-backed database and
  * points `database.connections.sqlite.database` at it, exactly the way an
  * operator's install looks. The vacuum must run after the purge, never inside
- * it, and report the real file sizes before and after.
+ * it, and report the logical database size before and after. Under WAL the
+ * main file keeps its high-water mark, so the logical size is the page count
+ * times the page size, not `filesize()`.
  */
 class PurgeServerVacuumTest extends TestCase
 {
@@ -117,8 +115,9 @@ class PurgeServerVacuumTest extends TestCase
         $this->sample($server);
         $server->delete();
 
-        $baselinePages = $this->pageCount();
-        $this->assertGreaterThan(0, $baselinePages);
+        $pagesBefore = $this->pageCount();
+        $logicalBefore = $this->logicalBytes();
+        $this->assertGreaterThan(0, $pagesBefore);
 
         $exitCode = Artisan::call('noc:purge-server', [
             'name' => $server->name,
@@ -133,71 +132,53 @@ class PurgeServerVacuumTest extends TestCase
         $this->assertSame(0, (int) DB::table('server_tokens')->where('server_id', $server->getKey())->count());
         $this->assertFileExists($this->databasePath);
 
-        // Freed pages leave the file and the free list is emptied.
-        $this->assertLessThan($baselinePages, $this->pageCount(), 'VACUUM must compact the database file.');
+        // Freed pages leave the database and the free list is emptied.
+        $this->assertLessThan($pagesBefore, $this->pageCount(), 'VACUUM must compact the database.');
         $this->assertSame(0, (int) DB::scalar('PRAGMA freelist_count'), 'VACUUM must leave no free pages behind.');
 
-        // The reported "after" size is the real file size. The main file keeps
-        // its WAL high-water mark, so it need not shrink below it here; what
-        // must hold is that the number is not a stale cached `stat` entry.
+        // The reported numbers are the logical (page-based) sizes, and the
+        // compaction is visible in them. `filesize()` cannot see this: under
+        // WAL the main file keeps its high-water mark.
+        $logicalAfter = $this->logicalBytes();
+
         [$reportedBefore, $reportedAfter] = $this->reportedVacuumSizes();
 
-        $this->assertGreaterThan(0, $reportedBefore);
-        $this->assertSame($this->realFileSize(), $reportedAfter);
-        $this->assertLessThanOrEqual($reportedBefore, $reportedAfter);
+        $this->assertSame($logicalBefore, $reportedBefore);
+        $this->assertSame($logicalAfter, $reportedAfter);
+        $this->assertLessThan($reportedBefore, $reportedAfter, 'The reported size must shrink.');
     }
 
-    /**
-     * Prove `databaseSize()` clears the stat cache before reading a size.
-     *
-     * PHP refreshes the stat cache on its own writes, so a stale entry cannot
-     * be reproduced from the outside (every `touch`/`truncate`/`fwrite`
-     * refreshes it). The shim in this test's namespace records the order of
-     * `clearstatcache()` and `filesize()` calls made by the command, which is
-     * exactly the contract `VACUUM` relies on.
-     */
-    public function test_database_size_clears_the_stat_cache_before_reading(): void
-    {
-        $scratch = $this->databasePath.'-scratch.sqlite';
-        file_put_contents($scratch, str_repeat('a', 2048));
-
-        config(['database.connections.sqlite.database' => $scratch]);
-        DB::purge('sqlite');
-
-        PhysicsCalls::reset();
-
-        $command = $this->app->make(PurgeServer::class);
-        $size = (fn () => $this->databaseSize())->call($command);
-
-        $this->assertSame(2048, $size);
-        $this->assertSame($scratch, PhysicsCalls::statCacheTarget());
-        $this->assertTrue(
-            PhysicsCalls::clearedBeforeReading(),
-            'databaseSize() must call clearstatcache(true, $database) before filesize().',
-        );
-
-        DB::purge('sqlite');
-        @unlink($scratch);
-    }
-
-    public function test_without_the_vacuum_flag_the_file_is_left_alone(): void
+    public function test_without_the_vacuum_flag_the_database_is_not_compacted(): void
     {
         $server = $this->server();
+        $this->bloat($server);
         $server->delete();
 
-        $this->artisan('noc:purge-server', ['name' => $server->name, '--force' => true])
-            ->doesntExpectOutputToContain('VACUUM complete')
-            ->assertSuccessful();
+        $pagesBefore = $this->pageCount();
+        $logicalBefore = $this->logicalBytes();
+
+        $exitCode = Artisan::call('noc:purge-server', [
+            'name' => $server->name,
+            '--force' => true,
+        ]);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringNotContainsString('VACUUM complete', Artisan::output());
+
+        // The purge frees pages but keeps them in the file: no compaction.
+        $this->assertSame($pagesBefore, $this->pageCount(), 'Without --vacuum the page count must not change.');
+        $this->assertSame($logicalBefore, $this->logicalBytes());
     }
 
     /**
-     * An uncached `filesize()`, i.e. the truth on disk.
+     * Logical database size, as SQLite reports it through its page count.
+     *
+     * Under WAL the main file keeps a high-water mark, so `filesize()` does
+     * not reflect a VACUUM; `page_count * page_size` does.
      */
-    private function realFileSize(): int
+    private function logicalBytes(): int
     {
-        clearstatcache(true, $this->databasePath);
-
-        return (int) filesize($this->databasePath);
+        return $this->pageCount() * $this->pageSize();
     }
 
     /**
@@ -206,6 +187,11 @@ class PurgeServerVacuumTest extends TestCase
     private function pageCount(): int
     {
         return (int) DB::scalar('PRAGMA page_count');
+    }
+
+    private function pageSize(): int
+    {
+        return (int) DB::scalar('PRAGMA page_size');
     }
 
     /**

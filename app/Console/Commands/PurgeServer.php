@@ -171,15 +171,25 @@ class PurgeServer extends Command
     }
 
     /**
-     * Size of the database file when the connection is backed by a real file.
-     * In-memory and URI databases have no such file.
+     * Logical size of a file-backed SQLite database.
      *
-     * `clearstatcache()` is required: `VACUUM` rewrites the file in place and
-     * PHP would otherwise report the size cached before the command ran.
+     * `VACUUM` rewrites the database through the WAL, so it does not rewrite
+     * the main file in place: under WAL that file keeps its high-water mark and
+     * `filesize()` reports no change. The page count is the reliable measure,
+     * so the size is computed as `PRAGMA page_count` x `PRAGMA page_size`.
+     *
+     * Returns null for `:memory:`, `file:` URIs, empty names, and connections
+     * that are not SQLite.
      */
     private function databaseSize(): ?int
     {
-        $database = DB::connection()->getDatabaseName();
+        $connection = DB::connection();
+
+        if ($connection->getDriverName() !== 'sqlite') {
+            return null;
+        }
+
+        $database = $connection->getDatabaseName();
 
         if (! is_string($database) || $database === '' || $database === ':memory:' || str_starts_with($database, 'file:')) {
             return null;
@@ -189,11 +199,14 @@ class PurgeServer extends Command
             return null;
         }
 
-        clearstatcache(true, $database);
+        $pages = $connection->scalar('PRAGMA page_count');
+        $pageSize = $connection->scalar('PRAGMA page_size');
 
-        $size = @filesize($database);
+        if (! is_numeric($pages) || ! is_numeric($pageSize)) {
+            return null;
+        }
 
-        return $size === false ? null : $size;
+        return (int) $pages * (int) $pageSize;
     }
 
     /**
