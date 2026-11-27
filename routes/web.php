@@ -15,6 +15,7 @@ use App\Livewire\Servers\Show;
 use App\Livewire\Servers\Tokens;
 use App\Livewire\Servers\Waiting;
 use App\Livewire\Settings\AlertSettings;
+use App\Livewire\Settings\DeletedServers;
 use App\Livewire\Settings\Index as SettingsIndex;
 use App\Livewire\Settings\Profile;
 use App\Livewire\Settings\TwoFactor;
@@ -48,6 +49,7 @@ Route::middleware('auth')->group(function () {
     Route::livewire('/settings/security', TwoFactor::class)->name('settings.security');
     Route::livewire('/settings/users', Users::class)->name('settings.users');
     Route::livewire('/settings/alerts', AlertSettings::class)->name('settings.alerts');
+    Route::livewire('/settings/deleted-servers', DeletedServers::class)->name('settings.deleted-servers');
 
     Route::livewire('/activity', ActivityIndex::class)->name('activity.index');
 

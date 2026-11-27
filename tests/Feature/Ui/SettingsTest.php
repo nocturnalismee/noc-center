@@ -57,6 +57,7 @@ class SettingsTest extends TestCase
             ->assertSee('href="/settings/security"', false)
             ->assertDontSee('href="'.route('settings.users').'"', false)
             ->assertDontSee('href="'.route('settings.alerts').'"', false)
+            ->assertDontSee('href="'.route('settings.deleted-servers').'"', false)
             ->assertDontSee('href="'.route('activity.index').'"', false);
 
         $this->actingAs($operator)
@@ -65,7 +66,8 @@ class SettingsTest extends TestCase
             ->assertSee('href="'.route('settings.profile').'"', false)
             ->assertSee('href="'.route('activity.index').'"', false)
             ->assertDontSee('href="'.route('settings.users').'"', false)
-            ->assertDontSee('href="'.route('settings.alerts').'"', false);
+            ->assertDontSee('href="'.route('settings.alerts').'"', false)
+            ->assertDontSee('href="'.route('settings.deleted-servers').'"', false);
 
         $this->actingAs($admin)
             ->get('/settings')
@@ -74,6 +76,7 @@ class SettingsTest extends TestCase
             ->assertSee('href="/settings/security"', false)
             ->assertSee('href="'.route('settings.users').'"', false)
             ->assertSee('href="'.route('settings.alerts').'"', false)
+            ->assertSee('href="'.route('settings.deleted-servers').'"', false)
             ->assertSee('href="'.route('activity.index').'"', false);
     }
 
@@ -86,7 +89,8 @@ class SettingsTest extends TestCase
             ->assertOk()
             ->assertSee('aria-label="Settings sections"', false)
             ->assertSee('href="'.route('settings.users').'"', false)
-            ->assertSee('href="'.route('settings.alerts').'"', false);
+            ->assertSee('href="'.route('settings.alerts').'"', false)
+            ->assertSee('href="'.route('settings.deleted-servers').'"', false);
 
         $this->actingAs($admin)
             ->get('/settings/users')

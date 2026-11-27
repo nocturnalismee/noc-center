@@ -8,6 +8,11 @@
     if ($settingsUser?->isAdmin()) {
         $sections[] = ['label' => 'Users', 'href' => route('settings.users'), 'active' => request()->is('settings/users')];
         $sections[] = ['label' => 'Alerts', 'href' => route('settings.alerts'), 'active' => request()->is('settings/alerts')];
+        $sections[] = [
+            'label' => 'Deleted servers',
+            'href' => route('settings.deleted-servers'),
+            'active' => request()->is('settings/deleted-servers'),
+        ];
     }
 
     if ($settingsUser?->canOperate()) {

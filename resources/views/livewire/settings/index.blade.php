@@ -45,6 +45,12 @@
                 'description' => 'Thresholds, reminder cadence, SMTP status, and Telegram delivery.',
                 'meta' => 'Administrators',
             ];
+            $entries[] = [
+                'label' => 'Deleted servers',
+                'href' => route('settings.deleted-servers'),
+                'description' => 'Auto-purge policy and permanent purge for servers removed from the fleet.',
+                'meta' => 'Administrators',
+            ];
         }
 
         if ($user?->canOperate()) {
