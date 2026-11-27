@@ -43,6 +43,7 @@ class AlertNotifier
         private readonly EmailChannel $email,
         private readonly TelegramChannel $telegram,
         private readonly AuditLogger $audit,
+        private readonly DeliveryPolicy $policy,
     ) {
         $this->channels = [$this->email, $this->telegram];
     }
@@ -173,7 +174,7 @@ class AlertNotifier
             $attributes['sent_at'] = null;
             $attributes['next_retry_at'] = $result->retryAfter !== null
                 ? $now->copy()->addSeconds($result->retryAfter)
-                : $this->nextBackoff($attempts);
+                : $this->policy->nextRetryAt($attempts, $now);
         } else {
             $attributes['next_retry_at'] = null;
         }
@@ -198,21 +199,14 @@ class AlertNotifier
         }
     }
 
+    /**
+     * The next retry time for a failed attempt, from the configured backoff.
+     * Kept public for callers of the notifier; the rule lives in
+     * {@see DeliveryPolicy::nextRetryAt()}.
+     */
     public function nextBackoff(int $attempts): ?Carbon
     {
-        $backoff = array_values((array) config('alerts.retry_backoff_seconds', []));
-
-        if ($backoff === []) {
-            return null;
-        }
-
-        $seconds = $backoff[min(max($attempts, 1), count($backoff)) - 1];
-
-        if (! is_numeric($seconds) || (int) $seconds <= 0) {
-            return null;
-        }
-
-        return now()->addSeconds((int) $seconds);
+        return $this->policy->nextRetryAt($attempts);
     }
 
     /**

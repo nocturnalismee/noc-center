@@ -3,20 +3,17 @@
 namespace App\Console\Commands;
 
 use App\Alerts\AlertNotifier;
-use App\Alerts\Channels\DeliveryResult;
+use App\Alerts\DeliveryPolicy;
 use App\Enums\AlertStatus;
 use App\Models\Alert;
 use App\Models\AlertDelivery;
-use App\Services\SettingsRepository;
-use Carbon\CarbonInterface;
 use Illuminate\Console\Command;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Collection;
 
 /**
  * Reminders and retries for alert deliveries (spec §9.4).
  *
- * The rules are per alert status:
+ * The candidate rows per alert status are selected here; whether a row is
+ * actually due is decided by {@see DeliveryPolicy::isDue()}:
  *
  * - **open**: only `event = opened` rows are considered. A row is re-queued
  *   when it failed and `next_retry_at` is due, or it was sent and the last
@@ -37,10 +34,8 @@ class SendAlertReminders extends Command
 
     protected $description = 'Re-queue due alert reminders and retries';
 
-    public function handle(AlertNotifier $notifier, SettingsRepository $settings): int
+    public function handle(AlertNotifier $notifier, DeliveryPolicy $policy): int
     {
-        $reminderHours = max(1, (int) $settings->get('alerts.reminder_hours', config('alerts.reminder_hours', 6)));
-        $stuckAfter = max(1, (int) config('alerts.stuck_pending_after', 300));
         $now = now();
         $queued = 0;
 
@@ -48,13 +43,24 @@ class SendAlertReminders extends Command
             ->with('server')
             ->whereIn('status', [AlertStatus::Open->value, AlertStatus::Resolved->value])
             ->orderBy('last_seen_at')
-            ->chunkById(100, function ($alerts) use ($notifier, $reminderHours, $stuckAfter, $now, &$queued): void {
+            ->chunkById(100, function ($alerts) use ($notifier, $policy, $now, &$queued): void {
                 foreach ($alerts as $alert) {
                     if ($alert->server === null) {
                         continue;
                     }
 
-                    foreach ($this->dueDeliveries($alert, $reminderHours, $stuckAfter, $now) as $delivery) {
+                    $event = $alert->status === AlertStatus::Resolved ? 'resolved' : 'opened';
+
+                    $deliveries = AlertDelivery::query()
+                        ->where('alert_id', $alert->getKey())
+                        ->where('event', $event)
+                        ->get();
+
+                    foreach ($deliveries as $delivery) {
+                        if (! $policy->isDue($alert, $delivery, $now)) {
+                            continue;
+                        }
+
                         $notifier->requeue($alert, $delivery);
                         $queued++;
                     }
@@ -64,50 +70,5 @@ class SendAlertReminders extends Command
         $this->info(sprintf('Queued %d alert reminder(s) and retry(s).', $queued));
 
         return self::SUCCESS;
-    }
-
-    /**
-     * @return Collection<int, AlertDelivery>
-     */
-    private function dueDeliveries(Alert $alert, int $reminderHours, int $stuckAfter, CarbonInterface $now): Collection
-    {
-        if ($alert->status === AlertStatus::Resolved) {
-            return AlertDelivery::query()
-                ->where('alert_id', $alert->getKey())
-                ->where('event', 'resolved')
-                ->where('status', DeliveryResult::FAILED)
-                ->where(fn (Builder $query) => $query
-                    ->whereNull('next_retry_at')
-                    ->orWhere('next_retry_at', '<=', $now))
-                ->get();
-        }
-
-        return AlertDelivery::query()
-            ->where('alert_id', $alert->getKey())
-            ->where('event', 'opened')
-            ->where('status', '!=', DeliveryResult::SKIPPED)
-            ->get()
-            ->filter(fn (AlertDelivery $delivery): bool => $this->due($delivery, $reminderHours, $stuckAfter, $now))
-            ->values();
-    }
-
-    private function due(AlertDelivery $delivery, int $reminderHours, int $stuckAfter, CarbonInterface $now): bool
-    {
-        if ($delivery->status === DeliveryResult::FAILED) {
-            return $delivery->next_retry_at === null || $delivery->next_retry_at->lessThanOrEqualTo($now);
-        }
-
-        if ($delivery->status === DeliveryResult::SENT) {
-            return $delivery->sent_at !== null
-                && $delivery->sent_at->copy()->addHours($reminderHours)->lessThanOrEqualTo($now);
-        }
-
-        // `pending`: a job that was queued but never started. Only a row with
-        // no attempt at all, older than the stuck threshold, is recovered;
-        // the 30 s backoff grace must never be used here, or a requeue would
-        // race the in-flight job.
-        return $delivery->last_attempt_at === null
-            && $delivery->created_at !== null
-            && $delivery->created_at->copy()->addSeconds($stuckAfter)->lessThanOrEqualTo($now);
     }
 }

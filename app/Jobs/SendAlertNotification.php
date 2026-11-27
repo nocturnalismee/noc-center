@@ -4,10 +4,10 @@ namespace App\Jobs;
 
 use App\Alerts\AlertNotifier;
 use App\Alerts\Channels\DeliveryResult;
-use App\Enums\AlertStatus;
+use App\Alerts\DeliveryAction;
+use App\Alerts\DeliveryPolicy;
 use App\Models\Alert;
 use App\Models\AlertDelivery;
-use App\Services\SettingsRepository;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\Job as JobContract;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -26,10 +26,12 @@ use Illuminate\Queue\SerializesModels;
  * post-completion unique lock of a few minutes would silently swallow a
  * legitimate 30 s / 120 s requeue.
  *
- * A failed attempt throws {@see RetryDelivery} so the queue worker's `$tries`
- * and `backoff()` retry the job for real. `sent` and `skipped` never throw,
- * and neither do the early returns. The row keeps `next_retry_at` even after
- * the last try, so `noc:alert-reminders` can pick the delivery up later.
+ * Whether the row is owed at all is decided by {@see DeliveryPolicy}; this
+ * class only looks the row up, applies the decision, and reports a failed
+ * attempt. A failed attempt throws {@see RetryDelivery} so the queue worker's
+ * `$tries` and `backoff()` retry the job for real. `sent` and `skipped` never
+ * throw, and neither do the early returns. The row keeps `next_retry_at` even
+ * after the last try, so `noc:alert-reminders` can pick the delivery up later.
  */
 class SendAlertNotification implements ShouldQueue
 {
@@ -50,12 +52,7 @@ class SendAlertNotification implements ShouldQueue
      */
     public function backoff(): array
     {
-        $backoff = array_values(array_filter(
-            array_map('intval', (array) config('alerts.retry_backoff_seconds', [30, 120, 300])),
-            static fn (int $seconds): bool => $seconds > 0,
-        ));
-
-        return $backoff === [] ? [30, 120, 300] : $backoff;
+        return app(DeliveryPolicy::class)->queueBackoff();
     }
 
     /**
@@ -78,24 +75,13 @@ class SendAlertNotification implements ShouldQueue
         return sprintf('alert:%s:%s:%s', $alertId, $channel, $event);
     }
 
-    public function handle(AlertNotifier $notifier, ?SettingsRepository $settings = null): void
+    public function handle(AlertNotifier $notifier, ?DeliveryPolicy $policy = null): void
     {
-        $settings ??= app(SettingsRepository::class);
+        $policy ??= app(DeliveryPolicy::class);
 
         $alert = Alert::query()->with('server')->find($this->alertId);
 
         if ($alert === null) {
-            return;
-        }
-
-        // A recovery is only owed once the alert is resolved. An `opened`
-        // delivery (initial or reminder) must still go out after an
-        // acknowledgement — ack pauses reminders, not the original page.
-        if ($this->event === 'resolved' && $alert->status !== AlertStatus::Resolved) {
-            return;
-        }
-
-        if ($this->event === 'opened' && $alert->status === AlertStatus::Resolved) {
             return;
         }
 
@@ -109,16 +95,14 @@ class SendAlertNotification implements ShouldQueue
             return;
         }
 
-        // A reminder queued just before an acknowledgement must not slip out
-        // afterwards. Requeued reminders are marked `pending`, but keep the
-        // `sent_at` of their previous successful page, while an initial page
-        // has never been sent. Restore the row to `sent` so the UI does not
-        // leave a stale pending delivery after the acknowledgement.
-        if (
-            $this->event === 'opened'
-            && $alert->status === AlertStatus::Acknowledged
-            && $delivery->sent_at !== null
-        ) {
+        $action = $policy->action($alert, $delivery, now());
+
+        if ($action === DeliveryAction::RestoreSent) {
+            // A reminder queued just before an acknowledgement must not slip
+            // out afterwards. Requeued reminders are marked `pending`, but
+            // keep the `sent_at` of their previous successful page, while an
+            // initial page has never been sent. Restore the row to `sent` so
+            // the UI does not leave a stale pending delivery after the ack.
             $delivery->forceFill([
                 'status' => DeliveryResult::SENT,
                 'next_retry_at' => null,
@@ -127,7 +111,7 @@ class SendAlertNotification implements ShouldQueue
             return;
         }
 
-        if ($delivery->status === DeliveryResult::SENT && ! $this->reminderDue($delivery, $settings)) {
+        if ($action === DeliveryAction::Skip) {
             return;
         }
 
@@ -145,21 +129,5 @@ class SendAlertNotification implements ShouldQueue
                 throw RetryDelivery::forAttempt($this->channel, $this->event, $this->alertId, $result->error);
             }
         }
-    }
-
-    /**
-     * An `opened` row becomes a reminder once `alerts.reminder_hours` have
-     * passed since its last successful send. A `resolved` row is never
-     * repeated.
-     */
-    private function reminderDue(AlertDelivery $delivery, SettingsRepository $settings): bool
-    {
-        if ($this->event !== 'opened' || $delivery->sent_at === null) {
-            return false;
-        }
-
-        $hours = max(1, (int) $settings->get('alerts.reminder_hours', config('alerts.reminder_hours', 6)));
-
-        return $delivery->sent_at->copy()->addHours($hours)->lessThanOrEqualTo(now());
     }
 }
