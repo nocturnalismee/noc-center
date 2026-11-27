@@ -48,6 +48,15 @@ Schedule::command('noc:prune')
     ->timezone('Asia/Jakarta')
     ->withoutOverlapping(60);
 
+// Deleted-server retention: purge soft-deleted servers once the grace period
+// has elapsed (`retention.deleted_server_days`, 0 disables). Runs after the
+// prune so a purged server's cascaded rows are not pruned first. Same single
+// node and lock reasoning as `noc:prune`.
+Schedule::command('noc:purge-deleted-servers')
+    ->dailyAt('04:30')
+    ->timezone('Asia/Jakarta')
+    ->withoutOverlapping(30);
+
 // Shared hosting has no supervisor: drain the queue from the scheduler instead
 // (spec §15.1/§15.3). `--stop-when-empty` and `--max-time=50` keep each run
 // below the one-minute cadence; `--tries=3` bounds retries and `--sleep=1`
