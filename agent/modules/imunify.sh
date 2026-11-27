@@ -29,41 +29,8 @@
 set -u
 export LC_ALL=C
 
-# _safe_str VALUE -> single-line printable string (control chars flattened).
-_safe_str() {
-  local v=${1-} i ch out=''
-  v=${v//$'\n'/ }
-  v=${v//$'\r'/ }
-  v=${v//$'\t'/ }
-  for ((i = 0; i < ${#v}; i++)); do
-    ch=${v:i:1}
-    [[ $ch == [[:cntrl:]] ]] && ch=' '
-    out+=$ch
-  done
-  printf '%s' "$out"
-}
-
-# _emit KEY TYPE VALUE -> print one metric line when KEY and VALUE are valid.
-_emit() {
-  local key=${1-} type=${2-} value=${3-}
-  [[ $key =~ ^[A-Za-z][A-Za-z0-9_.-]{0,63}$ ]] || return 0
-  case $type in
-    n)
-      [[ $value =~ ^-?(0|[1-9][0-9]*)(\.[0-9]+)?$ ]] || return 0
-      ;;
-    b)
-      [[ $value == 0 || $value == 1 ]] || return 0
-      ;;
-    s)
-      value=$(_safe_str "$value")
-      [[ -n $value ]] || return 0
-      ;;
-    *)
-      return 0
-      ;;
-  esac
-  printf '%s\t%s\t%s\n' "$key" "$type" "$value"
-}
+# shellcheck source=../lib/metrics.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/metrics.sh" || exit 2
 
 # _parse_json -> read JSON on stdin and print one line "age files target" when a
 # scan is running, nothing when none is, and exit 1 on invalid JSON.

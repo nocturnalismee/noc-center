@@ -45,6 +45,22 @@ key<TAB>type<TAB>value
 Lines whose key does not start with `<name>.` are dropped by the core. Malformed
 lines are rejected by the JSON validation path without aborting the payload.
 
+### Shared metric helpers
+
+Source the shared library near the top of the script (after `set -u` and
+`export LC_ALL=C`) instead of copying helpers:
+
+```bash
+# shellcheck source=../lib/metrics.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/metrics.sh" || exit 2
+```
+
+It provides `_emit KEY TYPE VALUE` (validates the key and the `n`/`b`/`s` value
+and prints the line), `_safe_str VALUE` (flatten a string to one printable line)
+and `_safe_name VALUE` (sanitize to `[A-Za-z0-9_.-]`). Do **not** copy
+`_safe_str`, `_safe_name`, or `_emit` into each file — a missing library makes
+the script exit 2, which the core treats as "ignore this module".
+
 ## Modes
 
 - **inline**: run by the main collector on every run, under `MODULE_TIMEOUT`

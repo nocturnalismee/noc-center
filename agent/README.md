@@ -59,6 +59,7 @@ Heavy checks are **never** run every minute:
 | `agent/collector.sh` | Core: CLI, config, core metrics, panel/module loader, payload, HTTP, fallback, exit codes. |
 | `agent/lib/common.sh` | Config defaults/validation, secure-file checks, token loading, agent ID, lock. |
 | `agent/lib/json.sh` | Pure-Bash JSON encoder and typed metric-line validator. |
+| `agent/lib/metrics.sh` | Shared metric-line helpers (`_emit`, `_safe_str`, `_safe_name`) sourced by panels and modules. |
 | `agent/lib/install.sh` | Shared helpers for the installer/uninstaller (paths, dry-run-aware actions). |
 | `agent/panels/cpanel.sh` | cPanel panel plugin (the first and only panel plugin). |
 | `agent/panels/_template.sh`, `agent/panels/README.md` | Plugin contract and starting point. |

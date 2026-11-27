@@ -11,6 +11,10 @@
 # template is never executed as-is. It detects nothing and emits nothing.
 
 set -u
+export LC_ALL=C
+
+# shellcheck source=../lib/metrics.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/metrics.sh" || exit 2
 
 case ${1:-} in
   detect)
@@ -19,8 +23,9 @@ case ${1:-} in
     exit 1
     ;;
   collect)
-    # Emit typed metric lines here, e.g.:
-    #   printf 'panel.version\ts\t%s\n' "$(cat /path/to/version 2>/dev/null)"
+    # Emit typed metric lines here with the shared helpers, e.g.:
+    #   _emit panel.version s "$(cat /path/to/version 2>/dev/null)"
+    #   _emit panel.accounts n "$(find /var/example/users -maxdepth 1 -type f | wc -l)"
     exit 0
     ;;
   *)

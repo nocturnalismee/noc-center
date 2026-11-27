@@ -21,6 +21,7 @@ cd "$(dirname "$0")/.."
 
 SUITES=(
   json_test.sh
+  metrics_test.sh
   common_test.sh
   core_test.sh
   panel_test.sh

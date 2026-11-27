@@ -14,6 +14,10 @@
 # template is never executed as-is. It detects nothing and emits nothing.
 
 set -u
+export LC_ALL=C
+
+# shellcheck source=../lib/metrics.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/metrics.sh" || exit 2
 
 case ${1:-} in
   detect)
@@ -25,8 +29,9 @@ case ${1:-} in
     printf 'inline\n'
     ;;
   collect)
-    # Emit typed metric lines here, e.g.:
-    #   printf 'name.value\tn\t%s\n' "$(some-cli ... 2>/dev/null)"
+    # Emit typed metric lines here with the shared helpers, e.g.:
+    #   _emit name.value n "$(some-cli ... 2>/dev/null)"
+    #   _emit name.status s "$(_safe_str "$(some-cli status)")"
     exit 0
     ;;
   *)
