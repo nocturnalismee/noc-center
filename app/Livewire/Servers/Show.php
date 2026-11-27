@@ -2,11 +2,11 @@
 
 namespace App\Livewire\Servers;
 
-use App\Enums\AlertRule;
 use App\Models\AuditEvent;
 use App\Models\MetricSample;
 use App\Models\Server;
 use App\Models\User;
+use App\Servers\ServerDetailPresenter;
 use App\Support\MetricPresenter;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Gate;
@@ -79,15 +79,17 @@ class Show extends Component
                 ->pluck('name', 'id');
         }
 
+        $presenter = new ServerDetailPresenter($this->server);
+
         return view('livewire.servers.show', [
             'tab' => $tab,
             'range' => $range,
             'chartRange' => $chartRange,
             'ranges' => $ranges,
             'sample' => $sample,
-            'metrics' => $this->metrics($sample),
+            'metrics' => $presenter->metrics($sample),
             'charts' => in_array($tab, ['overview', 'performance'], true)
-                ? $this->charts($tab, $chartRange, $sample)
+                ? $presenter->charts($tab, $chartRange, $sample)
                 : [],
             'alerts' => $alerts,
             'history' => $history,
@@ -95,339 +97,18 @@ class Show extends Component
             'canViewHistory' => $canViewHistory,
             'canOperate' => auth()->user()?->canOperate() ?? false,
             'canViewSnapshot' => auth()->user()?->can('viewSnapshot', $this->server) ?? false,
-            'lastSeen' => $this->lastSeen(),
+            'lastSeen' => $presenter->lastSeen(),
             'statusState' => $this->server->status()->value,
-            'issueLabels' => $this->issueLabels(),
-            'itsm' => $this->itsm($sample),
+            'issueLabels' => $presenter->issueLabels(),
+            'itsm' => $presenter->itsm($sample),
             'panel' => $panel,
         ]);
     }
 
     public function pollRefresh(): void {}
 
-    public function displayStatus(): string
-    {
-        return $this->server->status()->value;
-    }
-
     public function statusLabel(): string
     {
         return $this->server->status()->label();
-    }
-
-    /**
-     * @return list<array{label:string,value:string,meta:string}>
-     */
-    private function metrics(?MetricSample $sample): array
-    {
-        if ($sample === null) {
-            return collect(['CPU', 'Memory', 'Disk', 'Load', 'Network', 'Uptime'])
-                ->map(fn (string $label): array => [
-                    'label' => $label,
-                    'value' => '—',
-                    'meta' => 'No sample yet',
-                ])
-                ->all();
-        }
-
-        return [
-            [
-                'label' => 'CPU',
-                'value' => $this->pct($sample->cpu_usage_pct),
-                'meta' => $sample->cpu_cores.' cores · iowait '.$this->pct($sample->cpu_iowait_pct),
-            ],
-            [
-                'label' => 'Memory',
-                'value' => $this->pct($sample->mem_used_pct),
-                'meta' => $this->usedTotal($sample->mem_used_bytes, $sample->mem_total_bytes),
-            ],
-            [
-                'label' => 'Disk',
-                'value' => $this->pct($sample->disk_used_pct),
-                'meta' => $this->usedTotal($sample->disk_used_bytes, $sample->disk_total_bytes),
-            ],
-            [
-                'label' => 'Load',
-                'value' => number_format($sample->load1, 2),
-                'meta' => '5m '.number_format($sample->load5, 2).' · 15m '.number_format($sample->load15, 2),
-            ],
-            [
-                'label' => 'Network',
-                'value' => $this->rateCompact($sample->net_rx_bps).' / '.$this->rateCompact($sample->net_tx_bps),
-                'meta' => $this->rateUnit($sample->net_rx_bps).'/s in · '.$this->rateUnit($sample->net_tx_bps).'/s out',
-            ],
-            [
-                'label' => 'Uptime',
-                'value' => $this->uptime($sample->uptime_seconds),
-                'meta' => 'Since '.$this->since($sample),
-            ],
-        ];
-    }
-
-    /**
-     * @return array<string, array{key:string,title:string,subtitle:string,unit:string,series:list<array{metric:string,label:string,color:string,url:string,axis?:string,format?:string}>,summary:string}>
-     */
-    private function charts(string $tab, string $range, ?MetricSample $sample): array
-    {
-        if ($tab === 'overview') {
-            return [
-                'resources' => $this->chart(
-                    'resources',
-                    'Resource summary',
-                    'Last hour · '.(int) $this->server->interval_seconds.'s collector samples · WIB',
-                    'percent',
-                    $this->seriesLines($range, [
-                        ['metric' => 'cpu', 'label' => 'CPU', 'color' => '--chart-cpu'],
-                        ['metric' => 'memory', 'label' => 'Memory', 'color' => '--chart-memory'],
-                        ['metric' => 'disk', 'label' => 'Disk', 'color' => '--chart-disk'],
-                    ]),
-                    $this->summary('resources', $sample),
-                ),
-                'load-network' => $this->chart(
-                    'load-network',
-                    'Load and network',
-                    'Last hour · load 1m and network throughput · WIB',
-                    'mixed',
-                    $this->seriesLines($range, [
-                        ['metric' => 'load', 'label' => 'Load 1m', 'color' => '--chart-load', 'axis' => 'y', 'format' => 'load'],
-                        ['metric' => 'rx', 'label' => 'Network in', 'color' => '--chart-network', 'axis' => 'y1', 'format' => 'rate'],
-                        ['metric' => 'tx', 'label' => 'Network out', 'color' => '--chart-network-out', 'axis' => 'y1', 'format' => 'rate'],
-                    ]),
-                    $this->summary('load-network', $sample),
-                ),
-            ];
-        }
-
-        return [
-            'cpu' => $this->chart(
-                'cpu',
-                'CPU',
-                (int) $this->server->interval_seconds.'s collector · percent · WIB',
-                'percent',
-                $this->seriesLines($range, [
-                    ['metric' => 'cpu', 'label' => 'CPU', 'color' => '--chart-cpu'],
-                ]),
-                $this->summary('cpu', $sample),
-            ),
-            'memory' => $this->chart(
-                'memory',
-                'Memory',
-                (int) $this->server->interval_seconds.'s collector · used bytes · WIB',
-                'bytes',
-                $this->seriesLines($range, [
-                    ['metric' => 'memory_bytes', 'label' => 'Memory used', 'color' => '--chart-memory'],
-                ]),
-                $this->summary('memory', $sample),
-            ),
-            'disk' => $this->chart(
-                'disk',
-                'Disk',
-                (int) $this->server->interval_seconds.'s collector · used bytes · WIB',
-                'bytes',
-                $this->seriesLines($range, [
-                    ['metric' => 'disk_bytes', 'label' => 'Disk used', 'color' => '--chart-disk'],
-                ]),
-                $this->summary('disk', $sample),
-            ),
-            'load' => $this->chart(
-                'load',
-                'Load',
-                (int) $this->server->interval_seconds.'s collector · 1m load average · WIB',
-                'load',
-                $this->seriesLines($range, [
-                    ['metric' => 'load', 'label' => 'Load 1m', 'color' => '--chart-load'],
-                ]),
-                $this->summary('load', $sample),
-            ),
-            'network' => $this->chart(
-                'network',
-                'Network',
-                (int) $this->server->interval_seconds.'s collector · bytes per second · WIB',
-                'rate',
-                $this->seriesLines($range, [
-                    ['metric' => 'rx', 'label' => 'Network in', 'color' => '--chart-network'],
-                    ['metric' => 'tx', 'label' => 'Network out', 'color' => '--chart-network-out'],
-                ]),
-                $this->summary('network', $sample),
-            ),
-        ];
-    }
-
-    /**
-     * @param  list<array{metric:string,label:string,color:string,axis?:string,format?:string}>  $definitions
-     * @return list<array{metric:string,label:string,color:string,url:string,axis?:string,format?:string}>
-     */
-    private function seriesLines(string $range, array $definitions): array
-    {
-        return collect($definitions)->map(fn (array $series): array => [
-            ...$series,
-            'url' => route('servers.series', [
-                'server' => $this->server,
-                'metric' => $series['metric'],
-                'range' => $range,
-            ]),
-        ])->all();
-    }
-
-    /**
-     * @param  list<array{metric:string,label:string,color:string,url:string,axis?:string,format?:string}>  $series
-     * @return array{key:string,title:string,subtitle:string,unit:string,series:list<array{metric:string,label:string,color:string,url:string,axis?:string,format?:string}>,summary:string}
-     */
-    private function chart(
-        string $key,
-        string $title,
-        string $subtitle,
-        string $unit,
-        array $series,
-        string $summary,
-    ): array {
-        return compact('key', 'title', 'subtitle', 'unit', 'series', 'summary');
-    }
-
-    private function summary(string $key, ?MetricSample $sample): string
-    {
-        if ($sample === null) {
-            return 'No samples recorded yet.';
-        }
-
-        return match ($key) {
-            'cpu' => 'Current CPU '.$this->pct($sample->cpu_usage_pct).' · '.$sample->cpu_cores.' cores.',
-            'memory' => 'Current memory '.$this->bytes($sample->mem_used_bytes).' of '.$this->bytes($sample->mem_total_bytes).'.',
-            'disk' => 'Current disk '.$this->bytes($sample->disk_used_bytes).' of '.$this->bytes($sample->disk_total_bytes).'.',
-            'load' => 'Current load '.number_format($sample->load1, 2).' · 5m '.number_format($sample->load5, 2).' · 15m '.number_format($sample->load15, 2).'.',
-            'network' => 'Current '.$this->rateCompact($sample->net_rx_bps).' '.$this->rateUnit($sample->net_rx_bps).'/s in · '.$this->rateCompact($sample->net_tx_bps).' '.$this->rateUnit($sample->net_tx_bps).'/s out.',
-            'resources' => 'Current CPU '.$this->pct($sample->cpu_usage_pct).', memory '.$this->pct($sample->mem_used_pct).', disk '.$this->pct($sample->disk_used_pct).'. Last hour.',
-            'load-network' => 'Current load '.number_format($sample->load1, 2).' · '.$this->rateCompact($sample->net_rx_bps).' '.$this->rateUnit($sample->net_rx_bps).'/s in · '.$this->rateCompact($sample->net_tx_bps).' '.$this->rateUnit($sample->net_tx_bps).'/s out.',
-            default => 'No samples recorded yet.',
-        };
-    }
-
-    private function lastSeen(): string
-    {
-        if ($this->server->last_seen_at === null) {
-            return 'Never seen';
-        }
-
-        return 'Last seen '.$this->server->last_seen_at->diffForHumans(short: true)
-            .' · '.$this->server->last_seen_at->timezone('Asia/Jakarta')->format('H:i:s').' WIB';
-    }
-
-    /**
-     * @return list<string>
-     */
-    private function issueLabels(): array
-    {
-        return AlertRule::labels($this->server->issue_codes ?? []);
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function itsm(?MetricSample $sample): array
-    {
-        return [
-            'Hostname' => $this->server->hostname,
-            'Primary IP' => $this->server->ip_address ?: '—',
-            'Asset label' => $this->server->label ?: '—',
-            'Type' => $this->server->server_type ?: '—',
-            'Provider' => $this->server->provider ?: '—',
-            'Location' => $this->server->location ?: '—',
-            'Panel' => $this->server->panel ?: '—',
-            'Agent' => $this->server->agent_version ? 'v'.$this->server->agent_version : '—',
-            'Interval' => $this->server->interval_seconds.'s',
-            'Last sample' => $sample === null
-                ? 'No sample yet'
-                : $sample->collected_at->diffForHumans(short: true),
-            'OS' => trim(($this->server->os_name ?? '').' '.($this->server->os_version ?? '')) ?: '—',
-            'Kernel' => $this->server->kernel ?: '—',
-        ];
-    }
-
-    public function pct(?float $value): string
-    {
-        return $value === null ? '—' : round($value).'%';
-    }
-
-    private function usedTotal(?int $used, ?int $total): string
-    {
-        if ($used === null || $total === null) {
-            return '—';
-        }
-
-        return $this->gigabytes($used).' / '.$this->gigabytes($total);
-    }
-
-    private function gigabytes(int $bytes): string
-    {
-        $gb = $bytes / 1024 ** 3;
-
-        return ($gb >= 10 ? number_format($gb, 1) : number_format($gb, 2)).' GB';
-    }
-
-    private function bytes(int $bytes): string
-    {
-        $units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
-        $value = (float) max(0, $bytes);
-        $unit = 0;
-
-        while ($value >= 1024 && $unit < count($units) - 1) {
-            $value /= 1024;
-            $unit++;
-        }
-
-        $decimals = $value >= 100 ? 0 : ($value >= 10 ? 1 : 2);
-
-        return rtrim(rtrim(number_format($value, $decimals, '.', ''), '0'), '.').' '.$units[$unit];
-    }
-
-    private function rateCompact(int $bps): string
-    {
-        return number_format($this->rateValue($bps), $this->rateValue($bps) >= 10 ? 1 : 2);
-    }
-
-    private function rateUnit(int $bps): string
-    {
-        return match (true) {
-            $bps >= 1024 ** 3 => 'GB',
-            $bps >= 1024 ** 2 => 'MB',
-            $bps >= 1024 => 'KB',
-            default => 'B',
-        };
-    }
-
-    private function rateValue(int $bps): float
-    {
-        return match (true) {
-            $bps >= 1024 ** 3 => $bps / 1024 ** 3,
-            $bps >= 1024 ** 2 => $bps / 1024 ** 2,
-            $bps >= 1024 => $bps / 1024,
-            default => (float) $bps,
-        };
-    }
-
-    private function uptime(int $seconds): string
-    {
-        $days = intdiv($seconds, 86400);
-        $hours = intdiv($seconds % 86400, 3600);
-        $minutes = intdiv($seconds % 3600, 60);
-
-        if ($days > 0) {
-            return $days.'d '.$hours.'h';
-        }
-
-        if ($hours > 0) {
-            return $hours.'h '.$minutes.'m';
-        }
-
-        return $minutes.'m';
-    }
-
-    private function since(MetricSample $sample): string
-    {
-        return $sample->collected_at
-            ->copy()
-            ->subSeconds($sample->uptime_seconds)
-            ->timezone('Asia/Jakarta')
-            ->format('d M Y');
     }
 }
