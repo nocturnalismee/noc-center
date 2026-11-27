@@ -159,12 +159,59 @@ class DeletedServersTest extends TestCase
             ->assertSee('22 Dec 2026')
             ->assertSee('Deleted at')
             ->assertSee('Auto-purge');
+    }
+
+    /**
+     * R1/I3: a saved grace period of 0 disables auto-purge on a fresh page,
+     * in the list column and in the policy summary — not merely in the input.
+     */
+    public function test_a_zero_day_grace_period_renders_the_disabled_state_on_a_fresh_page(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $server = $this->server('deleted-01');
+        $server->delete();
+
+        app(SettingsRepository::class)->set('retention.deleted_server_days', 0, 'int');
+
+        $this->actingAs($admin)
+            ->get('/settings/deleted-servers')
+            ->assertOk()
+            // I1: the policy summary shows the disabled copy…
+            ->assertSee('Automatic purge is')
+            // …and does not echo a "0 days" sentence or an auto-purge date.
+            ->assertDontSee('purged automatically 0 days')
+            ->assertDontSee('Deleted servers are purged automatically')
+            // I3: the list's Auto-purge column says Disabled for the row.
+            ->assertSeeInOrder(['deleted-01', 'Disabled'])
+            ->assertDontSee('In 30 days');
 
         Livewire::test(DeletedServers::class)
-            ->set('graceDays', '0')
+            ->assertSet('graceDays', '0');
+    }
+
+    /**
+     * M2: the summary sentence is built from the integer policy value, so it
+     * never echoes unvalidated input. The save itself is still rejected.
+     */
+    public function test_the_policy_summary_never_echoes_invalid_grace_input(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $this->actingAs($admin);
+
+        $component = Livewire::test(DeletedServers::class)
+            ->set('graceDays', 'abc')
             ->call('savePolicy')
-            ->assertHasNoErrors()
-            ->assertSee('Disabled');
+            ->assertHasErrors('graceDays');
+
+        $this->assertStringNotContainsString('purged automatically abc', $component->html());
+
+        $negative = Livewire::test(DeletedServers::class)
+            ->set('graceDays', '-5')
+            ->call('savePolicy')
+            ->assertHasErrors('graceDays');
+
+        $this->assertStringNotContainsString('purged automatically', $negative->html());
     }
 
     /**
@@ -174,11 +221,23 @@ class DeletedServersTest extends TestCase
      * path, so the action is proven directly: a mounted admin component left
      * in an operator session must throw on purge(), even with the exact name.
      */
-    public function test_operators_and_viewers_cannot_invoke_the_purge_action(): void
+    public function test_an_operator_cannot_invoke_the_purge_action(): void
+    {
+        $operator = User::factory()->create(['role' => 'operator']);
+
+        $this->assertPurgeActionIsDenied($operator);
+    }
+
+    public function test_a_viewer_cannot_invoke_the_purge_action(): void
+    {
+        $viewer = User::factory()->create(['role' => 'viewer']);
+
+        $this->assertPurgeActionIsDenied($viewer);
+    }
+
+    private function assertPurgeActionIsDenied(User $nonAdmin): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
-        $operator = User::factory()->create(['role' => 'operator']);
-        $viewer = User::factory()->create(['role' => 'viewer']);
         $server = $this->server('deleted-01');
         $server->delete();
 
@@ -188,17 +247,17 @@ class DeletedServersTest extends TestCase
             ->call('startPurge', $server->getKey())
             ->set('confirmName', 'deleted-01');
 
-        foreach ([$operator, $viewer] as $nonAdmin) {
-            $this->actingAs($nonAdmin);
-            $this->expectException(AuthorizationException::class);
+        $this->actingAs($nonAdmin);
 
-            try {
-                $component->instance()->purge();
-            } finally {
-                $this->assertNotNull(Server::withTrashed()->find($server->getKey()));
-                $this->assertFalse(AuditEvent::query()->where('action', 'server.purged')->exists());
-            }
+        try {
+            $component->instance()->purge();
+            $this->fail('A non-admin reached the purge action.');
+        } catch (AuthorizationException) {
+            // Expected: ServerPolicy::purge() denies non-admins.
         }
+
+        $this->assertNotNull(Server::withTrashed()->find($server->getKey()));
+        $this->assertFalse(AuditEvent::query()->where('action', 'server.purged')->exists());
     }
 
     /**

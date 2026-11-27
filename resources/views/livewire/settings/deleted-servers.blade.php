@@ -50,10 +50,16 @@
         <div class="mt-4 flex flex-wrap items-center gap-3">
             <button type="submit" class="primary-button h-9">Save retention policy</button>
             <p class="text-[12px] text-text-sub">
-                @if ($graceDays === 0)
+                {{-- A public string prop is merged over view data, so the
+                     comparison and the echoed value are both integer-cast. --}}
+                @php
+                    $summaryDays = max(0, (int) $graceDays);
+                @endphp
+
+                @if ($summaryDays === 0)
                     Automatic purge is <span class="text-text">Disabled</span>.
                 @else
-                    Deleted servers are purged automatically {{ $graceDays }} {{ $graceDays === 1 ? 'day' : 'days' }} after deletion.
+                    Deleted servers are purged automatically {{ $summaryDays }} {{ $summaryDays === 1 ? 'day' : 'days' }} after deletion.
                 @endif
             </p>
         </div>
