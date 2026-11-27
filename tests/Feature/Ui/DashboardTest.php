@@ -4,6 +4,7 @@ namespace Tests\Feature\Ui;
 
 use App\Livewire\Dashboard;
 use App\Livewire\Servers\ServerTable;
+use App\Livewire\Settings\AlertSettings;
 use App\Models\Alert;
 use App\Models\AuditEvent;
 use App\Models\Server;
@@ -83,6 +84,26 @@ class DashboardTest extends TestCase
         Cache::put(FleetSummary::CACHE_KEY, ['stale' => true], 60);
 
         (new Dashboard)->refreshSummary();
+
+        $this->assertFalse(Cache::has(FleetSummary::CACHE_KEY));
+    }
+
+    public function test_saving_alert_settings_invalidates_the_fleet_summary_cache(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->online('web-01');
+
+        $this->app->make(FleetSummary::class)->summary();
+
+        $this->assertTrue(Cache::has(FleetSummary::CACHE_KEY));
+
+        $this->actingAs($admin);
+
+        Livewire::test(AlertSettings::class)
+            ->set('rules.memory_high.warning', 95)
+            ->call('save')
+            ->assertHasNoErrors()
+            ->assertSet('statusMessage', 'Alert settings saved.');
 
         $this->assertFalse(Cache::has(FleetSummary::CACHE_KEY));
     }

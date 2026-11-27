@@ -27,8 +27,8 @@
             $metrics = [
                 ['label' => 'Online', 'value' => $summary['online'].'/'.$summary['total'], 'meta' => $summary['total'] > 0 ? round($summary['online'] / $summary['total'] * 100).'% reporting' : 'No servers'],
                 ['label' => 'Attention', 'value' => (string) $summary['attention'], 'meta' => 'Health warning or critical'],
-                ['label' => 'Hot resources', 'value' => (string) $summary['hot'], 'meta' => 'CPU · RAM · disk ≥ 90%'],
-                ['label' => 'Missing data', 'value' => (string) $summary['gaps'], 'meta' => 'Stale · offline · never'],
+                ['label' => 'Hot resources', 'value' => (string) $summary['hot'], 'meta' => 'CPU · RAM · disk ≥ warning'],
+                ['label' => 'Not reporting', 'value' => (string) $summary['gaps'], 'meta' => 'Stale · offline · never'],
                 ['label' => 'Open alerts', 'value' => (string) $summary['open_alerts'], 'meta' => 'Unacknowledged'],
                 ['label' => 'Samples / min', 'value' => (string) $summary['samples_per_minute'], 'meta' => 'From online intervals'],
             ];

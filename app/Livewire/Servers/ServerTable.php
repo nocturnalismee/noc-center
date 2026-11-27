@@ -4,8 +4,10 @@ namespace App\Livewire\Servers;
 
 use App\Enums\ServerHealth;
 use App\Enums\ServerStatus;
+use App\Fleet\FleetState;
 use App\Models\Server;
 use App\Services\SettingsRepository;
+use Carbon\CarbonInterface;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -41,7 +43,7 @@ class ServerTable extends Component
 
     public function setStatus(string $status): void
     {
-        $this->status = in_array($status, ['all', 'online', 'attention', 'stale', 'offline', 'never'], true)
+        $this->status = in_array($status, FleetState::TABS, true)
             ? $status
             : 'all';
 
@@ -88,9 +90,9 @@ class ServerTable extends Component
 
     public function render(): View
     {
-        $now = now()->utc()->toDateTimeString();
+        $now = now()->utc();
 
-        $query = $this->filteredQuery($now)->select([
+        $query = $this->filteredQuery()->select([
             'id',
             'name',
             'hostname',
@@ -111,7 +113,7 @@ class ServerTable extends Component
             'issue_codes',
         ]);
 
-        $this->applyStatus($query, $now);
+        FleetState::applyStatus($query, $this->status, $now);
         $this->applySort($query, $now);
 
         /** @var LengthAwarePaginator<int, Server> $servers */
@@ -127,22 +129,14 @@ class ServerTable extends Component
             ->pluck('provider')
             ->all());
 
-        $settings = app(SettingsRepository::class);
+        // The table renders memory and disk bars only; CPU is not read here.
+        $thresholds = FleetState::usageThresholds(app(SettingsRepository::class), ['memory', 'disk']);
 
         return view('livewire.servers.server-table', [
             'servers' => $servers,
             'counts' => $counts,
             'providers' => count($providers) >= 2 ? $providers : [],
-            'thresholds' => [
-                'memory' => [
-                    'warning' => (int) $settings->get('alerts.rules.memory_high.warning', config('alerts.rules.memory_high.warning')),
-                    'critical' => (int) $settings->get('alerts.rules.memory_high.critical', config('alerts.rules.memory_high.critical')),
-                ],
-                'disk' => [
-                    'warning' => (int) $settings->get('alerts.rules.disk_high.warning', config('alerts.rules.disk_high.warning')),
-                    'critical' => (int) $settings->get('alerts.rules.disk_high.critical', config('alerts.rules.disk_high.critical')),
-                ],
-            ],
+            'thresholds' => $thresholds,
             'totalServers' => Server::query()->count(),
         ]);
     }
@@ -253,7 +247,7 @@ class ServerTable extends Component
 
     private function normaliseFilters(): void
     {
-        $this->status = in_array($this->status, ['all', 'online', 'attention', 'stale', 'offline', 'never'], true)
+        $this->status = in_array($this->status, FleetState::TABS, true)
             ? $this->status
             : 'all';
 
@@ -267,7 +261,7 @@ class ServerTable extends Component
     /**
      * @return Builder<Server>
      */
-    private function filteredQuery(string $now): Builder
+    private function filteredQuery(): Builder
     {
         $query = Server::query();
 
@@ -296,40 +290,7 @@ class ServerTable extends Component
     /**
      * @param  Builder<Server>  $query
      */
-    private function applyStatus(Builder $query, string $now): void
-    {
-        match ($this->status) {
-            'online' => $query
-                ->whereNotNull('last_seen_at')
-                ->whereNotNull('stale_after')
-                ->whereNotNull('offline_after')
-                ->where('stale_after', '>=', $now),
-            'attention' => $query->whereIn('health', ['warning', 'critical']),
-            'stale' => $query
-                ->whereNotNull('last_seen_at')
-                ->whereNotNull('stale_after')
-                ->whereNotNull('offline_after')
-                ->where('stale_after', '<', $now)
-                ->where('offline_after', '>=', $now),
-            'offline' => $query
-                ->whereNotNull('last_seen_at')
-                ->where(function (Builder $query) use ($now): void {
-                    $query->whereNull('stale_after')
-                        ->orWhereNull('offline_after')
-                        ->orWhere(function (Builder $query) use ($now): void {
-                            $query->where('offline_after', '<', $now)
-                                ->where('stale_after', '<', $now);
-                        });
-                }),
-            'never' => $query->whereNull('last_seen_at'),
-            default => null,
-        };
-    }
-
-    /**
-     * @param  Builder<Server>  $query
-     */
-    private function applySort(Builder $query, string $now): void
+    private function applySort(Builder $query, CarbonInterface $now): void
     {
         $direction = $this->dir === 'desc' ? 'desc' : 'asc';
 
@@ -338,15 +299,7 @@ class ServerTable extends Component
                 "CASE health WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 WHEN 'unknown' THEN 2 ELSE 3 END {$direction}"
             );
         } elseif ($this->sort === 'status') {
-            $query->orderByRaw(
-                "CASE
-                    WHEN last_seen_at IS NULL THEN 4
-                    WHEN stale_after IS NULL OR offline_after IS NULL OR offline_after < ? THEN 3
-                    WHEN stale_after < ? THEN 2
-                    ELSE 0
-                END {$direction}",
-                [$now, $now],
-            );
+            FleetState::applyStatusSort($query, $direction, $now);
         } else {
             $column = match ($this->sort) {
                 'cpu' => 'cpu_usage_pct',
@@ -368,56 +321,14 @@ class ServerTable extends Component
     /**
      * @return array{all:int,online:int,attention:int,stale:int,offline:int,never:int}
      */
-    private function tabCounts(string $now): array
+    private function tabCounts(CarbonInterface $now): array
     {
         $cacheKey = 'fleet.tab-counts.'.hash('sha256', serialize([
             'provider' => $this->provider,
             'query' => trim($this->q),
         ]));
 
-        return Cache::remember($cacheKey, now()->addSeconds(10), function () use ($now): array {
-            $row = $this->filteredQuery($now)
-                ->toBase()
-                ->selectRaw(
-                    <<<'SQL'
-                COUNT(*) AS all_count,
-                COALESCE(SUM(CASE
-                    WHEN last_seen_at IS NOT NULL
-                        AND stale_after IS NOT NULL
-                        AND offline_after IS NOT NULL
-                        AND stale_after >= ?
-                    THEN 1 ELSE 0 END), 0) AS online_count,
-                COALESCE(SUM(CASE WHEN health IN ('warning', 'critical') THEN 1 ELSE 0 END), 0) AS attention_count,
-                COALESCE(SUM(CASE
-                    WHEN last_seen_at IS NOT NULL
-                        AND stale_after IS NOT NULL
-                        AND offline_after IS NOT NULL
-                        AND stale_after < ?
-                        AND offline_after >= ?
-                    THEN 1 ELSE 0 END), 0) AS stale_count,
-                COALESCE(SUM(CASE
-                    WHEN last_seen_at IS NOT NULL
-                        AND (
-                            stale_after IS NULL
-                            OR offline_after IS NULL
-                            OR (offline_after < ? AND stale_after < ?)
-                        )
-                    THEN 1 ELSE 0 END), 0) AS offline_count,
-                COALESCE(SUM(CASE WHEN last_seen_at IS NULL THEN 1 ELSE 0 END), 0) AS never_count
-                SQL,
-                    [$now, $now, $now, $now, $now],
-                )
-                ->first();
-
-            return [
-                'all' => (int) $row->all_count,
-                'online' => (int) $row->online_count,
-                'attention' => (int) $row->attention_count,
-                'stale' => (int) $row->stale_count,
-                'offline' => (int) $row->offline_count,
-                'never' => (int) $row->never_count,
-            ];
-        });
+        return Cache::remember($cacheKey, now()->addSeconds(10), fn (): array => FleetState::counts($this->filteredQuery(), $now));
     }
 
     private function asCarbon(\DateTimeInterface|string $value): Carbon

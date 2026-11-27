@@ -6,6 +6,7 @@ use App\Alerts\AlertNotifier;
 use App\Alerts\Channels\AlertErrorRedactor;
 use App\Models\Setting;
 use App\Services\AuditLogger;
+use App\Services\FleetSummary;
 use App\Services\SettingsRepository;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Gate;
@@ -205,6 +206,8 @@ class AlertSettings extends Component
         $this->applyChatState((string) ($settings->get('alerts.channels.telegram.chat_id', config('alerts.channels.telegram.chat_id')) ?? ''));
         $this->editingChatId = false;
         $this->chatId = '';
+        app(FleetSummary::class)->forget();
+
         $this->statusMessage = 'Alert settings saved.';
     }
 

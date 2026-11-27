@@ -115,6 +115,12 @@
                     </tr>
                 </thead>
                 <tbody>
+                    @php
+                        // Resolved once per render, not per row: these keys are
+                        // read through the settings repository.
+                        $memoryThresholds = $thresholds['memory'];
+                        $diskThresholds = $thresholds['disk'];
+                    @endphp
                     @foreach ($servers as $server)
                         <tr wire:key="server-{{ $server->id }}" class="h-[52px] border-b border-divider transition-colors last:border-b-0 hover:bg-selected">
                             <td class="pl-5">
@@ -136,7 +142,7 @@
                             <td class="pr-2 text-right">
                                 <span class="block font-mono text-[13px] {{ $server->mem_used_pct === null ? 'text-text-muted' : 'text-text' }}">{{ $this->percent($server->mem_used_pct) }}</span>
                                 @if ($server->mem_used_pct !== null)
-                                    @php($memoryTone = $this->usageTone($server->mem_used_pct, $thresholds['memory']))
+                                    @php($memoryTone = $this->usageTone($server->mem_used_pct, $memoryThresholds))
                                     <span class="ml-auto mt-1 block h-1 w-10 overflow-hidden rounded-full bg-surface-2" data-usage="memory" data-tone="{{ $memoryTone }}" aria-hidden="true">
                                         <span class="block h-full rounded-full {{ $this->usageBarColor($memoryTone) }}" style="width: {{ $this->usageWidth($server->mem_used_pct) }}"></span>
                                     </span>
@@ -145,7 +151,7 @@
                             <td class="pr-2 text-right">
                                 <span class="block font-mono text-[13px] {{ $server->disk_used_pct === null ? 'text-text-muted' : 'text-text' }}">{{ $this->percent($server->disk_used_pct) }}</span>
                                 @if ($server->disk_used_pct !== null)
-                                    @php($diskTone = $this->usageTone($server->disk_used_pct, $thresholds['disk']))
+                                    @php($diskTone = $this->usageTone($server->disk_used_pct, $diskThresholds))
                                     <span class="ml-auto mt-1 block h-1 w-10 overflow-hidden rounded-full bg-surface-2" data-usage="disk" data-tone="{{ $diskTone }}" aria-hidden="true">
                                         <span class="block h-full rounded-full {{ $this->usageBarColor($diskTone) }}" style="width: {{ $this->usageWidth($server->disk_used_pct) }}"></span>
                                     </span>

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\ServerHealth;
 use App\Enums\ServerStatus;
+use App\Fleet\FleetState;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -116,24 +117,6 @@ class Server extends Model
 
     public function status(): ServerStatus
     {
-        if ($this->last_seen_at === null) {
-            return ServerStatus::NeverSeen;
-        }
-
-        $now = now();
-
-        if ($this->stale_after === null || $this->offline_after === null) {
-            return ServerStatus::Offline;
-        }
-
-        if ($now->lessThanOrEqualTo($this->stale_after)) {
-            return ServerStatus::Online;
-        }
-
-        if ($now->lessThanOrEqualTo($this->offline_after)) {
-            return ServerStatus::Stale;
-        }
-
-        return ServerStatus::Offline;
+        return FleetState::status($this);
     }
 }
