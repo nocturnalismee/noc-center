@@ -7,6 +7,26 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-27
+
+### Changed
+
+- Fleet status filters, tab counts, status sorting, and dashboard summary now share one `FleetState` module.
+- The dashboard “Hot resources” count uses the configured warning thresholds; “Missing data” is now “Not reporting”.
+- Alert delivery transitions, retries, and reminder windows now share one `DeliveryPolicy` while preserving existing behavior.
+- Agent metric-line validation and escaping now come from `agent/lib/metrics.sh`; panels and modules share the same output contract.
+- Metric labels, formatting, alert titles, and server detail presentation now use a shared catalog, formatter, and presenter.
+
+### Fixed
+
+- Saving alert settings now invalidates the fleet summary cache immediately.
+- Non-numeric disk quota `used_gb` values keep their text fallback instead of being coerced to a float.
+- Inconsistent liveness thresholds rank an Online server as Online in status sorting.
+
+### Documentation
+
+- The panel example now uses the shared metrics library and guarded source pattern.
+
 ## [1.2.0] - 2026-11-26
 
 ### Added
@@ -115,7 +135,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Fleet overview, server detail and history, alert center, token management, settings, users, and append-only audit log.
 - Deployment and recovery runbooks, backup/restore scripts, health checks, and acceptance tests.
 
-[Unreleased]: https://github.com/nocturnalismee/noc-center/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/nocturnalismee/noc-center/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/nocturnalismee/noc-center/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/nocturnalismee/noc-center/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/nocturnalismee/noc-center/compare/v1.0.5...v1.1.0
 [1.0.5]: https://github.com/nocturnalismee/noc-center/compare/v1.0.4...v1.0.5
