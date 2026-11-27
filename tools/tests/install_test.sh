@@ -274,11 +274,15 @@ grep -q 'refusing to remove' "$tmp/un1.out" || { cat "$tmp/un1.out" >&2; exit 1;
   [ "$ROOT" = / ] || { echo "expected ROOT=/ got $ROOT" >&2; exit 1; }
   out=$(remove_owned_path "$UNIT_DIR/noc-agent.timer") \
     || { echo "unit refused on ROOT=/ without --purge" >&2; exit 1; }
-  grep -qxF "[dry-run] rm -rf /etc/systemd/system/noc-agent.timer" <<< "$out" \
+  grep -qxF "noc-agent: would remove real-system path /etc/systemd/system/noc-agent.timer" <<< "$out" \
+    || { echo "unexpected unit dry-run message: $out" >&2; exit 1; }
+  grep -qxF "[dry-run] rm -rf --one-file-system -- /etc/systemd/system/noc-agent.timer" <<< "$out" \
     || { echo "unexpected unit dry run: $out" >&2; exit 1; }
   out=$(remove_owned_path "$LIBEXEC") \
     || { echo "LIBEXEC refused on ROOT=/ without --purge" >&2; exit 1; }
-  grep -qxF "[dry-run] rm -rf /usr/local/libexec/noc-agent" <<< "$out" \
+  grep -qxF "noc-agent: would remove real-system path /usr/local/libexec/noc-agent" <<< "$out" \
+    || { echo "unexpected LIBEXEC dry-run message: $out" >&2; exit 1; }
+  grep -qxF "[dry-run] rm -rf --one-file-system -- /usr/local/libexec/noc-agent" <<< "$out" \
     || { echo "unexpected LIBEXEC dry run: $out" >&2; exit 1; }
   # Config and state are not part of the always-owned set.
   if remove_path "$CONF_DIR" >/dev/null 2>&1; then
@@ -294,11 +298,11 @@ grep -q 'refusing to remove' "$tmp/un1.out" || { cat "$tmp/un1.out" >&2; exit 1;
   OPT_YES=1
   out=$(remove_path "$CONF_DIR") \
     || { echo "CONF_DIR refused with --purge --yes" >&2; exit 1; }
-  grep -qxF "[dry-run] rm -rf /etc/noc-agent" <<< "$out" \
+  grep -qxF "[dry-run] rm -rf --one-file-system -- /etc/noc-agent" <<< "$out" \
     || { echo "unexpected CONF_DIR dry run: $out" >&2; exit 1; }
   out=$(remove_path "$STATE_DIR") \
     || { echo "STATE_DIR refused with --purge --yes" >&2; exit 1; }
-  grep -qxF "[dry-run] rm -rf /var/lib/noc-agent" <<< "$out" \
+  grep -qxF "[dry-run] rm -rf --one-file-system -- /var/lib/noc-agent" <<< "$out" \
     || { echo "unexpected STATE_DIR dry run: $out" >&2; exit 1; }
   # The owned-path entry point does not widen to arbitrary system paths.
   OPT_PURGE=0; OPT_YES=0
@@ -324,6 +328,17 @@ agent/uninstall.sh --prefix "$tmp" --no-systemctl >/dev/null || exit 1
 # Reinstall so the systemd-analyze pass below sees generated units.
 agent/install.sh --prefix "$tmp" --api-url "https://monitor.example.com/api/v1/ingest" \
   --token-file "$tmp/token" --no-systemctl --no-prime >/dev/null || exit 1
+
+# A dry run reports completion without claiming an uninstall and leaves the tree.
+agent/uninstall.sh --prefix "$tmp" --no-systemctl --dry-run >"$tmp/un-dry.out" 2>&1 || exit 1
+grep -qxF "noc-agent: dry-run complete: no changes were made (prefix: $tmp)" "$tmp/un-dry.out" \
+  || { cat "$tmp/un-dry.out" >&2; echo "missing dry-run completion message" >&2; exit 1; }
+if grep -q "noc-agent: uninstalled noc-agent" "$tmp/un-dry.out"; then
+  cat "$tmp/un-dry.out" >&2
+  echo "dry run claimed an uninstall" >&2
+  exit 1
+fi
+[ -x "$tmp/usr/local/libexec/noc-agent/collector.sh" ] || exit 1
 
 # systemd-analyze verify accepts the generated units (when available).
 # The units already point at the installed collector, so verify runs in place.

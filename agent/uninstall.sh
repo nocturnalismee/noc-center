@@ -79,9 +79,17 @@ _remove_path() {
   path_under_root "$path" || check=$?
   if (( check == 2 )); then
     if (( allow_owned )) && _is_uninstall_owned_path "$path"; then
-      _log "removing real-system path $path"
+      if (( OPT_DRY_RUN )); then
+        _log "would remove real-system path $path"
+      else
+        _log "removing real-system path $path"
+      fi
     elif (( OPT_PURGE && OPT_YES )); then
-      _warn "removing real-system path $path (--purge --yes)"
+      if (( OPT_DRY_RUN )); then
+        _warn "would remove real-system path $path (--purge --yes)"
+      else
+        _warn "removing real-system path $path (--purge --yes)"
+      fi
     else
       _err "refusing to remove $path: ROOT is / (re-run with --purge --yes to confirm)"
       return 1
@@ -91,7 +99,7 @@ _remove_path() {
     return 1
   fi
   if (( OPT_DRY_RUN )); then
-    printf '[dry-run] rm -rf %s\n' "$path"
+    printf '[dry-run] rm -rf --one-file-system -- %s\n' "$path"
     return 0
   fi
   if [[ -e $path || -L $path ]]; then
@@ -153,7 +161,11 @@ main() {
     _log "kept $CONF_DIR (config/token) and $STATE_DIR (agent id/cache); use --purge to remove"
   fi
 
-  _log "uninstalled noc-agent (prefix: $ROOT)"
+  if (( OPT_DRY_RUN )); then
+    _log "dry-run complete: no changes were made (prefix: $ROOT)"
+  else
+    _log "uninstalled noc-agent (prefix: $ROOT)"
+  fi
   return 0
 }
 
