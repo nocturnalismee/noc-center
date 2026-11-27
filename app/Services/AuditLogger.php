@@ -28,6 +28,20 @@ class AuditLogger
     private const REDACTED = '[redacted]';
 
     /**
+     * Keys that hold a row *count* even though they contain a sensitive word.
+     *
+     * A count is not a secret: `server.purged` records how many token rows
+     * were removed. Only an integer is preserved — any string or array under
+     * the same key is still redacted, so a leaked token value cannot hide
+     * behind this exception.
+     *
+     * @var list<string>
+     */
+    private const COUNT_KEYS = [
+        'tokens',
+    ];
+
+    /**
      * Bounded client metadata. The `ip` column is VARCHAR(45) (IPv6 max) and
      * the user agent is capped at 1 KiB so a hostile header cannot inflate the
      * append-only audit table or fail a driver with a column limit.
@@ -93,6 +107,14 @@ class AuditLogger
 
         foreach ($meta as $key => $value) {
             if (is_string($key) && in_array($key, self::IDENTIFIER_KEYS, true)) {
+                $redacted[$key] = $value;
+
+                continue;
+            }
+
+            // A count under a sensitive-sounding key is safe only as an
+            // integer; strings and arrays fall through to redaction below.
+            if (is_string($key) && in_array($key, self::COUNT_KEYS, true) && is_int($value)) {
                 $redacted[$key] = $value;
 
                 continue;

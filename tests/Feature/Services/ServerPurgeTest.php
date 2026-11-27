@@ -115,10 +115,9 @@ class ServerPurgeTest extends TestCase
             'rollups' => 1,
             'alerts' => 1,
             'deliveries' => 1,
-            // `AuditLogger` redacts any key matching `token`, and `meta_json`
-            // is documented as redacted. The token count therefore lands as
-            // the redaction marker; the command output still shows it.
-            'tokens' => '[redacted]',
+            // A `tokens` count is not a secret; `AuditLogger` keeps integers
+            // under that key and redacts only non-integer values.
+            'tokens' => 1,
         ], $event->meta_json['counts']);
         // Cascade deletion must not remove the audit trail.
         $this->assertSame(1, AuditEvent::query()->where('action', 'server.purged')->count());

@@ -157,6 +157,50 @@ class AuditLogTest extends TestCase
         $this->assertStringNotContainsString('abc123-secret', $stored);
     }
 
+    /**
+     * A `tokens` *count* is not a secret: the purge audit event records how
+     * many token rows were removed. Only a real integer passes through; a
+     * string or array under the same key must still be redacted.
+     */
+    public function test_a_tokens_count_survives_redaction_only_when_it_is_an_integer(): void
+    {
+        $event = $this->app->make(AuditLogger::class)->log('server.purged', null, [
+            'counts' => ['tokens' => 3],
+            'tokens' => 7,
+        ]);
+
+        $this->assertSame(3, $event->meta_json['counts']['tokens']);
+        $this->assertSame(7, $event->meta_json['tokens']);
+    }
+
+    public function test_non_integer_values_under_the_tokens_key_are_still_redacted(): void
+    {
+        $event = $this->app->make(AuditLogger::class)->log('server.purged', null, [
+            'counts' => [
+                'tokens' => 'noc_abcdef123456-secret',
+                'nested_tokens' => ['noc_abcdef123456-secret'],
+            ],
+            'tokens' => ['noc_abcdef123456-secret'],
+            'token' => 'noc_abcdef123456-secret',
+            'bot_token' => '123456:super-secret',
+            'has_token' => 'noc_abcdef123456-secret',
+            'token_prefix' => 'noc_abcd',
+        ]);
+
+        $this->assertSame('[redacted]', $event->meta_json['counts']['tokens']);
+        $this->assertSame('[redacted]', $event->meta_json['counts']['nested_tokens']);
+        $this->assertSame('[redacted]', $event->meta_json['tokens']);
+        $this->assertSame('[redacted]', $event->meta_json['token']);
+        $this->assertSame('[redacted]', $event->meta_json['bot_token']);
+        $this->assertSame('[redacted]', $event->meta_json['has_token']);
+        // Identifier keys are whitelisted independently of the count rule.
+        $this->assertSame('noc_abcd', $event->meta_json['token_prefix']);
+
+        $stored = (string) DB::table('audit_events')->where('id', $event->id)->value('meta_json');
+        $this->assertStringNotContainsString('noc_abcdef123456-secret', $stored);
+        $this->assertStringNotContainsString('123456:super-secret', $stored);
+    }
+
     public function test_whitelisted_identifiers_survive_redaction_while_secrets_do_not(): void
     {
         $event = $this->app->make(AuditLogger::class)->log('token.rotated', null, [
