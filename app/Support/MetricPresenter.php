@@ -97,7 +97,7 @@ class MetricPresenter
             }
 
             if ($prefix === 'diskquota' && preg_match('/^diskquota\.top\.(.+)\.used_gb$/', $key, $matches) === 1) {
-                $quotaTop[] = ['user' => self::safeName($matches[1]), 'used_gb' => (float) $value];
+                $quotaTop[] = ['user' => self::safeName($matches[1]), 'used_gb' => MetricFormatter::format($value, 'count')];
 
                 continue;
             }
@@ -191,7 +191,7 @@ class MetricPresenter
             'cache_age' => MetricFormatter::format($flat['diskquota.cache_age_seconds'] ?? null, 'seconds'),
             'top' => array_slice(array_map(fn (array $row): array => [
                 'user' => $row['user'],
-                'used_gb' => MetricFormatter::format($row['used_gb'], 'count'),
+                'used_gb' => $row['used_gb'],
             ], $quotaTop), 0, self::MAX_QUOTA_USERS),
         ];
 
