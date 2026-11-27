@@ -4,6 +4,7 @@ namespace App\Livewire\Settings;
 
 use App\Alerts\AlertNotifier;
 use App\Alerts\Channels\AlertErrorRedactor;
+use App\Enums\AlertRule;
 use App\Models\Setting;
 use App\Services\AuditLogger;
 use App\Services\FleetSummary;
@@ -252,14 +253,7 @@ class AlertSettings extends Component
 
     public function ruleLabel(string $rule): string
     {
-        return match ($rule) {
-            'cpu_high' => 'CPU High',
-            'smart_failed' => 'SMART Failed',
-            'smart_warning' => 'SMART Warning',
-            'mysql_unreachable' => 'MySQL Unreachable',
-            'quota_over' => 'Quota Exceeded',
-            default => Str::headline($rule),
-        };
+        return AlertRule::tryFrom($rule)?->settingsLabel() ?? Str::headline($rule);
     }
 
     public function tokenConfigured(): bool

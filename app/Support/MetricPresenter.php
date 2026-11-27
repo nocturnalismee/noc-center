@@ -79,7 +79,7 @@ class MetricPresenter
                 if (array_key_exists($field, $queries[$index])) {
                     $queries[$index][$field] = $field === 'info'
                         ? (string) MysqlQueryMasker::mask(is_string($value) ? $value : (string) $value)
-                        : self::text($value);
+                        : MetricFormatter::text($value);
                 }
 
                 continue;
@@ -97,7 +97,7 @@ class MetricPresenter
             }
 
             if ($prefix === 'diskquota' && preg_match('/^diskquota\.top\.(.+)\.used_gb$/', $key, $matches) === 1) {
-                $quotaTop[] = ['user' => self::safeName($matches[1]), 'used_gb' => self::number($value)];
+                $quotaTop[] = ['user' => self::safeName($matches[1]), 'used_gb' => (float) $value];
 
                 continue;
             }
@@ -118,17 +118,15 @@ class MetricPresenter
                 continue;
             }
 
-            $definitions = config('metric_labels.keys', []);
-            $definition = is_array($definitions) ? ($definitions[$key] ?? null) : null;
-            $type = is_array($definition) ? (string) ($definition['type'] ?? 'text') : 'text';
-            $label = is_array($definition) ? (string) ($definition['label'] ?? '') : '';
-            $label = $label !== '' ? $label : self::keyLabel($key);
+            $definition = MetricCatalog::panelDefinition($key);
+            $type = $definition['type'];
+            $label = $definition['label'];
 
-            $groups[$prefix] ??= ['key' => $prefix, 'label' => (string) config('metric_labels.groups.'.$prefix, 'Other metrics'), 'rows' => []];
+            $groups[$prefix] ??= ['key' => $prefix, 'label' => MetricCatalog::groupLabel($prefix), 'rows' => []];
             $groups[$prefix]['rows'][] = [
                 'key' => $key,
                 'label' => $label,
-                'value' => self::format($value, $type),
+                'value' => MetricFormatter::format($value, $type),
                 'type' => $type,
             ];
             $genericRows++;
@@ -147,9 +145,9 @@ class MetricPresenter
         foreach (array_slice($services, 0, self::MAX_SERVICE_ROWS, true) as $service) {
             $serviceRows[] = [
                 'name' => $service['name'],
-                'installed' => self::boolLabel($service['installed']),
-                'enabled' => self::boolLabel($service['enabled']),
-                'running' => self::boolLabel($service['running']),
+                'installed' => MetricFormatter::boolLabel($service['installed']),
+                'enabled' => MetricFormatter::boolLabel($service['enabled']),
+                'running' => MetricFormatter::boolLabel($service['running']),
                 'severity' => self::serviceSeverity($service),
             ];
         }
@@ -160,10 +158,10 @@ class MetricPresenter
         }
 
         $smart = [
-            'status' => self::text($flat['smart.status'] ?? ''),
+            'status' => MetricFormatter::text($flat['smart.status'] ?? ''),
             'status_label' => self::smartStatusLabel($flat['smart.status'] ?? null),
-            'detail' => self::text($flat['smart.detail'] ?? ''),
-            'cache_age' => self::format($flat['smart.cache_age_seconds'] ?? null, 'seconds'),
+            'detail' => MetricFormatter::text($flat['smart.detail'] ?? ''),
+            'cache_age' => MetricFormatter::format($flat['smart.cache_age_seconds'] ?? null, 'seconds'),
             'disks' => [],
         ];
 
@@ -174,10 +172,10 @@ class MetricPresenter
                 'device' => $device,
                 'health' => $health,
                 'health_label' => ucfirst($health),
-                'realloc' => self::format($fields['realloc'] ?? null, 'count'),
-                'pending' => self::format($fields['pending'] ?? null, 'count'),
-                'power_on_hours' => self::format($fields['power_on_hours'] ?? null, 'count'),
-                'written_gb' => self::format($fields['written_gb'] ?? null, 'count'),
+                'realloc' => MetricFormatter::format($fields['realloc'] ?? null, 'count'),
+                'pending' => MetricFormatter::format($fields['pending'] ?? null, 'count'),
+                'power_on_hours' => MetricFormatter::format($fields['power_on_hours'] ?? null, 'count'),
+                'written_gb' => MetricFormatter::format($fields['written_gb'] ?? null, 'count'),
             ];
         }
 
@@ -188,12 +186,12 @@ class MetricPresenter
 
         usort($quotaTop, fn (array $a, array $b): int => (float) $b['used_gb'] <=> (float) $a['used_gb']);
         $quota = [
-            'accounts' => self::format($flat['diskquota.accounts'] ?? null, 'count'),
-            'over' => self::format($flat['diskquota.over'] ?? null, 'count'),
-            'cache_age' => self::format($flat['diskquota.cache_age_seconds'] ?? null, 'seconds'),
+            'accounts' => MetricFormatter::format($flat['diskquota.accounts'] ?? null, 'count'),
+            'over' => MetricFormatter::format($flat['diskquota.over'] ?? null, 'count'),
+            'cache_age' => MetricFormatter::format($flat['diskquota.cache_age_seconds'] ?? null, 'seconds'),
             'top' => array_slice(array_map(fn (array $row): array => [
                 'user' => $row['user'],
-                'used_gb' => self::number($row['used_gb']),
+                'used_gb' => MetricFormatter::format($row['used_gb'], 'count'),
             ], $quotaTop), 0, self::MAX_QUOTA_USERS),
         ];
 
@@ -203,11 +201,11 @@ class MetricPresenter
         }
 
         $imunify = [
-            'scanning' => self::boolLabel($flat['imunify.scanning'] ?? null),
-            'age' => self::format($flat['imunify.age_s'] ?? null, 'seconds'),
-            'files' => self::format($flat['imunify.files'] ?? null, 'count'),
-            'target' => self::text($flat['imunify.target'] ?? ''),
-            'cache_age' => self::format($flat['imunify.cache_age_seconds'] ?? null, 'seconds'),
+            'scanning' => MetricFormatter::boolLabel($flat['imunify.scanning'] ?? null),
+            'age' => MetricFormatter::format($flat['imunify.age_s'] ?? null, 'seconds'),
+            'files' => MetricFormatter::format($flat['imunify.files'] ?? null, 'count'),
+            'target' => MetricFormatter::text($flat['imunify.target'] ?? ''),
+            'cache_age' => MetricFormatter::format($flat['imunify.cache_age_seconds'] ?? null, 'seconds'),
         ];
 
         ksort($queries);
@@ -241,22 +239,6 @@ class MetricPresenter
         ];
     }
 
-    private static function keyLabel(string $key): string
-    {
-        $segments = explode('.', $key);
-        $last = end($segments) ?: $key;
-        $known = config('metric_labels.fields.'.$last);
-
-        if (is_string($known) && $known !== '') {
-            return $known;
-        }
-
-        $label = preg_replace('/[^A-Za-z0-9]+/', ' ', $last) ?? $last;
-        $label = trim($label);
-
-        return $label === '' ? 'Value' : Str::limit(ucfirst(strtolower($label)), 80, '');
-    }
-
     private static function safeName(mixed $value): string
     {
         $value = is_scalar($value) ? (string) $value : '';
@@ -264,105 +246,6 @@ class MetricPresenter
         $value = trim($value);
 
         return $value === '' ? '—' : Str::limit($value, 80, '');
-    }
-
-    private static function format(mixed $value, string $type): string
-    {
-        if ($value === null) {
-            return 'Not reported';
-        }
-
-        return match ($type) {
-            'bool' => self::boolLabel($value),
-            'count' => self::number($value),
-            'percent' => is_numeric($value) ? rtrim(rtrim(number_format((float) $value, 2, '.', ''), '0'), '.').'%' : self::text($value),
-            'bytes' => self::bytes($value),
-            'seconds' => self::seconds($value),
-            'duration' => self::duration($value),
-            default => self::text($value),
-        };
-    }
-
-    private static function number(mixed $value): string
-    {
-        if (! is_numeric($value)) {
-            return self::text($value);
-        }
-
-        $number = (float) $value;
-
-        return abs($number - round($number)) < 0.005
-            ? number_format($number, 0, '.', '')
-            : rtrim(rtrim(number_format($number, 2, '.', ''), '0'), '.');
-    }
-
-    private static function bytes(mixed $value): string
-    {
-        if (! is_numeric($value)) {
-            return self::text($value);
-        }
-
-        $bytes = max(0, (float) $value);
-        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
-        $index = 0;
-
-        while ($bytes >= 1024 && $index < count($units) - 1) {
-            $bytes /= 1024;
-            $index++;
-        }
-
-        return self::number($bytes).' '.$units[$index];
-    }
-
-    private static function seconds(mixed $value): string
-    {
-        if (! is_numeric($value)) {
-            return self::text($value);
-        }
-
-        $seconds = max(0, (int) $value);
-
-        if ($seconds < 60) {
-            return $seconds.'s';
-        }
-
-        if ($seconds < 3600) {
-            return intdiv($seconds, 60).'m';
-        }
-
-        if ($seconds < 86400) {
-            return intdiv($seconds, 3600).'h';
-        }
-
-        return intdiv($seconds, 86400).'d';
-    }
-
-    private static function duration(mixed $value): string
-    {
-        if (! is_numeric($value)) {
-            return self::text($value);
-        }
-
-        $seconds = max(0, (int) $value);
-        $days = intdiv($seconds, 86400);
-        $hours = intdiv($seconds % 86400, 3600);
-
-        return $days > 0 ? $days.'d '.$hours.'h' : $hours.'h';
-    }
-
-    private static function text(mixed $value): string
-    {
-        if (! is_scalar($value)) {
-            return '—';
-        }
-
-        $text = trim((string) $value);
-
-        if ($text === '') {
-            return '—';
-        }
-
-        return Str::limit($text, 300, '…');
     }
 
     private static function booleanOrNull(mixed $value): ?bool
@@ -380,30 +263,11 @@ class MetricPresenter
 
     private static function diskHealth(mixed $value): string
     {
-        return match (strtoupper(self::text($value))) {
+        return match (strtoupper(MetricFormatter::text($value))) {
             'PASSED', 'OK', 'HEALTHY' => 'healthy',
             'WARNING', 'WARN' => 'warning',
             'FAILED', 'FAIL', 'CRITICAL' => 'failed',
             default => 'unknown',
-        };
-    }
-
-    private static function boolLabel(mixed $value): string
-    {
-        if ($value === null) {
-            return 'Not reported';
-        }
-
-        if (is_bool($value)) {
-            return $value ? 'Yes' : 'No';
-        }
-
-        $text = strtolower(trim((string) $value));
-
-        return match ($text) {
-            '1', 'true', 'yes', 'on', 'enabled', 'running', 'installed' => 'Yes',
-            '0', 'false', 'no', 'off', 'disabled', 'stopped', 'not installed' => 'No',
-            default => Str::limit((string) $value, 40, ''),
         };
     }
 

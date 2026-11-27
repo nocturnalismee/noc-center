@@ -18,3 +18,11 @@ test('load and percent keep their own formatting', () => {
     assert.equal(formatLoad(1.234), '1.23');
     assert.equal(formatMetricValue(42.4, 'percent'), '42%');
 });
+
+test('formatMetricValue covers every format emitted by chart definitions', () => {
+    assert.equal(formatMetricValue(1536, 'bytes'), '1.5 KB');
+    assert.equal(formatMetricValue(1.234, 'load'), '1.23');
+    assert.equal(formatMetricValue(42.4, 'percent'), '42%');
+    assert.equal(formatMetricValue(1024, 'rate'), '1 KB/s');
+    assert.equal(formatMetricValue(null, 'bytes'), '—');
+});

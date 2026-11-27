@@ -70,6 +70,25 @@ return [
         'imunify.cache_age_seconds' => ['label' => 'Report age', 'type' => 'seconds'],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Server detail metrics
+    |--------------------------------------------------------------------------
+    |
+    | The headline strip on the server detail page. Formats are the ones
+    | understood by App\Support\MetricFormatter.
+    |
+    */
+
+    'server' => [
+        'cpu' => ['label' => 'CPU', 'format' => 'percent'],
+        'memory' => ['label' => 'Memory', 'format' => 'percent'],
+        'disk' => ['label' => 'Disk', 'format' => 'percent'],
+        'load' => ['label' => 'Load', 'format' => 'load'],
+        'network' => ['label' => 'Network', 'format' => 'rate'],
+        'uptime' => ['label' => 'Uptime', 'format' => 'uptime'],
+    ],
+
     'fields' => [
         'health' => 'Health',
         'realloc' => 'Reallocated sectors',

@@ -2,7 +2,7 @@
 
 namespace App\Livewire\Servers;
 
-use App\Enums\ServerStatus;
+use App\Enums\AlertRule;
 use App\Models\AuditEvent;
 use App\Models\MetricSample;
 use App\Models\Server;
@@ -112,12 +112,7 @@ class Show extends Component
 
     public function statusLabel(): string
     {
-        return match ($this->server->status()) {
-            ServerStatus::NeverSeen => 'Never seen',
-            ServerStatus::Online => 'Online',
-            ServerStatus::Stale => 'Stale',
-            ServerStatus::Offline => 'Offline',
-        };
+        return $this->server->status()->label();
     }
 
     /**
@@ -322,29 +317,7 @@ class Show extends Component
      */
     private function issueLabels(): array
     {
-        $labels = [
-            'server_offline' => 'Server offline',
-            'server_stale' => 'Data is stale',
-            'cpu_high' => 'CPU high',
-            'memory_high' => 'Memory high',
-            'disk_high' => 'Disk almost full',
-            'inode_high' => 'Inodes high',
-            'load_high' => 'Load high',
-            'smart_failed' => 'SMART failed',
-            'smart_warning' => 'SMART warning',
-            'service_down' => 'Service down',
-            'mysql_unreachable' => 'MySQL unreachable',
-            'quota_over' => 'Quota exceeded',
-            'module_cache_stale' => 'Module cache stale',
-            'security_disabled' => 'Security layer disabled',
-        ];
-
-        return collect($this->server->issue_codes ?? [])
-            ->filter(fn (mixed $code): bool => is_string($code) && $code !== '')
-            ->map(fn (string $code): string => $labels[$code] ?? str_replace('_', ' ', ucfirst($code)))
-            ->unique()
-            ->values()
-            ->all();
+        return AlertRule::labels($this->server->issue_codes ?? []);
     }
 
     /**

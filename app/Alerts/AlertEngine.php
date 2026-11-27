@@ -15,7 +15,6 @@ use App\Services\AuditLogger;
 use App\Services\SettingsRepository;
 use App\Support\Realtime;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 /**
  * Open, update and resolve alerts for one server (spec §9.1, §9.3).
@@ -55,26 +54,6 @@ class AlertEngine
         AlertRule::QuotaOver,
         AlertRule::ModuleCacheStale,
         AlertRule::SecurityDisabled,
-    ];
-
-    /**
-     * @var array<string, string>
-     */
-    private const TITLES = [
-        'server_offline' => 'Server offline',
-        'server_stale' => 'Server stale',
-        'cpu_high' => 'CPU high',
-        'memory_high' => 'Memory high',
-        'disk_high' => 'Disk usage high',
-        'inode_high' => 'Inode usage high',
-        'load_high' => 'Load average high',
-        'smart_failed' => 'SMART health failed',
-        'smart_warning' => 'SMART warning',
-        'service_down' => 'Service down',
-        'mysql_unreachable' => 'MySQL unreachable',
-        'quota_over' => 'Disk quota exceeded',
-        'module_cache_stale' => 'Module data stale',
-        'security_disabled' => 'Security disabled',
     ];
 
     public function __construct(
@@ -532,7 +511,7 @@ class AlertEngine
 
     private function title(AlertRule $rule): string
     {
-        return self::TITLES[$rule->value] ?? Str::headline($rule->value);
+        return $rule->alertTitle();
     }
 
     private function message(AlertRule $rule, ?Server $server, array $context): string

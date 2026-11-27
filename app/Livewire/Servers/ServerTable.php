@@ -2,11 +2,13 @@
 
 namespace App\Livewire\Servers;
 
+use App\Enums\AlertRule;
 use App\Enums\ServerHealth;
 use App\Enums\ServerStatus;
 use App\Fleet\FleetState;
 use App\Models\Server;
 use App\Services\SettingsRepository;
+use App\Support\MetricFormatter;
 use Carbon\CarbonInterface;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
@@ -155,7 +157,7 @@ class ServerTable extends Component
 
     public function percent(?float $value): string
     {
-        return $value === null ? '—' : round($value).'%';
+        return MetricFormatter::percent($value);
     }
 
     /**
@@ -163,19 +165,7 @@ class ServerTable extends Component
      */
     public function usageTone(?float $value, array $thresholds): string
     {
-        if ($value === null) {
-            return 'muted';
-        }
-
-        if ($value >= $thresholds['critical']) {
-            return 'critical';
-        }
-
-        if ($value >= $thresholds['warning']) {
-            return 'warning';
-        }
-
-        return 'ok';
+        return MetricFormatter::tone($value, $thresholds);
     }
 
     public function usageBarColor(string $tone): string
@@ -194,7 +184,7 @@ class ServerTable extends Component
 
     public function load(?float $value): string
     {
-        return $value === null ? '—' : number_format($value, 2);
+        return MetricFormatter::load($value);
     }
 
     public function sampleAge(\DateTimeInterface|string|null $value): string
@@ -220,29 +210,7 @@ class ServerTable extends Component
      */
     public function issueLabels(Server $server): array
     {
-        $labels = [
-            'server_offline' => 'OFFLINE',
-            'server_stale' => 'STALE',
-            'cpu_high' => 'CPU',
-            'memory_high' => 'MEM',
-            'disk_high' => 'DISK',
-            'inode_high' => 'INODE',
-            'load_high' => 'LOAD',
-            'smart_failed' => 'SMART',
-            'smart_warning' => 'SMART W',
-            'service_down' => 'SERVICE',
-            'mysql_unreachable' => 'MYSQL',
-            'quota_over' => 'QUOTA',
-            'module_cache_stale' => 'STALE',
-            'security_disabled' => 'SECURITY',
-        ];
-
-        return collect($server->issue_codes ?? [])
-            ->filter(fn (mixed $code): bool => is_string($code) && $code !== '')
-            ->map(fn (string $code): string => $labels[$code] ?? strtoupper(str_replace('_', ' ', $code)))
-            ->unique()
-            ->values()
-            ->all();
+        return AlertRule::labels($server->issue_codes ?? [], true);
     }
 
     private function normaliseFilters(): void
