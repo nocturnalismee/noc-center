@@ -6,9 +6,11 @@ use App\Models\AuditEvent;
 use App\Models\MetricSample;
 use App\Models\Server;
 use App\Models\ServerToken;
+use App\Services\Servers\ServerService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
+use RuntimeException;
 use Tests\TestCase;
 
 /**
@@ -30,6 +32,51 @@ class PurgeServerCommandTest extends TestCase
             ->assertFailed();
     }
 
+    public function test_a_missing_name_fails_without_prompting_or_purging(): void
+    {
+        $server = $this->server(deleted: true);
+
+        // `--force` must never be consumed as the positional name; a missing
+        // name fails before any lookup or confirmation prompt.
+        $this->artisan('noc:purge-server', ['name' => null, '--force' => true])
+            ->expectsOutputToContain('A server name is required')
+            ->doesntExpectOutputToContain('Purged server')
+            ->assertFailed();
+
+        $this->assertNotNull(Server::withTrashed()->find($server->getKey()));
+    }
+
+    public function test_a_blank_name_fails_without_prompting_or_purging(): void
+    {
+        $server = $this->server(deleted: true);
+
+        $this->artisan('noc:purge-server', ['name' => '   ', '--force' => true])
+            ->doesntExpectOutputToContain('Purged server')
+            ->assertFailed();
+
+        $this->assertNotNull(Server::withTrashed()->find($server->getKey()));
+    }
+
+    public function test_a_failing_purge_reports_cleanly_and_keeps_the_server(): void
+    {
+        $server = $this->server(deleted: true);
+
+        $this->mock(ServerService::class, function ($mock) use ($server): void {
+            $mock->shouldReceive('purge')
+                ->once()
+                ->withArgs(fn (Server $target): bool => $target->getKey() === $server->getKey())
+                ->andThrow(new RuntimeException('database is locked'));
+        });
+
+        $this->artisan('noc:purge-server', ['name' => $server->name, '--force' => true])
+            ->expectsOutputToContain('Purge failed: database is locked')
+            ->doesntExpectOutputToContain('Purged server')
+            ->assertFailed();
+
+        $this->assertNotNull(Server::withTrashed()->find($server->getKey()));
+        $this->assertSame(0, AuditEvent::query()->where('action', 'server.purged')->count());
+    }
+
     public function test_an_active_server_is_refused_and_kept(): void
     {
         $server = $this->server(deleted: false);
@@ -49,6 +96,7 @@ class PurgeServerCommandTest extends TestCase
         $this->sample($server);
 
         $this->artisan('noc:purge-server', ['name' => $server->name, '--dry-run' => true])
+            ->expectsOutputToContain('Before purging, create a backup: php artisan noc:backup --path=')
             ->expectsOutput('Would purge server ['.$server->name.']: 1 samples, 0 details, 0 rollups, 0 alerts, 0 deliveries, 1 tokens.')
             ->doesntExpectOutputToContain('Purged server')
             ->assertSuccessful();

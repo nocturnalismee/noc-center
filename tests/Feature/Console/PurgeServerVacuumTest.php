@@ -2,15 +2,20 @@
 
 namespace Tests\Feature\Console;
 
+use App\Console\Commands\PhysicsCalls;
+use App\Console\Commands\PurgeServer;
 use App\Models\MetricSample;
 use App\Models\Server;
 use App\Models\ServerToken;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\TestCase;
+
+require_once __DIR__.'/Support/PurgePhysicsShim.php';
 
 /**
  * `noc:purge-server --vacuum` against a real SQLite file.
@@ -19,13 +24,15 @@ use Tests\TestCase;
  * used here: the test runs migrations against a file-backed database and
  * points `database.connections.sqlite.database` at it, exactly the way an
  * operator's install looks. The vacuum must run after the purge, never inside
- * it, and report the file sizes.
+ * it, and report the real file sizes before and after.
  */
 class PurgeServerVacuumTest extends TestCase
 {
     use DatabaseMigrations;
 
     private string $databasePath;
+
+    private string $capturedOutput = '';
 
     protected function setUp(): void
     {
@@ -84,6 +91,12 @@ class PurgeServerVacuumTest extends TestCase
     {
         DB::purge('sqlite');
 
+        // The scratch test retargets the connection; restore the migrated file
+        // (and forget the forged stat entry) so the pending `migrate:rollback`
+        // in tearDown hits a real database.
+        clearstatcache();
+        $this->app['config']->set('database.connections.sqlite.database', $this->databasePath);
+
         parent::tearDown();
 
         if (is_file($this->databasePath)) {
@@ -97,26 +110,74 @@ class PurgeServerVacuumTest extends TestCase
         @rmdir(dirname($this->databasePath));
     }
 
-    public function test_vacuum_runs_after_the_purge_and_reports_file_sizes(): void
+    public function test_vacuum_compacts_the_database_after_the_purge(): void
     {
         $server = $this->server();
-        $this->token($server);
+        $this->bloat($server);
         $this->sample($server);
         $server->delete();
 
-        $this->artisan('noc:purge-server', [
+        $baselinePages = $this->pageCount();
+        $this->assertGreaterThan(0, $baselinePages);
+
+        $exitCode = Artisan::call('noc:purge-server', [
             'name' => $server->name,
             '--force' => true,
             '--vacuum' => true,
-        ])
-            ->expectsOutput('Purged server ['.$server->name.']: 1 samples, 0 details, 0 rollups, 0 alerts, 0 deliveries, 1 tokens.')
-            ->expectsOutputToContain('VACUUM complete')
-            ->assertSuccessful();
+        ]);
+
+        $this->assertSame(0, $exitCode);
+        $this->capturedOutput = Artisan::output();
 
         $this->assertNull(Server::withTrashed()->find((string) $server->getKey()));
-        $this->assertSame(0, (int) DB::table('metric_samples')->count());
-        $this->assertSame(0, (int) DB::table('server_tokens')->count());
+        $this->assertSame(0, (int) DB::table('server_tokens')->where('server_id', $server->getKey())->count());
         $this->assertFileExists($this->databasePath);
+
+        // Freed pages leave the file and the free list is emptied.
+        $this->assertLessThan($baselinePages, $this->pageCount(), 'VACUUM must compact the database file.');
+        $this->assertSame(0, (int) DB::scalar('PRAGMA freelist_count'), 'VACUUM must leave no free pages behind.');
+
+        // The reported "after" size is the real file size. The main file keeps
+        // its WAL high-water mark, so it need not shrink below it here; what
+        // must hold is that the number is not a stale cached `stat` entry.
+        [$reportedBefore, $reportedAfter] = $this->reportedVacuumSizes();
+
+        $this->assertGreaterThan(0, $reportedBefore);
+        $this->assertSame($this->realFileSize(), $reportedAfter);
+        $this->assertLessThanOrEqual($reportedBefore, $reportedAfter);
+    }
+
+    /**
+     * Prove `databaseSize()` clears the stat cache before reading a size.
+     *
+     * PHP refreshes the stat cache on its own writes, so a stale entry cannot
+     * be reproduced from the outside (every `touch`/`truncate`/`fwrite`
+     * refreshes it). The shim in this test's namespace records the order of
+     * `clearstatcache()` and `filesize()` calls made by the command, which is
+     * exactly the contract `VACUUM` relies on.
+     */
+    public function test_database_size_clears_the_stat_cache_before_reading(): void
+    {
+        $scratch = $this->databasePath.'-scratch.sqlite';
+        file_put_contents($scratch, str_repeat('a', 2048));
+
+        config(['database.connections.sqlite.database' => $scratch]);
+        DB::purge('sqlite');
+
+        PhysicsCalls::reset();
+
+        $command = $this->app->make(PurgeServer::class);
+        $size = (fn () => $this->databaseSize())->call($command);
+
+        $this->assertSame(2048, $size);
+        $this->assertSame($scratch, PhysicsCalls::statCacheTarget());
+        $this->assertTrue(
+            PhysicsCalls::clearedBeforeReading(),
+            'databaseSize() must call clearstatcache(true, $database) before filesize().',
+        );
+
+        DB::purge('sqlite');
+        @unlink($scratch);
     }
 
     public function test_without_the_vacuum_flag_the_file_is_left_alone(): void
@@ -129,6 +190,42 @@ class PurgeServerVacuumTest extends TestCase
             ->assertSuccessful();
     }
 
+    /**
+     * An uncached `filesize()`, i.e. the truth on disk.
+     */
+    private function realFileSize(): int
+    {
+        clearstatcache(true, $this->databasePath);
+
+        return (int) filesize($this->databasePath);
+    }
+
+    /**
+     * Page count of the database file, read back from SQLite itself.
+     */
+    private function pageCount(): int
+    {
+        return (int) DB::scalar('PRAGMA page_count');
+    }
+
+    /**
+     * Parse `VACUUM complete: X bytes -> Y bytes.` and the purge summary from
+     * the last command run.
+     *
+     * @return array{0: int, 1: int}
+     */
+    private function reportedVacuumSizes(): array
+    {
+        $output = $this->capturedOutput;
+
+        $this->assertMatchesRegularExpression('/VACUUM complete: (\d+) bytes -> (\d+) bytes\./', $output);
+        $this->assertMatchesRegularExpression('/Purged server \[purge-[a-z0-9]+\]: \d+ samples, 0 details, 0 rollups, 0 alerts, 0 deliveries, 500 tokens\./', $output);
+
+        preg_match('/VACUUM complete: (\d+) bytes -> (\d+) bytes\./', $output, $matches);
+
+        return [(int) $matches[1], (int) $matches[2]];
+    }
+
     private function server(): Server
     {
         $name = 'purge-'.Str::lower(Str::random(8));
@@ -138,6 +235,16 @@ class PurgeServerVacuumTest extends TestCase
             'hostname' => $name.'.example.test',
             'is_active' => true,
         ]);
+    }
+
+    /**
+     * Give a server enough token rows that its purge frees many pages.
+     */
+    private function bloat(Server $server): void
+    {
+        for ($i = 0; $i < 500; $i++) {
+            $this->token($server);
+        }
     }
 
     private function token(Server $server): void

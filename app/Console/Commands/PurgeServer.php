@@ -5,7 +5,10 @@ namespace App\Console\Commands;
 use App\Models\Server;
 use App\Services\Servers\ServerService;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Database\MultipleRecordsFoundException;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * Permanently delete one soft-deleted server and every row that cascades.
@@ -19,7 +22,7 @@ use Illuminate\Support\Facades\DB;
 class PurgeServer extends Command
 {
     protected $signature = 'noc:purge-server
-        {name : Unique server name, including soft-deleted servers}
+        {name? : Unique server name, including soft-deleted servers}
         {--force : Skip the confirmation prompt}
         {--dry-run : Report the rows that would be deleted without changing anything}
         {--vacuum : Run SQLite VACUUM after purging to reclaim file space}';
@@ -28,11 +31,22 @@ class PurgeServer extends Command
 
     public function handle(ServerService $servers): int
     {
-        $name = (string) $this->argument('name');
-        $server = Server::withTrashed()->where('name', $name)->first();
+        $name = is_string($this->argument('name')) ? trim($this->argument('name')) : '';
 
-        if (! $server instanceof Server) {
+        if ($name === '') {
+            $this->error('A server name is required: php artisan noc:purge-server {name}');
+
+            return self::FAILURE;
+        }
+
+        try {
+            $server = Server::withTrashed()->where('name', $name)->sole();
+        } catch (ModelNotFoundException) {
             $this->error(sprintf('Server not found: %s', $name));
+
+            return self::FAILURE;
+        } catch (MultipleRecordsFoundException) {
+            $this->error(sprintf('More than one server is named [%s]; refusing to guess which one to purge.', $name));
 
             return self::FAILURE;
         }
@@ -46,6 +60,8 @@ class PurgeServer extends Command
             return self::FAILURE;
         }
 
+        $this->line('Before purging, create a backup: php artisan noc:backup --path=/absolute/path.sqlite');
+
         if ((bool) $this->option('dry-run')) {
             $counts = $servers->purgeCounts($server);
 
@@ -54,8 +70,6 @@ class PurgeServer extends Command
 
             return self::SUCCESS;
         }
-
-        $this->line('Before purging, create a backup: php artisan noc:backup --path=/absolute/path.sqlite');
 
         if (! (bool) $this->option('force')) {
             $confirmed = $this->confirm(
@@ -77,9 +91,15 @@ class PurgeServer extends Command
         // captured here; the purge itself commits on its own.
         $sizeBefore = (bool) $this->option('vacuum') ? $this->databaseSize() : null;
 
-        $counts = $servers->purge($server);
+        try {
+            $counts = $servers->purge($server);
+        } catch (Throwable $exception) {
+            $this->error(sprintf('Purge failed: %s', $this->safe($exception->getMessage())));
 
-        $this->line(sprintf('Purged server [%s]: %s', $name, $this->summary($counts)));
+            return self::FAILURE;
+        }
+
+        $this->line(sprintf('Purged server [%s]: %s', (string) $server->name, $this->summary($counts)));
 
         if ((bool) $this->option('vacuum')) {
             $this->vacuum($sizeBefore);
@@ -124,7 +144,16 @@ class PurgeServer extends Command
             return;
         }
 
-        $connection->statement('VACUUM');
+        try {
+            $connection->statement('VACUUM');
+        } catch (Throwable $exception) {
+            // The purge is already committed; a failed VACUUM only means the
+            // file was not compacted, so this is a warning, not a failure.
+            $this->warn(sprintf('VACUUM failed: %s', $this->safe($exception->getMessage())));
+            $this->warn('The purge is complete; re-run VACUUM later to reclaim space.');
+
+            return;
+        }
 
         $sizeAfter = $this->databaseSize();
 
@@ -144,6 +173,9 @@ class PurgeServer extends Command
     /**
      * Size of the database file when the connection is backed by a real file.
      * In-memory and URI databases have no such file.
+     *
+     * `clearstatcache()` is required: `VACUUM` rewrites the file in place and
+     * PHP would otherwise report the size cached before the command ran.
      */
     private function databaseSize(): ?int
     {
@@ -157,8 +189,22 @@ class PurgeServer extends Command
             return null;
         }
 
+        clearstatcache(true, $database);
+
         $size = @filesize($database);
 
         return $size === false ? null : $size;
+    }
+
+    /**
+     * Keep exception output to a single bounded line; it may echo a SQL error
+     * but never a credential (the command touches none).
+     */
+    private function safe(string $value): string
+    {
+        $clean = preg_replace('/[^\P{C}\n]+/u', '?', $value) ?? '';
+        $clean = str_replace(["\r", "\n"], ' ', $clean);
+
+        return mb_strlen($clean) > 300 ? mb_substr($clean, 0, 300).'…' : $clean;
     }
 }

@@ -301,9 +301,11 @@ class ServerService
             throw new LogicException('Only soft-deleted servers can be purged; soft-delete the server first.');
         }
 
-        $counts = $this->purgeCounts($server);
+        // Count and delete in one transaction so the reported counts describe
+        // exactly the rows the force delete removes.
+        return DB::transaction(function () use ($server, $actor): array {
+            $counts = $this->purgeCounts($server);
 
-        DB::transaction(function () use ($server, $counts, $actor): void {
             $this->audit->log(
                 'server.purged',
                 $server,
@@ -316,8 +318,8 @@ class ServerService
             );
 
             $server->forceDelete();
-        });
 
-        return $counts;
+            return $counts;
+        });
     }
 }
