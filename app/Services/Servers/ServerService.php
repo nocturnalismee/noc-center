@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use LogicException;
 
 class ServerService
 {
@@ -251,5 +252,72 @@ class ServerService
             serverId: $serverId,
             change: 'deleted',
         ));
+    }
+
+    /**
+     * Count the rows that a purge of this server would cascade-delete.
+     *
+     * Details and deliveries have no `server_id`; they are counted through
+     * their parent sample or alert. Counting never writes anything, so it is
+     * safe for a dry run.
+     *
+     * @return array{samples: int, details: int, rollups: int, alerts: int, deliveries: int, tokens: int}
+     */
+    public function purgeCounts(Server $server): array
+    {
+        $serverId = (string) $server->getKey();
+
+        return [
+            'samples' => DB::table('metric_samples')->where('server_id', $serverId)->count(),
+            'details' => DB::table('metric_details')
+                ->join('metric_samples', 'metric_samples.id', '=', 'metric_details.sample_id')
+                ->where('metric_samples.server_id', $serverId)
+                ->count(),
+            'rollups' => DB::table('metric_rollups')->where('server_id', $serverId)->count(),
+            'alerts' => DB::table('alerts')->where('server_id', $serverId)->count(),
+            'deliveries' => DB::table('alert_deliveries')
+                ->join('alerts', 'alerts.id', '=', 'alert_deliveries.alert_id')
+                ->where('alerts.server_id', $serverId)
+                ->count(),
+            'tokens' => DB::table('server_tokens')->where('server_id', $serverId)->count(),
+        ];
+    }
+
+    /**
+     * Permanently delete one soft-deleted server and everything that cascades.
+     *
+     * Only a soft-deleted row may be purged, so callers must soft-delete
+     * first. The audit event is written before the force delete and is never
+     * removed by the cascade. No backup is taken here; the command prints the
+     * backup reminder.
+     *
+     * @return array{samples: int, details: int, rollups: int, alerts: int, deliveries: int, tokens: int}
+     *
+     * @throws LogicException When the server is not soft-deleted.
+     */
+    public function purge(Server $server, ?User $actor = null): array
+    {
+        if (! $server->trashed()) {
+            throw new LogicException('Only soft-deleted servers can be purged; soft-delete the server first.');
+        }
+
+        $counts = $this->purgeCounts($server);
+
+        DB::transaction(function () use ($server, $counts, $actor): void {
+            $this->audit->log(
+                'server.purged',
+                $server,
+                [
+                    'server_id' => $server->getKey(),
+                    'name' => $server->name,
+                    'counts' => $counts,
+                ],
+                $actor?->getKey(),
+            );
+
+            $server->forceDelete();
+        });
+
+        return $counts;
     }
 }
