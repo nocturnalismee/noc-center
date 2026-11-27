@@ -255,12 +255,12 @@
                     Metrics are retained until retention.
                 </p>
 
-                <label for="delete_name" class="field-label mt-4">Type {{ $server->name }} to confirm</label>
+                <label for="delete_name" class="mt-4 block text-[12px] font-medium text-text-muted">Type {{ $server->name }} to confirm</label>
                 <input
                     id="delete_name"
                     type="text"
                     wire:model="deleteName"
-                    class="field"
+                    class="field mt-1.5"
                     autocomplete="off"
                     aria-describedby="delete-name-error"
                 >

@@ -452,6 +452,21 @@ class DeletedServersTest extends TestCase
             ->assertDontSee("wire:click=\"startPurge({$server->getKey()})\"", false);
     }
 
+    public function test_the_confirmation_label_is_sentence_case(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $server = $this->server('deleted-01');
+        $server->delete();
+
+        $this->actingAs($admin);
+
+        Livewire::test(DeletedServers::class)
+            ->call('startPurge', $server->getKey())
+            ->assertSee('Type <span class="font-mono text-text">deleted-01</span> to confirm', false)
+            ->assertSee('for="confirm-name-'.$server->getKey().'" class="block text-[12px] font-medium text-text-muted"', false)
+            ->assertDontSee('for="confirm-name-'.$server->getKey().'" class="field-label"', false);
+    }
+
     private function server(string $name): Server
     {
         return Server::query()->create([

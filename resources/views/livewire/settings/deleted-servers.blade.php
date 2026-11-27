@@ -150,14 +150,14 @@
                                             </dl>
 
                                             <div class="mt-3 max-w-xs">
-                                                <label for="confirm-name-{{ $server->id }}" class="field-label">
+                                                <label for="confirm-name-{{ $server->id }}" class="block text-[12px] font-medium text-text-muted">
                                                     Type <span class="font-mono text-text">{{ $server->name }}</span> to confirm
                                                 </label>
                                                 <input
                                                     id="confirm-name-{{ $server->id }}"
                                                     type="text"
                                                     wire:model="confirmName"
-                                                    class="field font-mono"
+                                                    class="field mt-1.5 font-mono"
                                                     autocomplete="off"
                                                     @error('confirmName') aria-invalid="true" @enderror
                                                 >

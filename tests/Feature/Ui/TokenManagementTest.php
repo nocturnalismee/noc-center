@@ -514,6 +514,19 @@ class TokenManagementTest extends TestCase
             ->assertSee('45 seconds');
     }
 
+    public function test_edit_delete_confirmation_label_is_sentence_case(): void
+    {
+        $operator = User::factory()->create(['role' => 'operator']);
+        $server = $this->server();
+
+        $this->actingAs($operator)
+            ->get(route('servers.edit', $server))
+            ->assertOk()
+            ->assertSee('Type '.$server->name.' to confirm')
+            ->assertSee('for="delete_name" class="mt-4 block text-[12px] font-medium text-text-muted"', false)
+            ->assertDontSee('for="delete_name" class="field-label"', false);
+    }
+
     public function test_edit_handles_a_legacy_null_issue_codes_row(): void
     {
         $operator = User::factory()->create(['role' => 'operator']);
