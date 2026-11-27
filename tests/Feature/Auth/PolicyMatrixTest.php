@@ -53,6 +53,7 @@ class PolicyMatrixTest extends TestCase
             'ServerPolicy delete' => ['delete', 'server', true, true, false],
             'ServerPolicy manageTokens' => ['manageTokens', 'serverClass', true, true, false],
             'ServerPolicy viewSnapshot' => ['viewSnapshot', 'server', true, false, false],
+            'ServerPolicy purge' => ['purge', 'server', true, false, false],
 
             'ServerTokenPolicy viewAny' => ['viewAny', 'tokenClass', true, true, false],
             'ServerTokenPolicy create' => ['create', 'tokenClass', true, true, false],

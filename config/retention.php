@@ -33,6 +33,10 @@ return [
 
     'revoked_tokens_days' => 90,
 
+    // Soft-deleted servers are retained this many days before automatic purge.
+    // 0 disables automatic purge; manual purge remains available.
+    'deleted_server_days' => 30,
+
     /*
     |--------------------------------------------------------------------------
     | Pruning batches

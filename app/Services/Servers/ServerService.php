@@ -295,7 +295,7 @@ class ServerService
      *
      * @throws LogicException When the server is not soft-deleted.
      */
-    public function purge(Server $server, ?User $actor = null): array
+    public function purge(Server $server, ?User $actor = null, string $trigger = 'manual'): array
     {
         if (! $server->trashed()) {
             throw new LogicException('Only soft-deleted servers can be purged; soft-delete the server first.');
@@ -303,7 +303,7 @@ class ServerService
 
         // Count and delete in one transaction so the reported counts describe
         // exactly the rows the force delete removes.
-        return DB::transaction(function () use ($server, $actor): array {
+        return DB::transaction(function () use ($server, $actor, $trigger): array {
             $counts = $this->purgeCounts($server);
 
             $this->audit->log(
@@ -313,6 +313,7 @@ class ServerService
                     'server_id' => $server->getKey(),
                     'name' => $server->name,
                     'counts' => $counts,
+                    'trigger' => $trigger,
                 ],
                 $actor?->getKey(),
             );

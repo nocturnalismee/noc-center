@@ -41,4 +41,9 @@ class ServerPolicy
     {
         return $user->isAdmin();
     }
+
+    public function purge(User $user, Server $server): bool
+    {
+        return $user->isAdmin();
+    }
 }

@@ -135,6 +135,29 @@ class ServerPurgeTest extends TestCase
         $this->assertSame($actor->getKey(), $event->user_id);
     }
 
+    public function test_purge_records_the_manual_trigger_by_default(): void
+    {
+        $server = $this->deletedServerWithHistory();
+
+        $this->servers->purge($server);
+
+        $event = AuditEvent::query()->where('action', 'server.purged')->sole();
+
+        $this->assertSame('manual', $event->meta_json['trigger']);
+    }
+
+    public function test_purge_records_the_auto_trigger_when_given(): void
+    {
+        $server = $this->deletedServerWithHistory();
+
+        $this->servers->purge($server, null, 'auto');
+
+        $event = AuditEvent::query()->where('action', 'server.purged')->sole();
+
+        $this->assertSame('auto', $event->meta_json['trigger']);
+        $this->assertNull($event->user_id);
+    }
+
     public function test_purge_refuses_an_active_server_and_deletes_nothing(): void
     {
         $server = $this->activeServerWithHistory();
