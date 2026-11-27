@@ -230,6 +230,46 @@ class FleetStateTest extends TestCase
         );
     }
 
+    public function test_apply_status_sort_keeps_inconsistent_thresholds_in_the_online_group(): void
+    {
+        $this->server('never', [
+            'last_seen_at' => null,
+            'stale_after' => null,
+            'offline_after' => null,
+        ]);
+        $this->server('offline', [
+            'last_seen_at' => now()->subMinutes(20),
+            'stale_after' => now()->subMinutes(10),
+            'offline_after' => now()->subMinutes(5),
+        ]);
+        $this->server('inconsistent', [
+            'last_seen_at' => now()->subMinutes(20),
+            'stale_after' => now()->addMinutes(5),
+            'offline_after' => now()->subMinutes(5),
+        ]);
+        $this->server('online');
+        $this->server('stale', [
+            'last_seen_at' => now()->subMinutes(10),
+            'stale_after' => now()->subMinutes(5),
+            'offline_after' => now()->addMinutes(5),
+        ]);
+
+        $query = Server::query();
+        FleetState::applyStatusSort($query, 'asc', now()->utc());
+        $query->orderBy('name');
+
+        $names = $query->pluck('name')->all();
+
+        // Online group first (status Online for the inconsistent row), then
+        // Stale, Offline, Never; ties broken deterministically by name.
+        $this->assertSame(['inconsistent', 'online', 'stale', 'offline', 'never'], $names);
+        $this->assertSame(ServerStatus::Online, $this->serverByName('inconsistent')->status());
+        $this->assertLessThan(
+            array_search('offline', $names, true),
+            array_search('inconsistent', $names, true),
+        );
+    }
+
     public function test_hot_uses_configured_warning_thresholds_and_only_online_servers(): void
     {
         $this->setSetting('alerts.rules.memory_high.warning', '95');
@@ -321,6 +361,11 @@ class FleetStateTest extends TestCase
 
         $this->assertSame(1, FleetState::counts(Server::query(), now()->utc())['all']);
         $this->assertSame(1, FleetState::summary(app(SettingsRepository::class), now()->utc())['total']);
+    }
+
+    private function serverByName(string $name): Server
+    {
+        return Server::query()->where('name', $name)->firstOrFail();
     }
 
     /**

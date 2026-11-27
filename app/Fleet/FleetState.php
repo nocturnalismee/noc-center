@@ -92,12 +92,15 @@ final class FleetState
         $now ??= now();
         $direction = $direction === 'desc' ? 'desc' : 'asc';
 
+        // Online is checked first so an inconsistent row (stale_after in the
+        // future but offline_after in the past) ranks Online, matching status().
         $query->orderByRaw(
             "CASE
                 WHEN last_seen_at IS NULL THEN 3
-                WHEN stale_after IS NULL OR offline_after IS NULL OR offline_after < ? THEN 2
-                WHEN stale_after < ? THEN 1
-                ELSE 0
+                WHEN stale_after IS NULL OR offline_after IS NULL THEN 2
+                WHEN stale_after >= ? THEN 0
+                WHEN offline_after >= ? THEN 1
+                ELSE 2
             END {$direction}",
             [$now, $now],
         );
