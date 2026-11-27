@@ -71,6 +71,8 @@ class DeletedServers extends Component
             $settings->set('retention.deleted_server_days', $next, 'int');
             app(AuditLogger::class)->log('settings.updated', null, [
                 'key' => 'retention.deleted_server_days',
+                'old' => $current,
+                'new' => $next,
             ]);
         }
 
@@ -79,7 +81,18 @@ class DeletedServers extends Component
 
     public function startPurge(string $serverId): void
     {
-        $server = Server::onlyTrashed()->findOrFail($serverId);
+        // The row is re-read at click time: it may have been purged by another
+        // administrator or by the nightly command since this page rendered.
+        // A miss is a clean message, not a 404, and carries no existence oracle.
+        $server = Server::onlyTrashed()->find($serverId);
+
+        if ($server === null) {
+            $this->cancelPurge();
+            $this->statusMessage = 'That server was already purged.';
+
+            return;
+        }
+
         Gate::authorize('purge', $server);
 
         $this->confirmingId = $serverId;
@@ -98,7 +111,15 @@ class DeletedServers extends Component
 
     public function purge(): void
     {
-        $server = Server::onlyTrashed()->findOrFail((string) $this->confirmingId);
+        $server = Server::onlyTrashed()->find((string) $this->confirmingId);
+
+        if ($server === null) {
+            $this->cancelPurge();
+            $this->statusMessage = 'That server was already purged.';
+
+            return;
+        }
+
         Gate::authorize('purge', $server);
 
         if (trim($this->confirmName) !== $server->name) {

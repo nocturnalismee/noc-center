@@ -366,6 +366,7 @@ The schedule lives in `routes/console.php` and runs:
 | `noc:alert-reminders` | every 5 minutes | reminders and retries |
 | `noc:rollup` | every 5 minutes | 5m/1h/1d rollups |
 | `noc:prune` | daily 03:30 | retention (spec §7.11) |
+| `noc:purge-deleted-servers` | daily 04:30 | deleted-server retention (`retention.deleted_server_days`) |
 | `queue:work --stop-when-empty --max-time=50 --tries=3 --sleep=1` | every minute | email/Telegram + queued jobs |
 
 **Shared hosting:** one cron line is enough — see
@@ -641,6 +642,25 @@ with `umask 027` (750 directories, 640 files).
 
 Store copies **off the server**, encrypted (spec §14/§15.2; e.g. `age`, `gpg`,
 or restic/borg). Retention alone is not a backup strategy.
+
+### Deleted servers
+
+Soft-deleted servers keep their history for `retention.deleted_server_days`
+(config default **30 days**; set it in **Settings → Deleted servers**, or in
+`config/retention.php`). A value of **`0` disables** automatic purge, so
+deleted rows stay until an administrator purges them by hand.
+
+`noc:purge-deleted-servers` runs daily at 04:30 Asia/Jakarta and force-deletes
+each server whose `deleted_at` is older than the window, cascading samples,
+details, rollups, alerts, deliveries and tokens while keeping audit events
+(`trigger: auto`, no actor). `--dry-run` prints what would be purged and counts
+the rows without deleting anything. Servers under the window can also be purged
+from that page; manual purge requires typing the server name exactly and
+records `trigger: manual` with the administrator.
+
+A purge deletes rows but does not rewrite the database file: **SQLite may not
+shrink until `VACUUM` runs**, so reclaiming disk space is a separate manual
+step. Take a backup before a large purge.
 
 ### Restore
 

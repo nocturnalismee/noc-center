@@ -76,6 +76,43 @@ class DeletedServersTest extends TestCase
             ->exists());
     }
 
+    public function test_a_policy_change_audits_the_old_and_new_values(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        app(SettingsRepository::class)->set('retention.deleted_server_days', 45, 'int');
+
+        $this->actingAs($admin);
+
+        Livewire::test(DeletedServers::class)
+            ->set('graceDays', '0')
+            ->call('savePolicy')
+            ->assertHasNoErrors();
+
+        $event = AuditEvent::query()
+            ->where('action', 'settings.updated')
+            ->where('meta_json->key', 'retention.deleted_server_days')
+            ->sole();
+
+        $this->assertSame(45, $event->meta_json['old']);
+        $this->assertSame(0, $event->meta_json['new']);
+    }
+
+    public function test_an_unchanged_policy_writes_no_audit_event(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        app(SettingsRepository::class)->set('retention.deleted_server_days', 45, 'int');
+
+        $this->actingAs($admin);
+
+        Livewire::test(DeletedServers::class)
+            ->set('graceDays', '45')
+            ->call('savePolicy')
+            ->assertHasNoErrors()
+            ->assertSet('statusMessage', 'Retention policy saved.');
+
+        $this->assertSame(0, AuditEvent::query()->where('action', 'settings.updated')->count());
+    }
+
     public function test_the_grace_period_must_be_between_zero_and_3650_days(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -258,6 +295,93 @@ class DeletedServersTest extends TestCase
 
         $this->assertNotNull(Server::withTrashed()->find($server->getKey()));
         $this->assertFalse(AuditEvent::query()->where('action', 'server.purged')->exists());
+    }
+
+    /**
+     * A non-admin cannot save the retention policy either: savePolicy() is
+     * re-authorised on the action, not only when the page mounts.
+     */
+    public function test_an_operator_cannot_save_the_retention_policy(): void
+    {
+        $this->assertPolicySaveIsDenied(User::factory()->create(['role' => 'operator']));
+    }
+
+    public function test_a_viewer_cannot_save_the_retention_policy(): void
+    {
+        $this->assertPolicySaveIsDenied(User::factory()->create(['role' => 'viewer']));
+    }
+
+    private function assertPolicySaveIsDenied(User $nonAdmin): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        app(SettingsRepository::class)->set('retention.deleted_server_days', 30, 'int');
+
+        $this->actingAs($admin);
+
+        $component = Livewire::test(DeletedServers::class);
+
+        $this->actingAs($nonAdmin);
+
+        $component->instance()->graceDays = '0';
+
+        try {
+            $component->instance()->savePolicy();
+            $this->fail('A non-admin saved the retention policy.');
+        } catch (AuthorizationException) {
+            // Expected: SettingPolicy::viewAny() denies non-admins.
+        }
+
+        $this->assertSame(30, app(SettingsRepository::class)->get('retention.deleted_server_days'));
+        $this->assertFalse(AuditEvent::query()
+            ->where('action', 'settings.updated')
+            ->where('meta_json->key', 'retention.deleted_server_days')
+            ->exists());
+    }
+
+    /**
+     * A row purged between render and click must report cleanly, not 404.
+     */
+    public function test_starting_a_purge_for_an_already_purged_server_reports_cleanly(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $server = $this->server('deleted-01');
+        $server->delete();
+
+        $this->actingAs($admin);
+
+        $component = Livewire::test(DeletedServers::class);
+
+        // Another actor purges the row while this page is still open.
+        $server->forceDelete();
+
+        $component->call('startPurge', $server->getKey())
+            ->assertOk()
+            ->assertSet('statusMessage', 'That server was already purged.')
+            ->assertSet('confirmingId', null)
+            ->assertSet('confirmCounts', []);
+    }
+
+    public function test_purging_a_confirmed_server_that_vanished_reports_cleanly(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $server = $this->server('deleted-01');
+        $server->delete();
+
+        $this->actingAs($admin);
+
+        $component = Livewire::test(DeletedServers::class)
+            ->call('startPurge', $server->getKey())
+            ->set('confirmName', 'deleted-01');
+
+        // The row disappears after the confirmation was rendered.
+        $server->forceDelete();
+
+        $component->call('purge')
+            ->assertOk()
+            ->assertSet('statusMessage', 'That server was already purged.')
+            ->assertSet('confirmingId', null);
+
+        $this->assertSame(0, AuditEvent::query()->where('action', 'server.purged')->count());
     }
 
     /**

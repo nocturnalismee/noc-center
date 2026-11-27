@@ -5,13 +5,13 @@ namespace Tests\Feature\Console;
 use App\Models\AuditEvent;
 use App\Models\Server;
 use App\Models\ServerToken;
-use App\Services\Servers\ServerService;
 use App\Services\SettingsRepository;
 use Carbon\CarbonInterface;
-use Illuminate\Console\Scheduling\Event;
+use Illuminate\Console\Scheduling\Event as ScheduleEvent;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Event as EventFacade;
 use Illuminate\Support\Str;
 use RuntimeException;
 use Tests\TestCase;
@@ -112,27 +112,35 @@ class PurgeDeletedServersCommandTest extends TestCase
     public function test_one_failure_does_not_stop_the_batch_and_returns_failure(): void
     {
         app(SettingsRepository::class)->set('retention.deleted_server_days', 30, 'int');
-        $first = $this->deletedAt('bad-01', now()->subDays(31));
-        $second = $this->deletedAt('good-01', now()->subDays(31));
+        $bad = $this->deletedAt('bad-01', now()->subDays(31));
+        $good = $this->deletedAt('good-01', now()->subDays(31));
+        $badKey = (string) $bad->getKey();
 
-        $this->mock(ServerService::class, function ($mock) use ($first): void {
-            $mock->shouldReceive('purge')
-                ->twice()
-                ->andReturnUsing(function (Server $server) use ($first): array {
-                    if ($server->getKey() === $first->getKey()) {
-                        throw new RuntimeException('database is locked');
-                    }
+        // Real service, real cascade: only the first server's force delete
+        // fails, so the command must log it and carry on with the second.
+        $listener = function (Server $server) use ($badKey): void {
+            if ((string) $server->getKey() === $badKey) {
+                throw new RuntimeException('database is locked');
+            }
+        };
 
-                    return ['samples' => 0, 'details' => 0, 'rollups' => 0, 'alerts' => 0, 'deliveries' => 0, 'tokens' => 0];
-                });
-        });
+        EventFacade::listen('eloquent.forceDeleting: '.Server::class, $listener);
 
-        $this->artisan('noc:purge-deleted-servers')
-            ->expectsOutputToContain('Purge failed for [bad-01]')
-            ->assertFailed();
+        try {
+            $this->artisan('noc:purge-deleted-servers')
+                ->expectsOutputToContain('Purge failed for [bad-01]')
+                ->expectsOutputToContain('Purged 1 deleted servers.')
+                ->assertFailed();
+        } finally {
+            EventFacade::forget('eloquent.forceDeleting: '.Server::class);
+        }
 
-        $this->assertNotNull(Server::withTrashed()->find($first->getKey()));
-        $this->assertNotNull(Server::withTrashed()->find($second->getKey()));
+        $this->assertNotNull(Server::withTrashed()->find($badKey));
+        $this->assertNull(Server::withTrashed()->find($good->getKey()));
+
+        $event = AuditEvent::query()->where('action', 'server.purged')->sole();
+        $this->assertSame($good->getKey(), $event->meta_json['server_id']);
+        $this->assertSame('auto', $event->meta_json['trigger']);
     }
 
     public function test_nothing_due_reports_cleanly(): void
@@ -153,7 +161,7 @@ class PurgeDeletedServersCommandTest extends TestCase
 
         $events = array_values(array_filter(
             $schedule->events(),
-            static fn (Event $event): bool => preg_match('/[\'"]?noc:purge-deleted-servers[\'"]?(?![[:alnum:]_:.-])/', (string) $event->command) === 1,
+            static fn (ScheduleEvent $event): bool => preg_match('/[\'"]?noc:purge-deleted-servers[\'"]?(?![[:alnum:]_:.-])/', (string) $event->command) === 1,
         ));
 
         $this->assertCount(1, $events);
