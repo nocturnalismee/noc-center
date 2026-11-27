@@ -434,6 +434,24 @@ class DeletedServersTest extends TestCase
             ->assertSee('Deliveries');
     }
 
+    /**
+     * The row action must quote the ULID. Livewire evaluates wire:click in
+     * JavaScript; an unquoted ULID is not a valid expression and the click
+     * silently does nothing.
+     */
+    public function test_the_purge_button_passes_the_ulid_as_a_quoted_string(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $server = $this->server('deleted-01');
+        $server->delete();
+
+        $this->actingAs($admin)
+            ->get('/settings/deleted-servers')
+            ->assertOk()
+            ->assertSee("wire:click=\"startPurge('{$server->getKey()}')\"", false)
+            ->assertDontSee("wire:click=\"startPurge({$server->getKey()})\"", false);
+    }
+
     private function server(string $name): Server
     {
         return Server::query()->create([

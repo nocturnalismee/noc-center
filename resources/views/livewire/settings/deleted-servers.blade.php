@@ -112,7 +112,7 @@
                                     </p>
                                 </td>
                                 <td class="py-3 text-right">
-                                    <button type="button" wire:click="startPurge({{ $server->id }})" class="text-[12px] text-text-sub hover:text-critical">
+                                    <button type="button" wire:click="startPurge('{{ $server->id }}')" class="text-[12px] text-text-sub hover:text-critical">
                                         Purge now
                                     </button>
 
